@@ -320,9 +320,9 @@ impl Store {
                 outcome.primary = Some(edit.id.clone());
                 writes.push(self.plan_edit(edit, ts)?);
             }
-            Command::Move { id, parent } => {
+            Command::Move { id, parent, after } => {
                 outcome.primary = Some(id.clone());
-                writes.push(self.plan_move(&id, parent)?);
+                writes.push(self.plan_move(&id, parent, after)?);
             }
             Command::Touch { id, note } => {
                 outcome.primary = Some(id.clone());
@@ -419,6 +419,12 @@ impl Store {
             })
             .unwrap_or_default();
         let mut task = Task::new(self.fresh_id(), title, context, ts);
+        task.order = Some(self.order_for(
+            add.parent.as_ref(),
+            add.after.as_ref(),
+            None,
+            ts.as_second() as f64,
+        )?);
         task.parent = add.parent;
         task.priority = add.priority;
         task.due = add.due;
@@ -501,14 +507,15 @@ impl Store {
                 }
                 for d in open {
                     let mut d = d.clone();
-                    d.status = Status::Dropped;
+                    d.status = to;
                     d.completed = Some(ts);
                     d.updated = ts;
                     d.waiting_on = None;
                     d.until = None;
-                    outcome
-                        .events
-                        .push(Event::CascadeDropped { id: d.id.clone() });
+                    outcome.events.push(Event::CascadeClosed {
+                        id: d.id.clone(),
+                        status: to,
+                    });
                     writes.push(d);
                 }
             }
@@ -521,21 +528,8 @@ impl Store {
             t.started = Some(ts);
         }
 
-        // I4: reopening under a closed parent reopens the ancestors.
-        if from.is_closed() && to.is_open() {
-            for a in self.tree.ancestors(id) {
-                if a.status.is_closed() {
-                    let mut a = a.clone();
-                    a.status = Status::Todo;
-                    a.completed = None;
-                    // Derived change: do not bump `updated`.
-                    outcome
-                        .events
-                        .push(Event::AutoReopened { id: a.id.clone() });
-                    writes.push(a);
-                }
-            }
-        }
+        // Reopening under a closed parent does NOT reopen the parent: the
+        // task becomes "orphaned" (derived) and stays actionable on its own.
 
         // Resurfacing: did we just close the parent's last blocking child?
         if to.is_closed()
@@ -597,7 +591,12 @@ impl Store {
         Ok(t)
     }
 
-    fn plan_move(&self, id: &TaskId, parent: Option<TaskId>) -> Result<Task> {
+    fn plan_move(
+        &self,
+        id: &TaskId,
+        parent: Option<TaskId>,
+        after: Option<TaskId>,
+    ) -> Result<Task> {
         let mut t = self.get(id)?.clone();
         if let Some(p) = &parent {
             let target = self.get(p)?;
@@ -615,8 +614,45 @@ impl Store {
             }
         }
         // I5: reparenting is structural, not a touch.
+        t.order = Some(self.order_for(parent.as_ref(), after.as_ref(), Some(id), t.order_key())?);
         t.parent = parent;
         Ok(t)
+    }
+
+    /// Fractional position among the siblings under `parent`: after `after`
+    /// (which must be a sibling), or at the end. `exclude` is the task being
+    /// moved, so it does not count as its own neighbour.
+    fn order_for(
+        &self,
+        parent: Option<&TaskId>,
+        after: Option<&TaskId>,
+        exclude: Option<&TaskId>,
+        default: f64,
+    ) -> Result<f64> {
+        let siblings: Vec<&Task> = match parent {
+            Some(p) => self.tree.children(p).collect(),
+            None => self.tree.roots(),
+        };
+        let siblings: Vec<&Task> = siblings
+            .into_iter()
+            .filter(|s| exclude.is_none_or(|x| s.id != *x))
+            .collect();
+        match after {
+            None => Ok(siblings
+                .last()
+                .map(|s| s.order_key() + 1.0)
+                .unwrap_or(default)),
+            Some(a) => {
+                let idx = siblings.iter().position(|s| s.id == *a).ok_or_else(|| {
+                    StoreError::Validation(format!("{a} is not a sibling under the target parent"))
+                })?;
+                let prev = siblings[idx].order_key();
+                Ok(match siblings.get(idx + 1) {
+                    Some(next) => (prev + next.order_key()) / 2.0,
+                    None => prev + 1.0,
+                })
+            }
+        }
     }
 }
 
@@ -756,11 +792,11 @@ mod tests {
                 &now(),
             )
             .unwrap();
-        assert!(
-            out.events
-                .contains(&Event::CascadeDropped { id: kid.clone() })
-        );
-        assert_eq!(store.tree().get(&kid).unwrap().status, Status::Dropped);
+        assert!(out.events.contains(&Event::CascadeClosed {
+            id: kid.clone(),
+            status: Status::Done
+        }));
+        assert_eq!(store.tree().get(&kid).unwrap().status, Status::Done);
     }
 
     #[test]
@@ -783,14 +819,12 @@ mod tests {
                 .contains(&Event::Resurfaced { id: story.clone() })
         );
 
-        // Parent done, then reopen a child: parent auto-reopens.
+        // Parent done, then reopen a child: the parent stays done and the
+        // child is orphaned (see order_tests for the derived facts).
         status(&mut store, &story, Status::Done, &later).unwrap();
-        let out = status(&mut store, &a, Status::Todo, &later).unwrap();
-        assert!(
-            out.events
-                .contains(&Event::AutoReopened { id: story.clone() })
-        );
-        assert_eq!(store.tree().get(&story).unwrap().status, Status::Todo);
+        status(&mut store, &a, Status::Todo, &later).unwrap();
+        assert_eq!(store.tree().get(&story).unwrap().status, Status::Done);
+        assert_eq!(store.tree().get(&a).unwrap().status, Status::Todo);
     }
 
     #[test]
@@ -832,7 +866,8 @@ mod tests {
             store.apply(
                 Command::Move {
                     id: a.clone(),
-                    parent: Some(b.clone())
+                    parent: Some(b.clone()),
+                    after: None,
                 },
                 &now()
             ),
@@ -844,6 +879,7 @@ mod tests {
                 Command::Move {
                     id: b.clone(),
                     parent: None,
+                    after: None,
                 },
                 &(now() + 1.hour()),
             )
@@ -942,5 +978,158 @@ mod tests {
             Store::open(dir.path()),
             Err(StoreError::Parse { .. })
         ));
+    }
+}
+
+#[cfg(test)]
+mod order_tests {
+    use super::*;
+    use crate::command::AddTask;
+
+    fn now() -> Zoned {
+        "2026-09-29T15:00:00[UTC]".parse().unwrap()
+    }
+
+    fn add_after(
+        store: &mut Store,
+        title: &str,
+        parent: Option<&TaskId>,
+        after: Option<&TaskId>,
+    ) -> TaskId {
+        store
+            .apply(
+                Command::Add(AddTask {
+                    title: title.into(),
+                    parent: parent.cloned(),
+                    after: after.cloned(),
+                    ..Default::default()
+                }),
+                &now(),
+            )
+            .unwrap()
+            .primary
+            .unwrap()
+    }
+
+    fn titles(store: &Store, parent: Option<&TaskId>) -> Vec<String> {
+        match parent {
+            Some(p) => store.tree().children(p).map(|t| t.title.clone()).collect(),
+            None => store
+                .tree()
+                .roots()
+                .iter()
+                .map(|t| t.title.clone())
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn insert_after_and_move_keep_outline_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::init(dir.path()).unwrap();
+        let a = add_after(&mut store, "a", None, None);
+        let c = add_after(&mut store, "c", None, None);
+        // Enter after `a` inserts between a and c (same creation second).
+        let b = add_after(&mut store, "b", None, Some(&a));
+        assert_eq!(titles(&store, None), ["a", "b", "c"]);
+
+        // Tab: b becomes a's subtask (appended). Shift+Tab: back out after a.
+        store
+            .apply(
+                Command::Move {
+                    id: b.clone(),
+                    parent: Some(a.clone()),
+                    after: None,
+                },
+                &now(),
+            )
+            .unwrap();
+        assert_eq!(titles(&store, None), ["a", "c"]);
+        assert_eq!(titles(&store, Some(&a)), ["b"]);
+        store
+            .apply(
+                Command::Move {
+                    id: b.clone(),
+                    parent: None,
+                    after: Some(a.clone()),
+                },
+                &now(),
+            )
+            .unwrap();
+        assert_eq!(titles(&store, None), ["a", "b", "c"]);
+
+        // Move to the end, then after a non-sibling is refused.
+        store
+            .apply(
+                Command::Move {
+                    id: a.clone(),
+                    parent: None,
+                    after: Some(c.clone()),
+                },
+                &now(),
+            )
+            .unwrap();
+        assert_eq!(titles(&store, None), ["b", "c", "a"]);
+        let err = store
+            .apply(
+                Command::Move {
+                    id: c.clone(),
+                    parent: Some(a.clone()),
+                    after: Some(b.clone()),
+                },
+                &now(),
+            )
+            .unwrap_err();
+        assert!(matches!(err, StoreError::Validation(_)), "{err}");
+
+        // Order survives a reload (it is in the frontmatter).
+        drop(store);
+        let store = Store::open(dir.path()).unwrap();
+        assert_eq!(titles(&store, None), ["b", "c", "a"]);
+    }
+
+    #[test]
+    fn reopening_a_child_does_not_reopen_a_done_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::init(dir.path()).unwrap();
+        let story = add_after(&mut store, "story", None, None);
+        let kid = add_after(&mut store, "kid", Some(&story), None);
+        store
+            .apply(
+                Command::SetStatus {
+                    id: story.clone(),
+                    status: Status::Done,
+                    waiting_on: None,
+                    until: None,
+                    cascade: true,
+                },
+                &now(),
+            )
+            .unwrap();
+        assert_eq!(store.tree().get(&kid).unwrap().status, Status::Done);
+        let out = store
+            .apply(
+                Command::SetStatus {
+                    id: kid.clone(),
+                    status: Status::Todo,
+                    waiting_on: None,
+                    until: None,
+                    cascade: false,
+                },
+                &now(),
+            )
+            .unwrap();
+        assert!(
+            out.events
+                .iter()
+                .all(|e| !matches!(e, Event::Resurfaced { .. }))
+        );
+        assert_eq!(
+            store.tree().get(&story).unwrap().status,
+            Status::Done,
+            "parent stays done"
+        );
+        let d = crate::action::derive(store.tree(), store.tree().get(&kid).unwrap(), now().date());
+        assert!(d.orphaned && d.actionable);
     }
 }

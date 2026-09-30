@@ -83,7 +83,12 @@ impl Tree {
             .get(id)
             .map(|v| v.iter().collect())
             .unwrap_or_default();
-        ids.sort_by_key(|c| self.tasks.get(c).map(|t| t.created));
+        ids.sort_by(|a, b| {
+            let (ta, tb) = (self.tasks.get(a), self.tasks.get(b));
+            let ka = ta.map(|t| (t.order_key(), t.created));
+            let kb = tb.map(|t| (t.order_key(), t.created));
+            ka.partial_cmp(&kb).unwrap_or(std::cmp::Ordering::Equal)
+        });
         ids.into_iter().filter_map(|c| self.tasks.get(c))
     }
 
@@ -142,7 +147,11 @@ impl Tree {
                     .is_none_or(|p| !self.tasks.contains_key(p))
             })
             .collect();
-        roots.sort_by_key(|t| t.created);
+        roots.sort_by(|a, b| {
+            (a.order_key(), a.created)
+                .partial_cmp(&(b.order_key(), b.created))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         roots
     }
 

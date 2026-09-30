@@ -123,6 +123,9 @@ fn annotations(tree: &Tree, task: &Task, now: &Zoned) -> Vec<String> {
     if d.resurfaced_at.is_some() {
         notes.push("🔁 resurfaced".into());
     }
+    if d.orphaned {
+        notes.push("⚠ parent finished".into());
+    }
     if let Some(due) = task.due {
         if due < today {
             notes.push(format!("⚠ overdue {due}"));

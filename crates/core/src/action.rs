@@ -43,6 +43,9 @@ pub struct Derived {
     pub actionable: bool,
     /// When the last child closed, if that makes this task resurfaced.
     pub resurfaced_at: Option<Timestamp>,
+    /// Open, but some ancestor is closed: the parent was ticked off and this
+    /// was reopened (or added) afterwards. Still actionable; shown with a hint.
+    pub orphaned: bool,
 }
 
 pub fn derive(tree: &Tree, task: &Task, today: Date) -> Derived {
@@ -50,6 +53,12 @@ pub fn derive(tree: &Tree, task: &Task, today: Date) -> Derived {
         .children(&task.id)
         .filter(|c| c.status.is_blocking())
         .count();
+
+    let orphaned = task.status.is_open()
+        && tree
+            .ancestors(&task.id)
+            .iter()
+            .any(|a| a.status.is_closed());
 
     let deferred_by = if task.status == Status::Someday {
         Some(task.id.clone())
@@ -87,6 +96,7 @@ pub fn derive(tree: &Tree, task: &Task, today: Date) -> Derived {
         followup,
         actionable,
         resurfaced_at,
+        orphaned,
     }
 }
 
@@ -215,7 +225,10 @@ pub fn needs_action(
             if !d.actionable {
                 return None;
             }
-            let (tier, reason, sort_key) = classify(t, &d, today, soon, now_ts);
+            let (tier, mut reason, sort_key) = classify(t, &d, today, soon, now_ts);
+            if d.orphaned {
+                reason.push_str(" · its parent is already finished");
+            }
             let mut ancestry: Vec<Crumb> = tree
                 .ancestors(&t.id)
                 .into_iter()
@@ -516,5 +529,33 @@ mod tests {
         assert_eq!(s.actionable, 0);
         assert_eq!(s.blocked, 1);
         assert_eq!(s.waiting, 1);
+    }
+}
+
+#[cfg(test)]
+mod orphan_tests {
+    use super::*;
+    use jiff::Timestamp;
+
+    #[test]
+    fn open_child_under_done_parent_is_orphaned_and_actionable() {
+        let now: Zoned = "2026-09-29T15:00:00[UTC]".parse().unwrap();
+        let ts: Timestamp = now.timestamp();
+        let mut parent = Task::new("stry00".parse().unwrap(), "Story", Context::Work, ts);
+        parent.status = Status::Done;
+        parent.completed = Some(ts);
+        let mut kid = Task::new("k1d000".parse().unwrap(), "Leftover", Context::Work, ts);
+        kid.parent = Some(parent.id.clone());
+        let tree = Tree::from_tasks([parent, kid.clone()]);
+        let d = derive(&tree, &kid, now.date());
+        assert!(d.orphaned);
+        assert!(d.actionable);
+        let items = needs_action(&tree, &now, None, &RankConfig::default());
+        assert_eq!(items.len(), 1);
+        assert!(
+            items[0].reason.contains("parent is already finished"),
+            "{}",
+            items[0].reason
+        );
     }
 }

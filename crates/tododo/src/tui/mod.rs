@@ -170,10 +170,6 @@ fn announce(app: &mut App, out: &Outcome) {
                 );
                 return;
             }
-            CoreEvent::AutoReopened { id } => {
-                app.say(MessageKind::Info, format!("reopened parent {}", title(id)));
-                return;
-            }
             _ => {}
         }
     }

@@ -194,6 +194,10 @@ pub struct Task {
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<TaskId>,
+    /// Position among siblings (fractional; see `order_key`). Absent means
+    /// "by creation time", which is what every task had before ordering.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<f64>,
     pub status: Status,
     #[serde(default)]
     pub context: Context,
@@ -226,6 +230,7 @@ impl Task {
             id,
             title: title.into(),
             parent: None,
+            order: None,
             status: Status::Todo,
             context,
             priority: None,
@@ -239,6 +244,12 @@ impl Task {
             tags: Vec::new(),
             body: String::new(),
         }
+    }
+
+    /// Sort key among siblings: explicit `order`, else creation time in
+    /// seconds, so unordered and ordered tasks interleave sensibly.
+    pub fn order_key(&self) -> f64 {
+        self.order.unwrap_or(self.created.as_second() as f64)
     }
 
     /// Filename slug, frozen at creation so Obsidian links keep resolving

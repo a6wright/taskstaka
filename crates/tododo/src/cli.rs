@@ -211,7 +211,11 @@ pub fn run(b: &mut dyn Backend, cmd: Cmd, json: bool) -> Result<()> {
         } => {
             let id = b.resolve(&id)?;
             let parent = parent.as_deref().map(|p| b.resolve(p)).transpose()?;
-            let out = b.apply(Command::Move { id, parent })?;
+            let out = b.apply(Command::Move {
+                id,
+                parent,
+                after: None,
+            })?;
             report(b, &out, json, &now)
         }
 
@@ -258,6 +262,7 @@ fn add_task(a: AddArgs, title: String, parent: Option<TaskId>) -> AddTask {
         } else {
             None
         },
+        after: None,
     }
 }
 
@@ -389,8 +394,9 @@ fn report(b: &mut dyn Backend, out: &Outcome, json: bool, now: &Zoned) -> Result
                     title(id)
                 );
             }
-            Event::AutoReopened { id } => println!("reopened parent {id}  {}", title(id)),
-            Event::CascadeDropped { id } => println!("dropped subtask {id}  {}", title(id)),
+            Event::CascadeClosed { id, status } => {
+                println!("{status} subtask {id}  {}", title(id))
+            }
             Event::Deleted { id } => println!("deleted {id}"),
             Event::ReloadedFromDisk { id } => println!("(reloaded {id} from disk first)"),
         }

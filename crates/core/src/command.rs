@@ -47,6 +47,8 @@ pub struct AddTask {
     pub body: String,
     /// Create directly in this status (e.g. `someday`). Defaults to `todo`.
     pub status: Option<Status>,
+    /// Place the new task right after this sibling. Omit to append at the end.
+    pub after: Option<TaskId>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -87,7 +89,7 @@ pub enum Command {
         /// Required when `status == Waiting`.
         waiting_on: Option<String>,
         until: Option<Date>,
-        /// When closing: also drop every open descendant.
+        /// When closing: also close every open descendant with the same status.
         #[serde(default)]
         cascade: bool,
     },
@@ -95,6 +97,9 @@ pub enum Command {
     Move {
         id: TaskId,
         parent: Option<TaskId>,
+        /// Place it right after this sibling. Omit to append at the end.
+        #[serde(default)]
+        after: Option<TaskId>,
     },
     Touch {
         id: TaskId,
@@ -124,12 +129,10 @@ pub enum Event {
     Resurfaced {
         id: TaskId,
     },
-    /// Reopening a child reopened a closed ancestor.
-    AutoReopened {
+    /// A descendant was closed along with its parent (`cascade`).
+    CascadeClosed {
         id: TaskId,
-    },
-    CascadeDropped {
-        id: TaskId,
+        status: Status,
     },
     Deleted {
         id: TaskId,

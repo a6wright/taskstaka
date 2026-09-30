@@ -687,6 +687,7 @@ async fn form_edit(
             Command::Move {
                 id,
                 parent: wanted_id,
+                after: None,
             },
         )
         .await
@@ -748,7 +749,16 @@ async fn form_move(
         },
         None => None,
     };
-    match apply(&s, Command::Move { id, parent }).await {
+    match apply(
+        &s,
+        Command::Move {
+            id,
+            parent,
+            after: None,
+        },
+    )
+    .await
+    {
         Ok(_) => back_to(f.back.as_deref(), "moved").into_response(),
         Err(e) => back_to(f.back.as_deref(), &e.message).into_response(),
     }

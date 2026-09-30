@@ -142,6 +142,8 @@ pub struct MoveArgs {
     pub id: String,
     /// New parent id, or omit to make it a root task.
     pub parent: Option<String>,
+    /// Sibling to place it after; omit to append at the end.
+    pub after: Option<String>,
 }
 
 #[derive(Deserialize, rmcp::schemars::JsonSchema)]
@@ -256,6 +258,7 @@ impl TododoMcp {
             } else {
                 None
             },
+            after: None,
         };
         self.apply(Command::Add(add)).await
     }
@@ -312,7 +315,11 @@ impl TododoMcp {
             Some(p) => Some(self.resolve(&p).await?),
             None => None,
         };
-        self.apply(Command::Move { id, parent }).await
+        let after = match a.after {
+            Some(p) => Some(self.resolve(&p).await?),
+            None => None,
+        };
+        self.apply(Command::Move { id, parent, after }).await
     }
 
     #[tool(

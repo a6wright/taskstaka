@@ -176,7 +176,7 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
         let msg = if app.summary.open == 0 {
             "Nothing open. Press a to add a task."
         } else {
-            "Nothing actionable. Press b to see what is waiting or blocked."
+            "Nothing actionable. Press v for the tree, or b for what is waiting or blocked."
         };
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
@@ -239,6 +239,53 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
                         },
                     ),
                     Span::styled(ages, Style::default().fg(Color::DarkGray)),
+                ])
+            }
+            Row::Node {
+                depth,
+                title,
+                state,
+                kind,
+                age_secs,
+                ..
+            } => {
+                use super::app::NodeKind;
+                let (mark, style) = match kind {
+                    NodeKind::Free => ("›", Style::default()),
+                    NodeKind::Doing => ("▶", Style::default().fg(Color::Yellow)),
+                    NodeKind::Blocked => ("⏳", Style::default().fg(Color::DarkGray)),
+                    NodeKind::Waiting => ("⌛", Style::default().fg(Color::Cyan)),
+                    NodeKind::Someday => ("💤", Style::default().fg(Color::DarkGray)),
+                    NodeKind::Closed => ("✓", Style::default().fg(Color::DarkGray)),
+                };
+                let indent = "  ".repeat(*depth);
+                let age = format!(" {:>4} ", humanize::duration(*age_secs));
+                let state_s = if state.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {state} ")
+                };
+                let fixed =
+                    2 + indent.chars().count() + 2 + state_s.chars().count() + age.chars().count();
+                let title_room = width.saturating_sub(fixed);
+                let title_style = match kind {
+                    NodeKind::Free | NodeKind::Doing => Style::default(),
+                    _ => Style::default().fg(Color::DarkGray),
+                };
+                Line::from(vec![
+                    Span::raw(if selected { "› " } else { "  " }),
+                    Span::raw(indent),
+                    Span::styled(format!("{mark} "), style),
+                    Span::styled(
+                        pad(&fit(title, title_room), title_room),
+                        if selected {
+                            title_style.bold()
+                        } else {
+                            title_style
+                        },
+                    ),
+                    Span::styled(state_s, style),
+                    Span::styled(age, Style::default().fg(Color::DarkGray)),
                 ])
             }
             Row::Stuck {
@@ -375,10 +422,16 @@ fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
-    let keys = if app.show_stuck {
-        " j/k · d done · s start · w wait · x drop · z someday · o reopen · a/A add · e edit · b hide stuck · c ctx · ? help · q"
-    } else {
-        " j/k · d done · s start · w wait · x drop · z someday · a/A add · t note · e edit · b stuck · c ctx · ? help · q quit"
+    let keys = match app.view {
+        super::app::View::Tree => {
+            " tree · v ranked list · j/k · d done · s start · w wait · f chase · a/A add · e edit · c ctx · ? help · q"
+        }
+        super::app::View::Next if app.show_stuck => {
+            " ranked · v tree · j/k · d done · s start · w wait · f chase · a/A add · e edit · b hide stuck · c ctx · ? · q"
+        }
+        super::app::View::Next => {
+            " ranked · v tree · j/k · d done · s start · w wait · f chase · a/A add · e edit · b stuck · c ctx · ? · q"
+        }
     };
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
@@ -467,7 +520,9 @@ mod tests {
     #[test]
     fn panel_snapshot() {
         let (tree, now) = super::super::app::tests::fixture();
-        let app = App::new(tree, None, now);
+        let mut app = App::new(tree, None, now);
+        app.view = super::super::app::View::Next;
+        app.rebuild();
         insta::assert_snapshot!(render(&app, 100, 18));
     }
 
@@ -475,6 +530,8 @@ mod tests {
     fn panel_with_stuck_and_help() {
         let (tree, now) = super::super::app::tests::fixture();
         let mut app = App::new(tree, None, now);
+        app.view = super::super::app::View::Next;
+        app.rebuild();
         app.show_stuck = true;
         app.rebuild();
         insta::assert_snapshot!("panel_stuck", render(&app, 100, 22));
@@ -500,5 +557,21 @@ mod tests {
         let app = App::new(tododo_core::Tree::from_tasks([t]), None, now);
         let out = render(&app, 80, 8);
         assert!(out.contains("go unblock"), "{out}");
+    }
+}
+
+#[cfg(test)]
+mod tree_view_snapshot {
+    use super::*;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    #[test]
+    fn tree_view_snapshot() {
+        let (tree, now) = super::super::app::tests::fixture();
+        let app = App::new(tree, None, now);
+        let mut term = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        term.draw(|f| draw(f, &app)).unwrap();
+        insta::assert_snapshot!("panel_tree", term.backend().to_string());
     }
 }

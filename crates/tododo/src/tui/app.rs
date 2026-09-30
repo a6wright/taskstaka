@@ -20,13 +20,45 @@ pub enum Row {
         why: String,
         root: Option<String>,
     },
+    /// One task in the tree view, with its computed state spelled out.
+    Node {
+        id: TaskId,
+        depth: usize,
+        title: String,
+        state: String,
+        kind: NodeKind,
+        age_secs: i64,
+    },
+}
+
+/// How a tree row should read at a glance.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NodeKind {
+    /// Yours to do right now.
+    Free,
+    Doing,
+    /// Waiting on subtasks (or, via them, on a person).
+    Blocked,
+    /// Waiting on a person directly.
+    Waiting,
+    Someday,
+    Closed,
+}
+
+/// Which list the panel shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum View {
+    /// The whole tree: every branch, free or stuck, and why.
+    Tree,
+    /// The ranked "what now?" list.
+    Next,
 }
 
 impl Row {
     pub fn id(&self) -> Option<&TaskId> {
         match self {
             Row::Item(i) => Some(&i.id),
-            Row::Stuck { id, .. } => Some(id),
+            Row::Stuck { id, .. } | Row::Node { id, .. } => Some(id),
             Row::Section(_) => None,
         }
     }
@@ -82,6 +114,7 @@ pub enum Action {
 pub struct App {
     pub tree: Tree,
     pub ctx: Option<Context>,
+    pub view: View,
     pub show_stuck: bool,
     pub rows: Vec<Row>,
     pub selected: usize,
@@ -98,6 +131,7 @@ impl App {
         let mut app = App {
             tree,
             ctx,
+            view: View::Tree,
             show_stuck: false,
             rows: Vec::new(),
             selected: 0,
@@ -179,12 +213,111 @@ impl App {
                 rows.extend(stuck);
             }
         }
-        self.rows = rows;
+        self.rows = if self.view == View::Tree {
+            self.tree_rows()
+        } else {
+            rows
+        };
 
         self.selected = keep
             .and_then(|id| self.rows.iter().position(|r| r.id() == Some(&id)))
             .unwrap_or_else(|| self.first_selectable());
         self.clamp();
+    }
+
+    /// Every open task (and anything closed in the last day), in outline
+    /// order, each saying what it is waiting for.
+    fn tree_rows(&self) -> Vec<Row> {
+        let today = self.now.date();
+        let ts = self.now.timestamp();
+        let recent = |t: &Task| {
+            t.completed
+                .is_some_and(|c| ts.as_second() - c.as_second() < 24 * 3600)
+        };
+        let mut rows = Vec::new();
+        let mut stack: Vec<(&Task, usize)> = self
+            .tree
+            .roots()
+            .into_iter()
+            .filter(|t| self.in_ctx(t))
+            .filter(|t| t.status.is_open() || recent(t))
+            .rev()
+            .map(|t| (t, 0))
+            .collect();
+        while let Some((t, depth)) = stack.pop() {
+            let d = derive(&self.tree, t, today);
+            let (kind, mut state) = match t.status {
+                Status::Done | Status::Dropped => (NodeKind::Closed, t.status.to_string()),
+                Status::Someday => (NodeKind::Someday, "💤 someday".to_string()),
+                Status::Waiting => (
+                    NodeKind::Waiting,
+                    format!(
+                        "⌛ {} · {}{}{}",
+                        t.waiting_on.as_deref().unwrap_or("?"),
+                        humanize_secs(
+                            ts.as_second() - t.waiting_since.unwrap_or(t.updated).as_second()
+                        ),
+                        match t.chases.len() {
+                            0 => String::new(),
+                            n => format!(" · {n}×"),
+                        },
+                        if d.followup { " · follow up!" } else { "" }
+                    ),
+                ),
+                Status::Doing => (
+                    NodeKind::Doing,
+                    format!(
+                        "▶ doing {}",
+                        humanize_secs(ts.as_second() - t.started.unwrap_or(t.created).as_second())
+                    ),
+                ),
+                Status::Todo => {
+                    if let Some(w) = &d.waiting_on_summary {
+                        (
+                            NodeKind::Blocked,
+                            format!(
+                                "⌛ {} · {}",
+                                w.person,
+                                humanize_secs(ts.as_second() - w.since.as_second())
+                            ),
+                        )
+                    } else if d.blocked_by > 0 {
+                        (NodeKind::Blocked, format!("⏳ blocked by {}", d.blocked_by))
+                    } else if d.deferred_by.is_some() {
+                        (NodeKind::Someday, "deferred".to_string())
+                    } else if d.resurfaced_at.is_some() {
+                        (NodeKind::Free, "↩ back".to_string())
+                    } else {
+                        (NodeKind::Free, String::new())
+                    }
+                }
+            };
+            if d.orphaned {
+                state.push_str(" · ⚠ parent finished");
+            }
+            if let Some(due) = t.due
+                && t.status.is_open()
+            {
+                state.push_str(&format!(" · due {due}"));
+            }
+            rows.push(Row::Node {
+                id: t.id.clone(),
+                depth,
+                title: t.title.clone(),
+                state: state.trim_start_matches(" · ").to_string(),
+                kind,
+                age_secs: ts.as_second() - t.created.as_second(),
+            });
+            let kids: Vec<&Task> = self
+                .tree
+                .children(&t.id)
+                .filter(|c| c.status.is_open() || recent(c))
+                .collect();
+            for c in kids.into_iter().rev() {
+                stack.push((c, depth + 1));
+            }
+        }
+        rows
     }
 
     fn in_ctx(&self, t: &Task) -> bool {
@@ -329,6 +462,14 @@ impl App {
             }
             KeyCode::Char('c') => {
                 self.cycle_context();
+                Action::None
+            }
+            KeyCode::Char('v') => {
+                self.view = match self.view {
+                    View::Tree => View::Next,
+                    View::Next => View::Tree,
+                };
+                self.rebuild();
                 Action::None
             }
             KeyCode::Char('b') => {
@@ -545,6 +686,8 @@ pub(crate) mod tests {
     fn rows_rank_and_selection_survives_rebuild() {
         let (tree, now) = fixture();
         let mut app = App::new(tree, None, now);
+        app.view = View::Next;
+        app.rebuild();
         let ids: Vec<&str> = app
             .rows
             .iter()
@@ -573,6 +716,8 @@ pub(crate) mod tests {
     fn keys_produce_commands() {
         let (tree, now) = fixture();
         let mut app = App::new(tree, None, now);
+        app.view = View::Next;
+        app.rebuild();
         assert!(matches!(
             app.handle_key(key('d')),
             Action::Apply(Command::SetStatus {
@@ -615,5 +760,93 @@ pub(crate) mod tests {
         assert_eq!(app.ctx, Some(Context::Work));
         assert!(matches!(app.handle_key(key('q')), Action::None));
         assert!(matches!(app.handle_key(key('y')), Action::Quit));
+    }
+}
+
+fn humanize_secs(secs: i64) -> String {
+    tododo_core::humanize::duration(secs)
+}
+
+#[cfg(test)]
+mod tree_view_tests {
+    use super::*;
+    use jiff::{Timestamp, ToSpan};
+
+    /// story ─ A ─ (ask B, waiting) ; story ─ write CR (free)
+    fn fixture() -> (Tree, Zoned) {
+        let now: Zoned = "2026-09-29T15:00:00[UTC]".parse().unwrap();
+        let at = |h: i64| -> Timestamp { now.timestamp() - (h * 3600).seconds() };
+        let mk = |id: &str, title: &str, parent: Option<&str>, h: i64| {
+            let mut t = Task::new(id.parse::<TaskId>().unwrap(), title, Context::Work, at(h));
+            t.parent = parent.map(|p| p.parse().unwrap());
+            t
+        };
+        let mut ask = mk("ask000", "Ask B about wildcard certs", Some("f1g000"), 90);
+        ask.status = Status::Waiting;
+        ask.waiting_on = Some("B".into());
+        ask.waiting_since = Some(at(90));
+        ask.chases = vec![at(40)];
+        ask.until = Some(now.date());
+        let tasks = vec![
+            mk("dns000", "Get DNS address", None, 100),
+            mk("f1g000", "Figure out what's possible", Some("dns000"), 95),
+            ask,
+            mk("wr1te0", "Write the change request", Some("dns000"), 80),
+        ];
+        (Tree::from_tasks(tasks), now)
+    }
+
+    #[test]
+    fn tree_view_shows_every_branch_and_who_it_waits_on() {
+        let (tree, now) = fixture();
+        let app = App::new(tree, None, now);
+        assert_eq!(app.view, View::Tree);
+        let rows: Vec<(usize, &str, &str, NodeKind)> = app
+            .rows
+            .iter()
+            .filter_map(|r| match r {
+                Row::Node {
+                    depth,
+                    title,
+                    state,
+                    kind,
+                    ..
+                } => Some((*depth, title.as_str(), state.as_str(), *kind)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                (0, "Get DNS address", "⌛ B · 3d", NodeKind::Blocked),
+                (
+                    1,
+                    "Figure out what's possible",
+                    "⌛ B · 3d",
+                    NodeKind::Blocked
+                ),
+                (
+                    2,
+                    "Ask B about wildcard certs",
+                    "⌛ B · 3d · 1× · follow up!",
+                    NodeKind::Waiting
+                ),
+                (1, "Write the change request", "", NodeKind::Free),
+            ]
+        );
+        // `v` flips to the ranked list, which shows only what is yours to do.
+        let mut app = app;
+        app.handle_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+        assert_eq!(app.view, View::Next);
+        let ids: Vec<&str> = app
+            .rows
+            .iter()
+            .filter_map(|r| r.id().map(|i| i.as_str()))
+            .collect();
+        assert_eq!(
+            ids,
+            ["ask000", "wr1te0"],
+            "follow-up due + the free sibling"
+        );
     }
 }

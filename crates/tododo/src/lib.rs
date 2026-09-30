@@ -8,6 +8,7 @@ pub mod client;
 pub mod dates;
 pub mod render;
 pub mod server;
+pub mod tui;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const DEFAULT_PORT: u16 = 7407;

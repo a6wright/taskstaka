@@ -221,7 +221,7 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 |---|---|---|---|
 | ✅ | **P1 core + CLI** | `tododo-core` complete; CLI runs `Store` in-process. `init add start done wait someday drop reopen next ls show mv edit touch rm reindex path`. **Usable alone.** | 30 core unit tests (every tier, resurfaced, someday inheritance, followup); frontmatter round-trip incl. Obsidian-rewritten YAML; `insta` snapshots of `index.md` and canonical frontmatter; 3 `assert_cmd` e2e tests in `crates/tododo/tests/cli.rs` |
 | ✅ | **P2 daemon** | axum on `127.0.0.1:7407`, all endpoints incl. generic `POST /api/v1/commands`, daemon.json, lock, auto-start from any CLI command, `/changes` long-poll, `serve/stop/status`; CLI → ureq via a `Backend` trait (direct mode kept as `--direct` / `TODODO_DIRECT=1`) | `crates/tododo/tests/daemon.rs` drives the real router in-process on port 0 (resurface flow, error envelope, long-poll wake, second-daemon refusal); `tests/cli.rs` auto-starts a real detached daemon on `TODODO_PORT=0`, reuses it, and stops it |
-| ⬜ | **P3 TUI** | `tododo tui`: next list w/ tier badge, `root › parent` breadcrumb, ages; keys `j/k d s w a enter c ?`; refresh on `/changes` | ratatui `TestBackend` snapshots |
+| ✅ | **P3 TUI** | `tododo tui [-c ctx]`: ranked rows with tier badge, `‹ root` crumb, queued/touched ages; detail pane; `b` toggles a "waiting & blocked" section that says *why* each is stuck; keys `j/k d s w x z o a A t e b c r ? q`; prompts for add/wait/note; `e` suspends to `$EDITOR` and reloads; refreshes on `/changes` long-poll + 30s age tick; header shows DISCONNECTED if the daemon goes away | `tui/app.rs` unit tests (ranking rows, selection survives rebuild, keys → Commands); `tui/ui.rs` `TestBackend` snapshots (`panel_snapshot`, `panel_stuck`, `panel_help`) + empty/all-blocked states |
 | ⬜ | **P4 nudges** | rules + scheduler + `Notifier` + `/nudges` in TUI header | pure-rule tests with injected `now`; cooldown persistence |
 | ⬜ | **P5 MCP** | `tododo mcp` | `npx @modelcontextprotocol/inspector tododo mcp`; add to Claude Code and ask it "what's next?" |
 | ⬜ | **P6 web** | askama pages + forms for the same actions | router request tests |
@@ -235,6 +235,8 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 - **P2:** the CLI computes `next`/`ls`/`show` locally from a full `GET /tasks?include_closed=true` snapshot rebuilt into a `Tree`, rather than calling `/next`. One rendering path for direct and daemon modes, and CLI/TUI can never disagree with each other. `/next` exists for MCP, web and curl.
 - **P2:** added `GET /api/v1/resolve/{prefix}` and a generic `POST /api/v1/commands` (takes a `Command`); the resource-style endpoints build the same `Command`s internally.
 - **P2:** the binary crate is also a library (`crates/tododo/src/lib.rs`) so integration tests can bind the real router in-process.
+- **P3:** the TUI always talks to the daemon (no `--direct`): holding the exclusive lock for the panel's lifetime would block every CLI command. Like the CLI it rebuilds a local `Tree` from `GET /tasks` and ranks with core, so the two can never disagree.
+- **P3:** added a `b` "waiting & blocked" section not in the original key list — seeing *what* is blocking is the natural follow-up to "nothing actionable".
 
 ## Verification (end to end, after P1–P3)
 

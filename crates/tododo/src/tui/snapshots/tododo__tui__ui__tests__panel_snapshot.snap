@@ -1,0 +1,22 @@
+---
+source: crates/tododo/src/tui/ui.rs
+expression: "render(&app, 100, 18)"
+---
+" tododo · all · 3 actionable · 1 doing · 1 blocked · 1 waiting · 1 someday                          "
+"                                                                                                    "
+"› OVERDUE   Write migration ‹ Ship auth story · due 2026-09-20                            1d ·   1d "
+"  ↩ back    Renew domain                                                                  8d ·   8d "
+"  ▶ doing   Fix JWT expiry ‹ Ship auth story                                              2d ·   2d "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"────────────────────────────────────────────────────────────────────────────────────────────────────"
+" m1gr00 Ship auth story › Write migration                                                           "
+" todo · work · queued 1d · touched 1d · due 2026-09-20                                              "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+" j/k · d done · s start · w wait · x drop · z someday · a/A add · t note · e edit · b stuck · c ctx "

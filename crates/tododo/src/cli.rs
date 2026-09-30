@@ -51,6 +51,7 @@ pub fn main() -> Result<()> {
                 }
             };
         }
+        Cmd::Tui { context } => return crate::tui::run(&dir, cli.port, context),
         Cmd::Status => {
             return match Client::discover(&dir) {
                 Some(c) => {
@@ -112,7 +113,9 @@ fn env_truthy(name: &str) -> bool {
 pub fn run(b: &mut dyn Backend, cmd: Cmd, json: bool) -> Result<()> {
     let now = Zoned::now();
     match cmd {
-        Cmd::Init | Cmd::Serve { .. } | Cmd::Stop | Cmd::Status => unreachable!("handled in main"),
+        Cmd::Init | Cmd::Serve { .. } | Cmd::Stop | Cmd::Status | Cmd::Tui { .. } => {
+            unreachable!("handled in main")
+        }
 
         Cmd::Add(a) => {
             let title = a.title.join(" ");

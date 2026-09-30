@@ -50,6 +50,13 @@ pub enum Cmd {
     /// Show whether a daemon is running and where.
     Status,
 
+    /// The always-on panel: what needs action, live.
+    Tui {
+        /// Start filtered to this context (c cycles at runtime).
+        #[arg(short, long, env = "TODODO_CONTEXT")]
+        context: Option<Context>,
+    },
+
     /// Add a task. Words become the title; flags can go anywhere.
     Add(AddArgs),
 

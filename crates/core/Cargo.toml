@@ -1,0 +1,18 @@
+[package]
+name = "tododo-core"
+description = "Task model, markdown store and needs-action computation for tododo. Sync and framework-free."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_norway.workspace = true
+jiff.workspace = true
+thiserror.workspace = true
+tempfile.workspace = true
+fd-lock.workspace = true
+rand.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

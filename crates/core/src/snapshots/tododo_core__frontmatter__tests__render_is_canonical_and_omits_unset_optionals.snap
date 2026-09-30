@@ -1,0 +1,21 @@
+---
+source: crates/core/src/frontmatter.rs
+expression: text
+---
+---
+id: k7x2mq
+title: Fix JWT expiry
+parent: a1b2c3
+status: todo
+context: work
+priority: high
+created: 2026-09-29T14:02:00Z
+updated: 2026-09-29T14:02:00Z
+due: 2026-10-03
+tags:
+- auth
+- backend
+---
+# Notes
+
+Some *markdown*.

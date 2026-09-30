@@ -1,0 +1,22 @@
+[package]
+name = "tododo"
+description = "A 'what needs action next' task server backed by markdown."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "tododo"
+path = "src/main.rs"
+
+[dependencies]
+tododo-core.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+jiff.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+tempfile.workspace = true

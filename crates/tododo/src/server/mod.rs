@@ -3,6 +3,7 @@
 
 pub mod error;
 pub mod nudge;
+pub mod outline;
 pub mod routes;
 pub mod web;
 

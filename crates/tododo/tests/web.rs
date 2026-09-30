@@ -41,9 +41,16 @@ async fn pages_render_and_forms_mutate() {
     let a = agent();
     let base = format!("http://{addr}");
 
-    let (status, html) = get(&a, &format!("{base}/"));
+    let (status, html) = get(&a, &format!("{base}/next"));
     assert_eq!(status, 200);
     assert!(html.contains("nothing open"), "{html}");
+    let (status, html) = get(&a, &format!("{base}/?context=work"));
+    assert_eq!(status, 200);
+    assert!(
+        html.contains(r#"id="outline""#) && html.contains(r#"data-context="work""#),
+        "{html}"
+    );
+    assert!(html.contains("/api/v1/tree"), "outline JS is inlined");
     let (status, css) = get(&a, &format!("{base}/style.css"));
     assert_eq!(status, 200);
     assert!(css.contains("--accent"));
@@ -56,13 +63,13 @@ async fn pages_render_and_forms_mutate() {
         .send_form([
             ("title", "Ship <auth> story"),
             ("context", "work"),
-            ("back", "/"),
+            ("back", "/next"),
         ])
         .unwrap();
     assert_eq!(res.status().as_u16(), 303);
     let loc = res.headers()["location"].to_str().unwrap().to_string();
-    assert!(loc.starts_with("/?msg=added+"), "{loc}");
-    let id = loc.trim_start_matches("/?msg=added+").to_string();
+    assert!(loc.starts_with("/next?msg=added+"), "{loc}");
+    let id = loc.trim_start_matches("/next?msg=added+").to_string();
 
     let (_, html) = get(&a, &format!("{base}{loc}"));
     assert!(

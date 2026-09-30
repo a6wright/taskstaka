@@ -29,7 +29,8 @@ type S = State<Arc<AppState>>;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/", get(index))
+        .route("/", get(super::outline::outline))
+        .route("/next", get(index))
         .route("/t/{id}", get(task_page))
         .route("/w/add", post(form_add))
         .route("/w/{id}/status", post(form_status))
@@ -103,7 +104,7 @@ fn back_to(back: Option<&str>, msg: &str) -> Redirect {
     Redirect::to(&format!("{base}{sep}msg={}", url_encode(msg)))
 }
 
-fn page(title: &str, body: &str) -> Html<String> {
+pub fn page_shell(title: &str, body: &str) -> Html<String> {
     Html(format!(
         r#"<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -176,6 +177,32 @@ fn status_buttons(out: &mut String, t: &Task, back: &str) {
     }
 }
 
+/// Title, the outline/next tabs, and the context pills (which keep the tab).
+pub fn nav_html(tab: &str, ctx: Option<Context>) -> String {
+    let ctx_label = ctx.map(|c| c.to_string()).unwrap_or_else(|| "all".into());
+    let base = if tab == "next" { "/next" } else { "/" };
+    let mut out = format!(
+        r#"<header><h1><a href="/">tododo</a> <span class="ctx">· {ctx_label}</span></h1><nav>"#
+    );
+    let q = ctx.map(|c| format!("?context={c}")).unwrap_or_default();
+    for (label, href) in [
+        ("all", base.to_string()),
+        ("work", format!("{base}?context=work")),
+        ("personal", format!("{base}?context=personal")),
+    ] {
+        let active = if label == ctx_label { " active" } else { "" };
+        let _ = write!(out, r#"<a class="pill{active}" href="{href}">{label}</a>"#);
+    }
+    out.push_str("</nav></header>");
+    let _ = write!(
+        out,
+        r#"<nav class="tabs"><a href="/{q}" class="{}">outline</a><a href="/next{q}" class="{}">next</a></nav>"#,
+        if tab == "outline" { "active" } else { "" },
+        if tab == "next" { "active" } else { "" },
+    );
+    out
+}
+
 fn header(
     out: &mut String,
     tree: &Tree,
@@ -185,20 +212,7 @@ fn header(
     nudges: &[String],
 ) {
     let s = summary(tree, now, ctx);
-    let ctx_label = ctx.map(|c| c.to_string()).unwrap_or_else(|| "all".into());
-    let _ = write!(
-        out,
-        r#"<header><h1><a href="/">tododo</a> <span class="ctx">· {ctx_label}</span></h1><nav>"#
-    );
-    for (label, href) in [
-        ("all", "/"),
-        ("work", "/?context=work"),
-        ("personal", "/?context=personal"),
-    ] {
-        let active = if label == ctx_label { " active" } else { "" };
-        let _ = write!(out, r#"<a class="pill{active}" href="{href}">{label}</a>"#);
-    }
-    out.push_str("</nav></header>");
+    out.push_str(&nav_html("next", ctx));
     let line = if s.open == 0 {
         "nothing open".to_string()
     } else if s.actionable == 0 {
@@ -244,8 +258,8 @@ async fn index(State(s): S, Query(q): Query<IndexQuery>) -> Result<Html<String>,
         .map(|n| n.iter().map(|x| x.message.clone()).collect())
         .unwrap_or_default();
     let back = match q.context {
-        Some(c) => format!("/?context={c}"),
-        None => "/".to_string(),
+        Some(c) => format!("/next?context={c}"),
+        None => "/next".to_string(),
     };
 
     let mut out = String::new();
@@ -371,7 +385,7 @@ async fn index(State(s): S, Query(q): Query<IndexQuery>) -> Result<Html<String>,
         }
         out.push_str("</section>");
     }
-    Ok(page("tododo", &out))
+    Ok(page_shell("tododo", &out))
 }
 
 #[derive(Deserialize)]
@@ -508,7 +522,7 @@ async fn task_page(
         body = esc(&t.body),
     );
 
-    Ok(page(&format!("{} · tododo", t.title), &out))
+    Ok(page_shell(&format!("{} · tododo", t.title), &out))
 }
 
 // ---------- forms ----------
@@ -769,6 +783,20 @@ async fn css() -> impl IntoResponse {
 }
 
 const CSS: &str = r#"
+/* outline */
+ul.outline{list-style:none;margin:0;padding:0}ul.outline ul.outline{margin-left:26px;border-left:1px solid var(--line);padding-left:6px}
+li.kids{list-style:none}
+.outline .row,.draftrow,.newline{display:grid;grid-template-columns:28px 1fr auto;gap:8px;align-items:baseline;padding:4px 0;border:0}
+.outline .row.closed .title{text-decoration:line-through;color:var(--muted)}.outline .row.st-someday .title{color:var(--muted)}
+.bullet{display:flex;gap:4px;align-items:center;justify-content:flex-end}.bullet input{margin:0}.bullet .dot{text-decoration:none;color:var(--muted);font-size:18px;line-height:1}.bullet .dot:hover{color:var(--accent)}
+.title[contenteditable]{outline:none;min-height:1.4em;padding:2px 4px;border-radius:4px}.title[contenteditable]:focus{background:var(--pill)}
+.title.draft:empty:before{content:attr(data-placeholder);color:var(--muted)}
+.meta{display:flex;gap:6px;align-items:baseline;white-space:nowrap}.meta .b{font-size:12px;padding:1px 6px;border-radius:999px;background:var(--pill);color:var(--muted)}
+.meta .b.doing{color:var(--yellow)}.meta .b.blocked{color:var(--muted)}.meta .b.back{color:var(--back);font-weight:600}.meta .b.overdue{color:var(--red)}.meta .b.orphan{color:var(--yellow)}.meta .b.waiting{color:var(--accent)}
+.meta .age{font-size:12px;color:var(--muted)}.newline{margin-top:6px;color:var(--muted)}.newline .bullet{color:var(--muted)}
+.draftrow{margin-left:calc(var(--depth,0) * 32px)}.hint{color:var(--muted);font-size:12px;margin-top:18px}.flash.error{color:var(--red)}.flash.ok{color:var(--green)}
+nav.tabs{display:flex;gap:14px;margin:10px 0 4px}nav.tabs a{text-decoration:none;color:var(--muted);padding-bottom:2px}nav.tabs a.active{color:var(--fg);border-bottom:2px solid var(--accent)}
+@media (max-width:640px){.meta .b{display:none}.meta .b.back,.meta .b.blocked,.meta .b.overdue{display:inline}}
 :root{--bg:#fff;--fg:#1a1a1a;--muted:#6b6b6b;--line:#e5e5e5;--accent:#2b6cb0;--back:#8e44ad;--red:#c0392b;--yellow:#b7791f;--green:#2f855a;--pill:#f1f1f1}
 @media (prefers-color-scheme:dark){:root{--bg:#121417;--fg:#e6e6e6;--muted:#9a9a9a;--line:#2a2e33;--accent:#63b3ed;--back:#c39bd3;--red:#f56565;--yellow:#ecc94b;--green:#68d391;--pill:#1f242a}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}

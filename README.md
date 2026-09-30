@@ -88,7 +88,9 @@ tasks rotting untouched > 14 days, a parent resurfacing, follow-ups due, too muc
 
 ## Other clients
 
-- **Web:** `http://127.0.0.1:7407/` — the same panel and actions as plain HTML forms.
+- **Web:** `http://127.0.0.1:7407/` — an outliner: type a line, `Enter` for the next,
+  `Tab` to make it a subtask, `Shift+Tab` to outdent, tick the box to finish (a parent's
+  box finishes its subtree). `/next` is the ranked "what now?" panel.
 - **MCP** (Claude Code, Claude Desktop): `claude mcp add tododo -- tododo mcp`. Then ask
   "what should I work on?" — the server's instructions teach the model the tree rules.
 - **Obsidian:** open `~/todo` as a vault. `index.md` is the tree; each note is a task.

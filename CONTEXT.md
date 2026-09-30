@@ -60,6 +60,10 @@ _Avoid_: available, ready, next (that is the command)
 An actionable task whose last subtask has just closed and which the user has not touched since. The moment the old tools lost.
 _Avoid_: unblocked, reopened (that is a status transition)
 
+**Orphaned**:
+An open task with a finished ancestor: its parent was ticked off and it was reopened or added afterwards. Still actionable; shown with a hint rather than hidden.
+_Avoid_: dangling, stranded, zombie
+
 **Follow-up**:
 A waiting task whose `until` date is today or past. Actionable; the action is to chase.
 

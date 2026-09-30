@@ -20,6 +20,11 @@ pub fn main() -> Result<()> {
 
     match cli.cmd {
         Cmd::Init => {
+            // Idempotent, like `git init`: a second run is not an error.
+            if dir.join(tododo_core::store::META_DIR).is_dir() {
+                println!("already initialized {}", dir.display());
+                return Ok(());
+            }
             let store =
                 Store::init(&dir).with_context(|| format!("initializing {}", dir.display()))?;
             println!("initialized {}", store.dir().display());

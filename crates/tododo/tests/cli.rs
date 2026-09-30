@@ -253,3 +253,13 @@ fn daemon_mode_autostarts_reuses_and_stops() {
     }
     panic!("daemon did not stop");
 }
+
+#[test]
+fn init_is_idempotent() {
+    let env = Env::new();
+    env.cmd()
+        .arg("init")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("already initialized"));
+}

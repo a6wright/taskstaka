@@ -12,5 +12,5 @@ Clients auto-start the daemon when `/health` fails; an advisory lock on `.tododo
 ## Consequences
 
 - Phase 1 shipped the CLI in "direct" mode (core in-process, lock held for the command). That stays as `--direct` for scripts and tests; it is safe because the lock is exclusive.
-- TCP rather than a Unix socket so the browser UI works. Mutations accept JSON bodies only and the server sets no CORS headers, so a cross-origin page cannot perform them. No auth token in v1.
+- TCP rather than a Unix socket so the browser UI works. JSON API mutations accept JSON bodies only and the server sets no CORS headers, so a cross-origin page cannot perform them. The HTML form endpoints (`/w/...`) are the exception a browser *can* reach, so they refuse requests whose `Sec-Fetch-Site` is not same-origin or whose `Origin` does not match `Host`. No auth token in v1; the daemon binds loopback only.
 - MCP runs as a separate stdio process (`tododo mcp`) that proxies to the daemon rather than living inside it: keeps the Claude config trivial and the daemon the sole writer.

@@ -4,6 +4,7 @@
 pub mod error;
 pub mod nudge;
 pub mod routes;
+pub mod web;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};

@@ -46,6 +46,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/reindex", post(reindex))
         .route("/api/v1/reload", post(reload))
         .route("/api/v1/shutdown", post(shutdown))
+        .merge(super::web::router())
         .with_state(state)
 }
 
@@ -69,7 +70,7 @@ async fn health(State(s): S) -> Json<Health> {
 }
 
 /// Run a mutation on the blocking pool and bump the revision.
-async fn apply(s: &Arc<AppState>, cmd: Command) -> Result<Outcome, ApiError> {
+pub(super) async fn apply(s: &Arc<AppState>, cmd: Command) -> Result<Outcome, ApiError> {
     let st = s.clone();
     let out = tokio::task::spawn_blocking(move || {
         let mut store = st
@@ -89,7 +90,7 @@ async fn apply(s: &Arc<AppState>, cmd: Command) -> Result<Outcome, ApiError> {
     Ok(out)
 }
 
-fn resolve_id(s: &AppState, raw: &str) -> Result<TaskId, ApiError> {
+pub(super) fn resolve_id(s: &AppState, raw: &str) -> Result<TaskId, ApiError> {
     let store = s
         .store
         .lock()

@@ -224,7 +224,7 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 | ✅ | **P3 TUI** | `tododo tui [-c ctx]`: ranked rows with tier badge, `‹ root` crumb, queued/touched ages; detail pane; `b` toggles a "waiting & blocked" section that says *why* each is stuck; keys `j/k d s w x z o a A t e b c r ? q`; prompts for add/wait/note; `e` suspends to `$EDITOR` and reloads; refreshes on `/changes` long-poll + 30s age tick; header shows DISCONNECTED if the daemon goes away | `tui/app.rs` unit tests (ranking rows, selection survives rebuild, keys → Commands); `tui/ui.rs` `TestBackend` snapshots (`panel_snapshot`, `panel_stuck`, `panel_help`) + empty/all-blocked states |
 | ✅ | **P4 nudges** | R1–R6 as pure rules in `core::nudge` (`evaluate`, event-driven `resurfaced`); `NudgeLog` cooldowns persisted to `.tododo/nudges.json`; daemon scheduler every 5 min + 300 ms after each mutation; `Notifier` trait with `DesktopNotifier` (shell-out) and `LogNotifier`; `serve --no-notify`, `--quiet 22-8`; `GET /nudges` returns the current set; TUI header shows the first nudge | `core::nudge` tests: every rule's message, all-blocked, cooldown suppression + persistence across reload, prune, quiet hours wrapping midnight; `tests/daemon.rs` asserts `/nudges` republishes after a mutation |
 | ✅ | **P5 MCP** | `tododo mcp`: rmcp 3.5 stdio server proxying to the daemon (auto-starts it). Tools `next get_task list_tasks tree add_task set_status update_task move_task touch nudges`; resources `tododo://index`, `tododo://next`; server instructions explain the model (block at the leaf, resurfaced). Logs to stderr. | `crates/tododo/tests/mcp.rs` speaks raw newline-delimited JSON-RPC to the spawned binary: initialize, tools/list, add → next (blocked) → set_status (resurfaced event) → resources/read, and error mapping. To register: `claude mcp add tododo -- tododo mcp` |
-| ⬜ | **P6 web** | askama pages + forms for the same actions | router request tests |
+| ✅ | **P6 web** | Served by the daemon at `http://127.0.0.1:7407/`: panel page (summary, nudges, quick-add, ranked rows with status buttons, toggleable waiting & blocked section, context pills) and task page (ancestry, facts, subtasks with buttons, wait/touch/add-subtask forms, full edit form incl. body and reparent). Plain HTML + one CSS file, dark-mode aware, phone-width layout. Form posts gated on `Sec-Fetch-Site`/`Origin`. | `crates/tododo/tests/web.rs` against the in-process router: pages render, escaping, add → subtask → blocked, refused close surfaces as flash, edit form round-trip, cross-site/cross-origin posts → 403, 404 for unknown ids |
 | | post-v1 | snooze, Obsidian two-way (file watching), streamable-HTTP `/mcp`, recurring | |
 
 ### Deviations from the original plan (recorded as they happen)
@@ -241,6 +241,27 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 - **P4:** the resurfaced nudge key embeds the firing second (`resurfaced:<id>@<ts>`) so "once per resurfacing" holds even though the rule has no cooldown; `prune` keeps the log bounded.
 - **P5:** tools return pretty-printed JSON as text content rather than rmcp's structured `Json<T>` output, because that wrapper requires `JsonSchema` on every core type and the text is what an LLM reads anyway. Input structs do derive `JsonSchema` (via `rmcp::schemars`) so tool schemas are accurate.
 - **P5:** failures surface as JSON-RPC errors (`-32602` for not-found/validation/conflict, `-32603` otherwise), not as `isError` tool results. rmcp's `Result<_, ErrorData>` return maps that way by default; clients see the message either way.
+- **P6:** no askama. Two pages and a handful of forms are hand-built over an `esc()` helper in `server/web.rs`; a template engine was more machinery than it saved and would have added a build-time dependency. Revisit if the UI grows past a few pages.
+- **P6:** HTML forms are the one browser-reachable mutation path, which the "JSON-only mutations" defence in ADR 0003 did not cover. Form handlers refuse requests whose `Sec-Fetch-Site` is not `same-origin`/`none` or whose `Origin` does not match `Host`. Flash messages travel in `?msg=`; `back` targets are restricted to local paths.
+- **P6:** the daemon still binds `127.0.0.1` only, so "phone on the LAN" needs a `--bind` option — deferred to post-v1 alongside an auth token.
+
+## Resume here
+
+**v1 is complete** (all six phases, 2026-09-30). 53 automated tests; `cargo fmt`,
+`clippy --all-targets` and `cargo test` are clean at the commit that landed P6.
+
+Candidate next steps, roughly in order of how much they would change daily use:
+
+1. **Live with it for a week** before adding features; tune tier order via `next --explain`.
+2. **Snooze** (`snoozed_until` hides a todo/doing task until a date) — plan already sketches it as `¬snoozed(t)` in `actionable`.
+3. **Obsidian two-way**: file watching (`notify` crate) so edits in the vault show up without `tododo reload`. The `(mtime, len)` guard already prevents clobbering; this is about latency.
+4. **`--bind` + auth token** so the web UI works from a phone on the LAN.
+5. **Recurring tasks**, **streamable-HTTP `/mcp`** mounted in the daemon, **R6 WIP limit tuning**.
+6. TUI niceties: tree view mode, search, multi-select.
+
+When picking one up: update the phase table above (add a row), record deviations as
+they happen, and add an ADR if the decision is hard to reverse and would surprise a
+future reader.
 
 ## Verification (end to end, after P1–P3)
 

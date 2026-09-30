@@ -18,7 +18,9 @@ impl Env {
     fn cmd(&self) -> Command {
         let mut c = Command::cargo_bin("tododo").unwrap();
         c.env("TODODO_DIR", self.dir.path())
-            .env_remove("TODODO_CONTEXT");
+            .env("TODODO_DIRECT", "1")
+            .env_remove("TODODO_CONTEXT")
+            .env_remove("TODODO_PORT");
         c
     }
 
@@ -160,4 +162,94 @@ fn flags_after_title_are_flags_not_title() {
     env.cmd().args(["show", &id]).assert().success().stdout(
         predicate::str::contains("Buy milk\n").and(predicate::str::contains("context   personal")),
     );
+}
+
+/// Daemon mode: the first command auto-starts a daemon on a free port, later
+/// commands reuse it, `stop` shuts it down. Cleans up even on failure.
+struct DaemonEnv {
+    dir: tempfile::TempDir,
+}
+
+impl DaemonEnv {
+    fn new() -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let env = DaemonEnv { dir };
+        env.cmd().arg("init").assert().success();
+        env
+    }
+
+    fn cmd(&self) -> Command {
+        let mut c = Command::cargo_bin("tododo").unwrap();
+        c.env("TODODO_DIR", self.dir.path())
+            .env("TODODO_PORT", "0")
+            .env_remove("TODODO_DIRECT")
+            .env_remove("TODODO_CONTEXT");
+        c
+    }
+}
+
+impl Drop for DaemonEnv {
+    fn drop(&mut self) {
+        let _ = self.cmd().arg("stop").output();
+    }
+}
+
+#[test]
+fn daemon_mode_autostarts_reuses_and_stops() {
+    let env = DaemonEnv::new();
+    env.cmd()
+        .args(["status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("not running"));
+
+    // First real command starts the daemon.
+    let out = env.cmd().args(["add", "Hello daemon"]).output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let id = String::from_utf8(out.stdout)
+        .unwrap()
+        .split_whitespace()
+        .nth(1)
+        .unwrap()
+        .to_string();
+
+    let status = env.cmd().args(["status"]).output().unwrap();
+    let status = String::from_utf8(status.stdout).unwrap();
+    assert!(status.starts_with("running"), "{status}");
+    let pid1 = status.split_whitespace().nth(3).unwrap().to_string();
+
+    // Second command reuses the same daemon (same pid) and sees the task.
+    env.cmd()
+        .args(["show", &id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Hello daemon"));
+    let status = env.cmd().args(["status"]).output().unwrap();
+    let status = String::from_utf8(status.stdout).unwrap();
+    assert_eq!(status.split_whitespace().nth(3).unwrap(), pid1, "{status}");
+
+    // While the daemon holds the lock, --direct is refused with a hint.
+    env.cmd()
+        .args(["--direct", "ls"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("tododo stop"));
+
+    env.cmd()
+        .args(["stop"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("asked the daemon"));
+    for _ in 0..40 {
+        let out = env.cmd().args(["status"]).output().unwrap();
+        if String::from_utf8_lossy(&out.stdout).contains("not running") {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    panic!("daemon did not stop");
 }

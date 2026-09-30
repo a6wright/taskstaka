@@ -220,7 +220,7 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 | | Phase | Deliverable | Verified by |
 |---|---|---|---|
 | ✅ | **P1 core + CLI** | `tododo-core` complete; CLI runs `Store` in-process. `init add start done wait someday drop reopen next ls show mv edit touch rm reindex path`. **Usable alone.** | 30 core unit tests (every tier, resurfaced, someday inheritance, followup); frontmatter round-trip incl. Obsidian-rewritten YAML; `insta` snapshots of `index.md` and canonical frontmatter; 3 `assert_cmd` e2e tests in `crates/tododo/tests/cli.rs` |
-| ⬜ | **P2 daemon** | axum, all endpoints, daemon.json, lock, auto-start, long-poll; CLI → ureq (direct mode kept as `--direct`) | in-process server on port 0 driven by ureq; auto-start test |
+| ✅ | **P2 daemon** | axum on `127.0.0.1:7407`, all endpoints incl. generic `POST /api/v1/commands`, daemon.json, lock, auto-start from any CLI command, `/changes` long-poll, `serve/stop/status`; CLI → ureq via a `Backend` trait (direct mode kept as `--direct` / `TODODO_DIRECT=1`) | `crates/tododo/tests/daemon.rs` drives the real router in-process on port 0 (resurface flow, error envelope, long-poll wake, second-daemon refusal); `tests/cli.rs` auto-starts a real detached daemon on `TODODO_PORT=0`, reuses it, and stops it |
 | ⬜ | **P3 TUI** | `tododo tui`: next list w/ tier badge, `root › parent` breadcrumb, ages; keys `j/k d s w a enter c ?`; refresh on `/changes` | ratatui `TestBackend` snapshots |
 | ⬜ | **P4 nudges** | rules + scheduler + `Notifier` + `/nudges` in TUI header | pure-rule tests with injected `now`; cooldown persistence |
 | ⬜ | **P5 MCP** | `tododo mcp` | `npx @modelcontextprotocol/inspector tododo mcp`; add to Claude Code and ask it "what's next?" |
@@ -232,6 +232,9 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 - **P1:** timestamps are rounded to whole seconds before writing (readable frontmatter, stable diffs); consequently `resurfaced` uses `max(child.completed) ≥ t.updated` rather than `>`.
 - **P1:** no `fd-lock` crate; `std::fs::File::try_lock` (stable since Rust 1.89) holds the daemon lock.
 - **P1:** `edit <id>` with no flags opens the note in `$EDITOR` and reloads — simpler than a body-only PATCH round-trip for the CLI. The HTTP `PATCH` still carries `body`.
+- **P2:** the CLI computes `next`/`ls`/`show` locally from a full `GET /tasks?include_closed=true` snapshot rebuilt into a `Tree`, rather than calling `/next`. One rendering path for direct and daemon modes, and CLI/TUI can never disagree with each other. `/next` exists for MCP, web and curl.
+- **P2:** added `GET /api/v1/resolve/{prefix}` and a generic `POST /api/v1/commands` (takes a `Command`); the resource-style endpoints build the same `Command`s internally.
+- **P2:** the binary crate is also a library (`crates/tododo/src/lib.rs`) so integration tests can bind the real router in-process.
 
 ## Verification (end to end, after P1–P3)
 

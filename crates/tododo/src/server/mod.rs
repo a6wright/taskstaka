@@ -1,0 +1,162 @@
+//! The daemon: one `Store` behind a mutex, an axum router, a revision
+//! counter for long-polling, and the lifecycle around `daemon.json`.
+
+pub mod error;
+pub mod routes;
+
+use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+use anyhow::{Context as _, Result};
+use axum::Router;
+use jiff::Timestamp;
+use tododo_core::{Store, StoreError};
+use tokio::net::TcpListener;
+use tokio::sync::{Notify, watch};
+use tracing::info;
+
+use crate::VERSION;
+use crate::client::DaemonInfo;
+
+pub struct AppState {
+    pub store: Mutex<Store>,
+    pub rev: watch::Sender<u64>,
+    pub shutdown: Notify,
+    pub dir: PathBuf,
+    pub started: Timestamp,
+}
+
+impl AppState {
+    pub fn open(dir: &Path) -> Result<Arc<AppState>, StoreError> {
+        let store = Store::open(dir)?;
+        let (rev, _) = watch::channel(1);
+        Ok(Arc::new(AppState {
+            store: Mutex::new(store),
+            rev,
+            shutdown: Notify::new(),
+            dir: dir.to_path_buf(),
+            started: Timestamp::now(),
+        }))
+    }
+
+    pub fn bump(&self) {
+        self.rev.send_modify(|r| *r += 1);
+    }
+
+    pub fn current_rev(&self) -> u64 {
+        *self.rev.borrow()
+    }
+}
+
+pub fn router(state: Arc<AppState>) -> Router {
+    routes::router(state)
+}
+
+pub struct ServeOpts {
+    pub dir: PathBuf,
+    pub port: u16,
+}
+
+/// A daemon bound and ready to serve; `run` and tests drive it.
+pub struct Bound {
+    pub state: Arc<AppState>,
+    pub addr: SocketAddr,
+    listener: TcpListener,
+}
+
+impl Bound {
+    /// Take the lock, load the store, bind the port. Does not serve yet.
+    pub async fn bind(dir: &Path, port: u16) -> Result<Bound> {
+        let state = AppState::open(dir).map_err(|e| match e {
+            StoreError::Locked(p) => {
+                anyhow::anyhow!("another daemon already holds {}", p.display())
+            }
+            other => anyhow::Error::from(other),
+        })?;
+        let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port)))
+            .await
+            .with_context(|| format!("binding 127.0.0.1:{port}"))?;
+        let addr = listener.local_addr()?;
+        Ok(Bound {
+            state,
+            addr,
+            listener,
+        })
+    }
+
+    /// Serve until a shutdown request or signal. Writes and removes daemon.json.
+    pub async fn serve(self) -> Result<()> {
+        let Bound {
+            state,
+            addr,
+            listener,
+        } = self;
+        let info = DaemonInfo {
+            pid: std::process::id(),
+            port: addr.port(),
+            version: VERSION.to_string(),
+            started: state.started.to_string(),
+        };
+        info.write(&state.dir).context("writing daemon.json")?;
+        info!(%addr, dir = %state.dir.display(), "tododo daemon listening");
+
+        let app = router(state.clone());
+        let shutdown_state = state.clone();
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let ctrl_c = tokio::signal::ctrl_c();
+                #[cfg(unix)]
+                let term = async {
+                    match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    {
+                        Ok(mut s) => {
+                            s.recv().await;
+                        }
+                        Err(_) => std::future::pending::<()>().await,
+                    }
+                };
+                #[cfg(not(unix))]
+                let term = std::future::pending::<()>();
+                tokio::select! {
+                    _ = ctrl_c => info!("ctrl-c"),
+                    _ = term => info!("SIGTERM"),
+                    _ = shutdown_state.shutdown.notified() => info!("shutdown requested"),
+                }
+            })
+            .await?;
+        DaemonInfo::remove(&state.dir);
+        info!("daemon stopped");
+        Ok(())
+    }
+}
+
+/// Foreground entry point for `tododo serve`.
+pub fn run(opts: ServeOpts) -> Result<()> {
+    init_tracing();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("starting the async runtime")?;
+    rt.block_on(async move {
+        let bound = match Bound::bind(&opts.dir, opts.port).await {
+            Ok(b) => b,
+            Err(e) if e.to_string().starts_with("another daemon") => {
+                eprintln!("{e}; nothing to do");
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
+        bound.serve().await
+    })
+}
+
+fn init_tracing() {
+    use tracing_subscriber::EnvFilter;
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .with_target(false)
+        .try_init();
+}

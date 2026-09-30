@@ -30,6 +30,8 @@ pub struct NudgeConfig {
     /// (start, end), e.g. (22, 8). Nudges are still computed and shown in
     /// the panel.
     pub quiet_hours: Option<(u8, u8)>,
+    /// Local hour after which the daily "waiting on" digest may fire.
+    pub digest_hour: u8,
 }
 
 impl Default for NudgeConfig {
@@ -39,6 +41,7 @@ impl Default for NudgeConfig {
             stale_days: 14,
             wip_limit: 3,
             quiet_hours: None,
+            digest_hour: 9,
         }
     }
 }
@@ -66,6 +69,8 @@ pub enum Rule {
     Resurfaced,
     FollowUpDue,
     WipLimit,
+    /// Daily list of everyone you are waiting on.
+    WaitingDigest,
 }
 
 impl Rule {
@@ -77,6 +82,7 @@ impl Rule {
             Rule::Resurfaced => 0,
             Rule::FollowUpDue => 24 * 3600,
             Rule::WipLimit => 24 * 3600,
+            Rule::WaitingDigest => 20 * 3600,
         }
     }
 }
@@ -120,6 +126,7 @@ fn rule_slug(r: Rule) -> &'static str {
         Rule::Resurfaced => "resurfaced",
         Rule::FollowUpDue => "follow_up_due",
         Rule::WipLimit => "wip_limit",
+        Rule::WaitingDigest => "waiting_digest",
     }
 }
 
@@ -191,17 +198,29 @@ pub fn evaluate(tree: &Tree, now: &Zoned, cfg: &NudgeConfig) -> Vec<Nudge> {
             }
         }
         if d.followup {
-            out.push(Nudge::new(
+            let since = t.waiting_since.unwrap_or(t.updated);
+            let chased = match (t.chases.len(), t.chases.last()) {
+                (0, _) => String::new(),
+                (n, Some(last)) => {
+                    format!(", chased {n}× (last {} ago)", humanize::since(*last, ts))
+                }
+                (n, None) => format!(", chased {n}×"),
+            };
+            let mut n = Nudge::new(
                 Rule::FollowUpDue,
                 Some(&t.id),
                 "Follow up",
                 format!(
-                    "'{}': waiting on {} for {}.",
-                    t.title,
+                    "Follow up with {}: '{}' — waiting {}{chased}.",
                     t.waiting_on.as_deref().unwrap_or("someone"),
-                    humanize::since(t.updated, ts)
+                    t.title,
+                    humanize::since(since, ts)
                 ),
-            ));
+            );
+            // A new chase restarts the cooldown: the next reminder is about the
+            // next follow-up, not the one you just did.
+            n.key = format!("{}#{}", n.key, t.chases.len());
+            out.push(n);
         }
         if d.actionable && secs_between(t.updated) > stale_after && t.status != Status::Doing {
             stale.push((&t.id, t.title.as_str(), secs_between(t.updated)));
@@ -239,6 +258,59 @@ pub fn evaluate(tree: &Tree, now: &Zoned, cfg: &NudgeConfig) -> Vec<Nudge> {
             "Too much in flight",
             format!("{doing} things are 'doing'. Pick one."),
         ));
+    }
+
+    // R7: once a day, after digest_hour, the whole "waiting on" list. Keyed by
+    // date so the cooldown log makes it naturally once-per-day.
+    if now.hour() as u8 >= cfg.digest_hour {
+        let groups = crate::action::waiting_on(tree, now, None);
+        if !groups.is_empty() {
+            let listed: Vec<String> = groups
+                .iter()
+                .take(4)
+                .map(|g| {
+                    let first = &g.items[0];
+                    let extra = if g.items.len() > 1 {
+                        format!(" +{}", g.items.len() - 1)
+                    } else {
+                        String::new()
+                    };
+                    let chased = if first.wait.chases > 0 {
+                        format!(", {}×", first.wait.chases)
+                    } else {
+                        String::new()
+                    };
+                    format!(
+                        "{} — {} ({}{chased}){extra}",
+                        g.person,
+                        first.wait.title,
+                        humanize::duration(first.since_secs)
+                    )
+                })
+                .collect();
+            let more = if groups.len() > 4 {
+                format!(" and {} more", groups.len() - 4)
+            } else {
+                String::new()
+            };
+            let mut n = Nudge::new(
+                Rule::WaitingDigest,
+                None,
+                "Waiting on",
+                format!(
+                    "Waiting on {} {}: {}{more}.",
+                    groups.len(),
+                    if groups.len() == 1 {
+                        "person"
+                    } else {
+                        "people"
+                    },
+                    listed.join(" · ")
+                ),
+            );
+            n.key = format!("waiting_digest:{}", today);
+            out.push(n);
+        }
     }
 
     out
@@ -383,7 +455,10 @@ mod tests {
         t.status = Status::Waiting;
         t.waiting_on = Some("Bob".into());
         let tree = Tree::from_tasks([t]);
-        let n = evaluate(&tree, &now, &NudgeConfig::default());
+        let n: Vec<Nudge> = evaluate(&tree, &now, &NudgeConfig::default())
+            .into_iter()
+            .filter(|x| x.rule != Rule::WaitingDigest)
+            .collect();
         assert_eq!(n.len(), 1);
         assert_eq!(n[0].rule, Rule::AllBlocked);
         assert!(n[0].message.contains("waiting on Bob"));
@@ -392,7 +467,11 @@ mod tests {
     #[test]
     fn cooldown_log_suppresses_and_persists() {
         let (tree, now) = fixture();
-        let n = evaluate(&tree, &now, &NudgeConfig::default());
+        // The date-keyed digest is exercised in waiting_tests; drop it here.
+        let n: Vec<Nudge> = evaluate(&tree, &now, &NudgeConfig::default())
+            .into_iter()
+            .filter(|x| x.rule != Rule::WaitingDigest)
+            .collect();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nudges.json");
         let mut log = NudgeLog::load(&path);
@@ -435,5 +514,66 @@ mod tests {
         assert!(cfg.in_quiet_hours(&late));
         assert!(cfg.in_quiet_hours(&early));
         assert!(!cfg.in_quiet_hours(&day));
+    }
+}
+
+#[cfg(test)]
+mod waiting_tests {
+    use super::*;
+    use crate::model::{Context, Task};
+    use jiff::ToSpan;
+
+    #[test]
+    fn digest_once_a_day_after_digest_hour_and_follow_up_mentions_chases() {
+        let morning: Zoned = "2026-09-29T08:00:00[UTC]".parse().unwrap();
+        let later: Zoned = "2026-09-29T10:00:00[UTC]".parse().unwrap();
+        let mut t = Task::new(
+            "wa1t00".parse().unwrap(),
+            "DNS",
+            Context::Work,
+            morning.timestamp() - 3.days().try_into().unwrap_or(jiff::SignedDuration::ZERO),
+        );
+        t.status = Status::Waiting;
+        t.waiting_on = Some("B".into());
+        t.waiting_since = Some(t.created);
+        t.chases = vec![t.created];
+        t.until = Some(morning.date());
+        let tree = Tree::from_tasks([t]);
+        let cfg = NudgeConfig::default();
+
+        let early = evaluate(&tree, &morning, &cfg);
+        assert!(
+            early.iter().all(|n| n.rule != Rule::WaitingDigest),
+            "before digest hour"
+        );
+        let fu = early.iter().find(|n| n.rule == Rule::FollowUpDue).unwrap();
+        assert!(
+            fu.message.contains("Follow up with B") && fu.message.contains("chased 1×"),
+            "{}",
+            fu.message
+        );
+        assert!(
+            fu.key.ends_with("#1"),
+            "key carries the chase count: {}",
+            fu.key
+        );
+
+        let day = evaluate(&tree, &later, &cfg);
+        let digest = day.iter().find(|n| n.rule == Rule::WaitingDigest).unwrap();
+        assert_eq!(digest.key, "waiting_digest:2026-09-29");
+        assert!(
+            digest.message.starts_with("Waiting on 1 person: B — DNS"),
+            "{}",
+            digest.message
+        );
+
+        let mut log = NudgeLog::default();
+        assert_eq!(log.take_due(&day, later.timestamp()).len(), day.len());
+        let again: Zoned = "2026-09-29T17:00:00[UTC]".parse().unwrap();
+        assert!(
+            log.take_due(&evaluate(&tree, &again, &cfg), again.timestamp())
+                .is_empty(),
+            "same day: quiet"
+        );
     }
 }

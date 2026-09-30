@@ -190,3 +190,70 @@ fn tools_and_resources_round_trip() {
 
     std::thread::sleep(Duration::from_millis(50));
 }
+
+#[test]
+fn agent_loop_waiting_chase_dedupe_redirect_and_answer() {
+    let mut s = Session::start();
+    let story = serde_json::from_str::<Value>(
+        &s.call("add_task", json!({"title": "Get DNS address"}))
+            .unwrap(),
+    )
+    .unwrap()["primary"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let out = s
+        .call("add_task", json!({"title": "Wildcard?", "parent": story, "waiting_on": "B", "until": "today", "waiting_ref": "https://teams.example/t/1"}))
+        .unwrap();
+    let sub = serde_json::from_str::<Value>(&out).unwrap()["primary"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let due: Value =
+        serde_json::from_str(&s.call("waiting", json!({"due": true})).unwrap()).unwrap();
+    assert_eq!(due[0]["person"], "B");
+    assert_eq!(
+        due[0]["items"][0]["waiting_ref"],
+        "https://teams.example/t/1"
+    );
+    assert_eq!(due[0]["items"][0]["due_now"], true);
+
+    let first = s.call("chase", json!({"id": sub, "dedupe": "2026-10-02", "source": "agent", "note": "drafted a follow-up"})).unwrap();
+    assert!(first.contains("\"deduped\": false"), "{first}");
+    let second = s
+        .call(
+            "chase",
+            json!({"id": sub, "dedupe": "2026-10-02", "source": "agent"}),
+        )
+        .unwrap();
+    assert!(second.contains("\"deduped\": true"), "{second}");
+
+    s.call("record_reply", json!({"id": sub, "outcome": "redirected", "to": "C", "summary": "C owns DNS", "source": "agent"})).unwrap();
+    let all: Value = serde_json::from_str(&s.call("waiting", json!({})).unwrap()).unwrap();
+    assert_eq!(all[0]["person"], "C");
+    assert_eq!(all[0]["items"][0]["chases"], 0, "handoff resets the count");
+
+    let task = s.call("get_task", json!({"id": sub})).unwrap();
+    assert!(task.contains("[agent] chased B"), "{task}");
+    assert!(
+        task.contains("[agent] B redirected to C: C owns DNS"),
+        "{task}"
+    );
+
+    s.call(
+        "record_reply",
+        json!({"id": sub, "outcome": "answered", "summary": "wildcard is fine"}),
+    )
+    .unwrap();
+    let next: Value = serde_json::from_str(&s.call("next", json!({})).unwrap()).unwrap();
+    assert!(
+        next["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["id"] == sub),
+        "{next}"
+    );
+    std::thread::sleep(Duration::from_millis(50));
+}

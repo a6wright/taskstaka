@@ -30,7 +30,14 @@ a task with open subtasks is blocked and not actionable; when its last subtask c
 becomes actionable again and is flagged 'resurfaced'. Prefer `next` to answer \"what should \
 I work on?\". Add subtasks under the task they serve (block at the leaf). Mark a task \
 `waiting` with a reason when it depends on someone else. Ids are 6 characters; unique \
-prefixes are accepted.";
+prefixes are accepted.\n\n\
+People: when the user says they asked someone or are waiting on someone, mark the task \
+waiting on that person (`set_status` waiting, or `add_task` with waiting_on); a follow-up \
+date is set automatically. When they say the person replied, call `record_reply` (answered, \
+declined, partial, or redirected to someone else). When they say they pinged the person \
+again, call `chase`. `waiting` lists everyone the user is waiting on; use due=true to find \
+follow-ups that are due. If you can read the user's messages, check whether those people \
+replied and record it — but never send messages on the user's behalf; draft them instead.";
 
 #[derive(Clone)]
 pub struct TododoMcp {
@@ -103,6 +110,12 @@ pub struct AddArgs {
     pub body: Option<String>,
     /// Create parked (someday) instead of todo.
     pub someday: Option<bool>,
+    /// Create it already waiting on this person.
+    pub waiting_on: Option<String>,
+    /// Follow-up date for waiting_on (default +2d).
+    pub until: Option<String>,
+    /// Link to the conversation (thread URL, message id).
+    pub waiting_ref: Option<String>,
 }
 
 #[derive(Deserialize, rmcp::schemars::JsonSchema)]
@@ -134,6 +147,10 @@ pub struct UpdateArgs {
     pub tags: Option<Vec<String>>,
     /// Replaces the markdown body.
     pub body: Option<String>,
+    /// Handoff: wait on this person instead (task must be waiting).
+    pub waiting_on: Option<String>,
+    /// Link to the conversation.
+    pub waiting_ref: Option<String>,
 }
 
 #[derive(Deserialize, rmcp::schemars::JsonSchema)]
@@ -259,6 +276,9 @@ impl TododoMcp {
                 None
             },
             after: None,
+            waiting_on: a.waiting_on,
+            until: parse_date(a.until)?,
+            waiting_ref: a.waiting_ref,
         };
         self.apply(Command::Add(add)).await
     }
@@ -305,6 +325,8 @@ impl TododoMcp {
         };
         edit.tags = a.tags;
         edit.body = a.body;
+        edit.waiting_on = a.waiting_on.map(Set::To).unwrap_or(Set::Keep);
+        edit.waiting_ref = a.waiting_ref.map(Set::To).unwrap_or(Set::Keep);
         self.apply(Command::Edit(edit)).await
     }
 
@@ -337,6 +359,94 @@ impl TododoMcp {
         let v = self.blocking(|c| c.nudges()).await?;
         pretty(&v)
     }
+
+    #[tool(
+        description = "Who the user is waiting on, grouped by person: for each item the task, the story it serves, how long, chase count, last chase, follow-up date (`until`), whether the follow-up is due now, and `waiting_ref` (a link to the conversation, if known). Use due=true for only the follow-ups that are due."
+    )]
+    async fn waiting(&self, Parameters(a): Parameters<WaitingArgs>) -> Result<String, ErrorData> {
+        let ctx = parse_context(a.context)?;
+        let due = a.due.unwrap_or(false);
+        let v = self.blocking(move |c| c.waiting(ctx, due)).await?;
+        pretty(&v)
+    }
+
+    #[tool(
+        description = "Record that the person was chased (pinged again) on a waiting task. Shortens the next follow-up. Pass dedupe (e.g. today's date) so repeated runs are no-ops, and source='agent' when acting on the user's behalf. Never sends a message itself."
+    )]
+    async fn chase(&self, Parameters(a): Parameters<ChaseArgs>) -> Result<String, ErrorData> {
+        let id = self.resolve(&a.id).await?;
+        self.apply(Command::Chase {
+            id,
+            until: parse_date(a.until)?,
+            note: a.note,
+            source: a.source,
+            dedupe: a.dedupe,
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Record that the person got back to the user on a waiting task. outcome: answered (task becomes todo), declined (todo), partial (keep waiting, follow-up reset), redirected (keep waiting on `to`). summary is required and is journaled. Pass source='agent' when acting on the user's behalf."
+    )]
+    async fn record_reply(
+        &self,
+        Parameters(a): Parameters<ReplyArgs>,
+    ) -> Result<String, ErrorData> {
+        use tododo_core::command::ReplyOutcome as R;
+        let id = self.resolve(&a.id).await?;
+        let outcome = match a.outcome.to_ascii_lowercase().as_str() {
+            "answered" => R::Answered,
+            "declined" => R::Declined,
+            "partial" => R::Partial,
+            "redirected" => R::Redirected {
+                to: a.to.ok_or_else(|| invalid("redirected needs `to`"))?,
+            },
+            other => return Err(invalid(format!("unknown outcome {other:?}"))),
+        };
+        self.apply(Command::RecordReply {
+            id,
+            outcome,
+            summary: a.summary,
+            waiting_ref: a.waiting_ref,
+            source: a.source,
+        })
+        .await
+    }
+}
+
+#[derive(Deserialize, rmcp::schemars::JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct WaitingArgs {
+    pub context: Option<String>,
+    /// Only items whose follow-up date has arrived.
+    pub due: Option<bool>,
+}
+
+#[derive(Deserialize, rmcp::schemars::JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct ChaseArgs {
+    pub id: String,
+    /// Next follow-up date (YYYY-MM-DD, today, tomorrow, +Nd). Default shortens automatically.
+    pub until: Option<String>,
+    pub note: Option<String>,
+    /// e.g. "agent"
+    pub source: Option<String>,
+    /// Idempotency key, e.g. today's date.
+    pub dedupe: Option<String>,
+}
+
+#[derive(Deserialize, rmcp::schemars::JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct ReplyArgs {
+    pub id: String,
+    /// answered | declined | partial | redirected
+    pub outcome: String,
+    /// For redirected: who to wait on now.
+    pub to: Option<String>,
+    /// One line on what they said.
+    pub summary: String,
+    pub waiting_ref: Option<String>,
+    pub source: Option<String>,
 }
 
 #[tool_handler]

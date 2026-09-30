@@ -65,7 +65,24 @@ An open task with a finished ancestor: its parent was ticked off and it was reop
 _Avoid_: dangling, stranded, zombie
 
 **Follow-up**:
-A waiting task whose `until` date is today or past. Actionable; the action is to chase.
+A waiting task whose `until` date is today or past. Actionable; the action is to chase. Every wait has one; the store sets a default.
+
+**Chase**:
+Recording that you poked the person again. Bumps the chase count and shortens the next follow-up. An agent may record a chase on your behalf (tagged), but nobody sends messages through tododo.
+_Avoid_: ping, nag, remind (that is a nudge)
+
+**Handoff**:
+Changing who a waiting task waits on (A said "talk to B"). Resets the wait's clock and chase count; journaled.
+_Avoid_: reassign, escalate
+
+**Reply**:
+What came back from the person: answered, declined, partial, or redirected to someone else. Recorded with a one-line summary; answered/declined hand the task back to you.
+
+**Digest**:
+The once-a-day nudge listing everyone you are waiting on.
+
+**Conversation link** (`waiting_ref`):
+An opaque pointer to where the wait lives (thread URL, message id) so you or an agent can jump back to it.
 
 **Tier**:
 The lexicographic rank bucket of an actionable task: overdue, resurfaced, doing, follow-up, due soon, high, normal, low. Explainable by design.

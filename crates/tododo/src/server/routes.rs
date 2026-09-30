@@ -38,6 +38,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/tasks/{id}/status", post(set_status))
         .route("/api/v1/tasks/{id}/move", post(move_task))
         .route("/api/v1/tasks/{id}/touch", post(touch_task))
+        .route("/api/v1/tasks/{id}/chase", post(chase_task))
+        .route("/api/v1/tasks/{id}/reply", post(reply_task))
+        .route("/api/v1/waiting", get(waiting))
         .route("/api/v1/tree", get(tree))
         .route("/api/v1/resolve/{prefix}", get(resolve))
         .route("/api/v1/commands", post(command))
@@ -232,6 +235,10 @@ struct EditFields {
     due: Set<Date>,
     tags: Option<Vec<String>>,
     body: Option<String>,
+    #[serde(default)]
+    waiting_on: Set<String>,
+    #[serde(default)]
+    waiting_ref: Set<String>,
 }
 
 async fn patch_task(State(s): S, Path(id): Path<String>, Json(f): Json<EditFields>) -> R<Outcome> {
@@ -244,6 +251,8 @@ async fn patch_task(State(s): S, Path(id): Path<String>, Json(f): Json<EditField
         due: f.due,
         tags: f.tags,
         body: f.body,
+        waiting_on: f.waiting_on,
+        waiting_ref: f.waiting_ref,
     };
     Ok(Json(apply(&s, Command::Edit(edit)).await?))
 }
@@ -401,4 +410,87 @@ async fn reload(State(s): S) -> R<serde_json::Value> {
 async fn shutdown(State(s): S) -> impl IntoResponse {
     s.shutdown.notify_one();
     Json(serde_json::json!({ "ok": true }))
+}
+
+// ---------- waiting on people ----------
+
+#[derive(Deserialize)]
+struct WaitingQuery {
+    context: Option<Context>,
+    /// Only items whose follow-up date has arrived.
+    #[serde(default)]
+    due: bool,
+}
+
+async fn waiting(
+    State(s): S,
+    Query(q): Query<WaitingQuery>,
+) -> R<Vec<tododo_core::action::PersonGroup>> {
+    let store = s
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal("store mutex poisoned"))?;
+    let mut groups = tododo_core::action::waiting_on(store.tree(), &Zoned::now(), q.context);
+    if q.due {
+        for g in &mut groups {
+            g.items.retain(|i| i.due_now);
+        }
+        groups.retain(|g| !g.items.is_empty());
+    }
+    Ok(Json(groups))
+}
+
+#[derive(Deserialize, Default)]
+struct ChaseBody {
+    until: Option<Date>,
+    note: Option<String>,
+    source: Option<String>,
+    dedupe: Option<String>,
+}
+
+async fn chase_task(
+    State(s): S,
+    Path(id): Path<String>,
+    body: Option<Json<ChaseBody>>,
+) -> R<Outcome> {
+    let id = resolve_id(&s, &id)?;
+    let b = body.map(|Json(b)| b).unwrap_or_default();
+    Ok(Json(
+        apply(
+            &s,
+            Command::Chase {
+                id,
+                until: b.until,
+                note: b.note,
+                source: b.source,
+                dedupe: b.dedupe,
+            },
+        )
+        .await?,
+    ))
+}
+
+#[derive(Deserialize)]
+struct ReplyBody {
+    outcome: tododo_core::command::ReplyOutcome,
+    summary: String,
+    waiting_ref: Option<String>,
+    source: Option<String>,
+}
+
+async fn reply_task(State(s): S, Path(id): Path<String>, Json(b): Json<ReplyBody>) -> R<Outcome> {
+    let id = resolve_id(&s, &id)?;
+    Ok(Json(
+        apply(
+            &s,
+            Command::RecordReply {
+                id,
+                outcome: b.outcome,
+                summary: b.summary,
+                waiting_ref: b.waiting_ref,
+                source: b.source,
+            },
+        )
+        .await?,
+    ))
 }

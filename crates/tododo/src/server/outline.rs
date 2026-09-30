@@ -32,6 +32,18 @@ pub async fn outline(
     let ctx = q.context.map(|c| c.to_string()).unwrap_or_default();
     let mut body = String::new();
     body.push_str(&super::web::nav_html("outline", q.context));
+    if let Ok(store) = s.store.lock() {
+        let back = match q.context {
+            Some(c) => format!("/?context={c}"),
+            None => "/".to_string(),
+        };
+        body.push_str(&super::web::waiting_strip(
+            store.tree(),
+            &jiff::Zoned::now(),
+            q.context,
+            &back,
+        ));
+    }
     if let Some(m) = &q.msg {
         body.push_str(&format!(r#"<p class="flash">{}</p>"#, esc(m)));
     }
@@ -105,9 +117,10 @@ function badges(node) {
   const t = node.task, d = node.task.derived;
   const out = [];
   if (t.status === 'doing') out.push(['doing', '▶ doing ' + ago(t.started || t.created)]);
-  if (t.status === 'waiting') out.push(['waiting', '⌛ ' + (t.waiting_on || '') + (t.until ? ' until ' + t.until : '')]);
+  if (t.status === 'waiting') out.push(['waiting', '⌛ ' + (t.waiting_on || '') + ' · ' + ago(t.waiting_since || t.updated) + (t.chases && t.chases.length ? ' · ' + t.chases.length + '×' : '') + (t.until ? ' · follow up ' + t.until : '')]);
+  if (d.waiting_on_summary) out.push(['waiting', '⌛ ' + d.waiting_on_summary.person + ' · ' + ago(d.waiting_on_summary.since)]);
   if (t.status === 'someday') out.push(['someday', '💤 someday']);
-  if (d.blocked_by > 0) out.push(['blocked', '⏳ blocked by ' + d.blocked_by]);
+  if (d.blocked_by > 0 && !d.waiting_on_summary) out.push(['blocked', '⏳ blocked by ' + d.blocked_by]);
   if (d.resurfaced_at) out.push(['back', '↩ back']);
   if (d.orphaned) out.push(['orphan', '⚠ parent finished']);
   if (t.due) out.push([t.due < new Date().toISOString().slice(0,10) ? 'overdue' : 'due', '📅 ' + t.due]);
@@ -206,7 +219,11 @@ async function createDraft(el, parent, after) {
   el.textContent = '';
   dirty = false;
   await act(async () => {
-    const out = await api('POST', '/api/v1/tasks', {title: text, parent: parent || null, after: after || null, context: (!parent && ctx) ? ctx : null});
+    // "ask about TTL @B" → waiting on B; "@B +3d" also sets the follow-up date.
+    let title = text, waiting_on = null, until = null;
+    const m = text.match(/^(.*\S)\s+@(\S+)(?:\s+(\+\d+[dwm]|\d{4}-\d{2}-\d{2}|today|tomorrow))?\s*$/);
+    if (m) { title = m[1]; waiting_on = m[2]; until = m[3] || null; }
+    const out = await api('POST', '/api/v1/tasks', {title, parent: parent || null, after: after || null, context: (!parent && ctx) ? ctx : null, waiting_on, until});
     focus = {id: null, atEnd: true};       // stay on the new-line box for rapid capture
     lastCreated = out.primary;
     return out;

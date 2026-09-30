@@ -96,7 +96,38 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     spans.push(status);
     let line1 = Line::from(spans);
 
-    let line2 = if let Some(n) = app.nudges.first() {
+    let waiting = tododo_core::action::waiting_on(&app.tree, &app.now, app.ctx);
+    let line2 = if let Some((_, msg)) = app
+        .message
+        .as_ref()
+        .filter(|(k, _)| *k == MessageKind::Error)
+    {
+        Line::from(Span::styled(
+            format!(" {msg}"),
+            Style::default().fg(Color::Red).bold(),
+        ))
+    } else if let Some(g) = waiting.first() {
+        let first = &g.items[0];
+        let more = waiting.len() - 1;
+        let chased = match first.wait.chases {
+            0 => String::new(),
+            n => format!(" · {n}×"),
+        };
+        Line::from(Span::styled(
+            format!(
+                " ⌛ waiting on {} · {} · {}{chased}{}",
+                g.person,
+                first.wait.title,
+                tododo_core::humanize::duration(first.since_secs),
+                if more > 0 {
+                    format!("  (+{more} more · b)")
+                } else {
+                    String::new()
+                }
+            ),
+            Style::default().fg(Color::Cyan),
+        ))
+    } else if let Some(n) = app.nudges.first() {
         Line::from(Span::styled(
             format!(" ⚑ {n}"),
             Style::default().fg(Color::Magenta),
@@ -278,6 +309,17 @@ fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
     }
     if let Some(at) = d.resurfaced_at {
         facts.push(format!("resurfaced {} ago", humanize::since(at, now)));
+    }
+    if let Some(ws) = &d.waiting_on_summary {
+        facts.push(format!(
+            "waiting on {} via '{}' since {}",
+            ws.person,
+            ws.title,
+            humanize::since(ws.since, now)
+        ));
+    }
+    if !t.chases.is_empty() {
+        facts.push(format!("chased {}×", t.chases.len()));
     }
     if let Some(w) = &t.waiting_on {
         facts.push(format!(

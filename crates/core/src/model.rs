@@ -215,8 +215,19 @@ pub struct Task {
     pub due: Option<Date>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waiting_on: Option<String>,
+    /// Follow-up date. Invariant: always set while `status == Waiting`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub until: Option<Date>,
+    /// When the current wait started (cleared on leaving `waiting`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting_since: Option<Timestamp>,
+    /// Opaque pointer to the conversation (thread URL, message id) so an
+    /// agent or the user can jump back to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting_ref: Option<String>,
+    /// Every time the person was chased during the current wait.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chases: Vec<Timestamp>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
     /// Markdown body below the frontmatter. Not part of the YAML.
@@ -241,9 +252,21 @@ impl Task {
             due: None,
             waiting_on: None,
             until: None,
+            waiting_since: None,
+            waiting_ref: None,
+            chases: Vec::new(),
             tags: Vec::new(),
             body: String::new(),
         }
+    }
+
+    /// Forget everything about the current wait (on leaving `waiting`).
+    pub fn clear_waiting(&mut self) {
+        self.waiting_on = None;
+        self.until = None;
+        self.waiting_since = None;
+        self.waiting_ref = None;
+        self.chases.clear();
     }
 
     /// Sort key among siblings: explicit `order`, else creation time in

@@ -46,6 +46,37 @@ pub struct Derived {
     /// Open, but some ancestor is closed: the parent was ticked off and this
     /// was reopened (or added) afterwards. Still actionable; shown with a hint.
     pub orphaned: bool,
+    /// For a blocked task: the person the wait ultimately comes down to — the
+    /// oldest waiting descendant. Lets the parent say "waiting on B · 4d".
+    pub waiting_on_summary: Option<WaitingRef>,
+}
+
+/// One person you are waiting on, for one task.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WaitingRef {
+    pub person: String,
+    pub task_id: TaskId,
+    pub title: String,
+    pub since: Timestamp,
+    pub chases: usize,
+    pub last_chased: Option<Timestamp>,
+    pub until: Option<Date>,
+    pub waiting_ref: Option<String>,
+}
+
+impl WaitingRef {
+    fn of(t: &Task) -> WaitingRef {
+        WaitingRef {
+            person: t.waiting_on.clone().unwrap_or_else(|| "someone".into()),
+            task_id: t.id.clone(),
+            title: t.title.clone(),
+            since: t.waiting_since.unwrap_or(t.updated),
+            chases: t.chases.len(),
+            last_chased: t.chases.last().copied(),
+            until: t.until,
+            waiting_ref: t.waiting_ref.clone(),
+        }
+    }
 }
 
 pub fn derive(tree: &Tree, task: &Task, today: Date) -> Derived {
@@ -90,6 +121,16 @@ pub fn derive(tree: &Tree, task: &Task, today: Date) -> Derived {
         None
     };
 
+    let waiting_on_summary = if blocked_by > 0 {
+        tree.descendants(&task.id)
+            .into_iter()
+            .filter(|d| d.status == Status::Waiting)
+            .min_by_key(|d| d.waiting_since.unwrap_or(d.updated))
+            .map(WaitingRef::of)
+    } else {
+        None
+    };
+
     Derived {
         blocked_by,
         deferred_by,
@@ -97,7 +138,82 @@ pub fn derive(tree: &Tree, task: &Task, today: Date) -> Derived {
         actionable,
         resurfaced_at,
         orphaned,
+        waiting_on_summary,
     }
+}
+
+/// One item in the "waiting on" view.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WaitingItem {
+    #[serde(flatten)]
+    pub wait: WaitingRef,
+    /// The story this serves, if it is a subtask.
+    pub root_title: Option<String>,
+    pub root_id: Option<TaskId>,
+    pub since_secs: i64,
+    /// The follow-up date has arrived.
+    pub due_now: bool,
+}
+
+/// Everything you are waiting on one person for.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersonGroup {
+    pub person: String,
+    pub items: Vec<WaitingItem>,
+    pub oldest_secs: i64,
+    pub any_due: bool,
+}
+
+/// Who am I waiting on, for what, how long? People with a due follow-up
+/// first, then whoever has kept you waiting longest.
+pub fn waiting_on(tree: &Tree, now: &Zoned, ctx: Option<Context>) -> Vec<PersonGroup> {
+    let today = now.date();
+    let ts = now.timestamp();
+    let mut groups: Vec<PersonGroup> = Vec::new();
+    for t in tree
+        .iter()
+        .filter(|t| t.status == Status::Waiting && in_context(tree, t, ctx))
+    {
+        let wait = WaitingRef::of(t);
+        let root = tree.root_of(&t.id).filter(|r| r.id != t.id);
+        let item = WaitingItem {
+            since_secs: ts.as_second() - wait.since.as_second(),
+            due_now: wait.until.is_some_and(|u| u <= today),
+            root_title: root.map(|r| r.title.clone()),
+            root_id: root.map(|r| r.id.clone()),
+            wait,
+        };
+        let key = item.wait.person.trim().to_lowercase();
+        match groups
+            .iter_mut()
+            .find(|g| g.person.trim().to_lowercase() == key)
+        {
+            Some(g) => g.items.push(item),
+            None => groups.push(PersonGroup {
+                person: item.wait.person.clone(),
+                items: vec![item],
+                oldest_secs: 0,
+                any_due: false,
+            }),
+        }
+    }
+    for g in &mut groups {
+        g.items.sort_by_key(|i| {
+            (
+                std::cmp::Reverse(i.due_now),
+                std::cmp::Reverse(i.since_secs),
+            )
+        });
+        g.oldest_secs = g.items.iter().map(|i| i.since_secs).max().unwrap_or(0);
+        g.any_due = g.items.iter().any(|i| i.due_now);
+    }
+    groups.sort_by_key(|g| {
+        (
+            std::cmp::Reverse(g.any_due),
+            std::cmp::Reverse(g.oldest_secs),
+        )
+    });
+    groups
 }
 
 /// Ranking tiers, best first. Lexicographic so the panel can explain itself.
@@ -302,11 +418,17 @@ fn classify(t: &Task, d: &Derived, today: Date, soon: Date, now: Timestamp) -> (
     }
     if d.followup {
         let who = t.waiting_on.as_deref().unwrap_or("someone");
-        let until = t.until.map(|u| u.to_string()).unwrap_or_default();
+        let since = t.waiting_since.unwrap_or(t.updated);
+        let chased = match t.chases.len() {
+            0 => String::new(),
+            n => format!(", chased {n}×"),
+        };
+        // Most-chased first, then earliest follow-up date.
+        let key = t.until.map(days_since_epoch).unwrap_or(0) - (t.chases.len() as i64) * 100_000;
         return (
             Tier::FollowUp,
-            format!("follow up with {who} (since {until})"),
-            t.until.map(days_since_epoch).unwrap_or(0),
+            format!("follow up with {who}: waiting {}{chased}", ago(since)),
+            key,
         );
     }
     if let Some(due) = t.due
@@ -557,5 +679,85 @@ mod orphan_tests {
             "{}",
             items[0].reason
         );
+    }
+}
+
+#[cfg(test)]
+mod waiting_tests {
+    use super::*;
+    use jiff::{Timestamp, ToSpan};
+
+    #[test]
+    fn grouped_by_person_with_due_first_and_parent_summary() {
+        let now: Zoned = "2026-09-29T15:00:00[UTC]".parse().unwrap();
+        let at = |h: i64| -> Timestamp { now.timestamp() - (h * 3600).seconds() };
+        let mut dns = Task::new(
+            "dns000".parse().unwrap(),
+            "Get DNS address",
+            Context::Work,
+            at(100),
+        );
+        let mut ask = Task::new(
+            "ask000".parse().unwrap(),
+            "What's possible?",
+            Context::Work,
+            at(96),
+        );
+        ask.parent = Some(dns.id.clone());
+        ask.status = Status::Waiting;
+        ask.waiting_on = Some("B".into());
+        ask.waiting_since = Some(at(96));
+        ask.chases = vec![at(48)];
+        ask.until = Some(now.date()); // due today
+        let mut other = Task::new(
+            "0thr00".parse().unwrap(),
+            "Budget sign-off",
+            Context::Work,
+            at(10),
+        );
+        other.status = Status::Waiting;
+        other.waiting_on = Some("c".into());
+        other.waiting_since = Some(at(10));
+        other.until = Some(now.date().checked_add(3.days()).unwrap());
+        let mut same = Task::new(
+            "same00".parse().unwrap(),
+            "Also from B",
+            Context::Work,
+            at(5),
+        );
+        same.status = Status::Waiting;
+        same.waiting_on = Some("b".into()); // case-insensitive grouping
+        same.waiting_since = Some(at(5));
+        same.until = Some(now.date().checked_add(2.days()).unwrap());
+        dns.body.clear();
+        let tree = Tree::from_tasks([dns.clone(), ask, other, same]);
+
+        let groups = waiting_on(&tree, &now, None);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].person, "B");
+        assert!(groups[0].any_due);
+        assert_eq!(groups[0].items.len(), 2);
+        assert_eq!(
+            groups[0].items[0].wait.title, "What's possible?",
+            "due item first"
+        );
+        assert_eq!(
+            groups[0].items[0].root_title.as_deref(),
+            Some("Get DNS address")
+        );
+        assert_eq!(groups[0].items[0].wait.chases, 1);
+        assert_eq!(groups[1].person, "c");
+
+        let d = derive(&tree, &dns, now.date());
+        assert!(!d.actionable);
+        let w = d.waiting_on_summary.expect("parent knows who it waits on");
+        assert_eq!(w.person, "B");
+        assert_eq!(w.task_id.as_str(), "ask000");
+
+        // Follow-ups rank most-chased first.
+        let items = needs_action(&tree, &now, None, &RankConfig::default());
+        let fu: Vec<&NextItem> = items.iter().filter(|i| i.tier == Tier::FollowUp).collect();
+        assert_eq!(fu.len(), 1);
+        assert!(fu[0].reason.contains("chased 1×"), "{}", fu[0].reason);
     }
 }

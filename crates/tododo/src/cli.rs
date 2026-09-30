@@ -65,25 +65,46 @@ pub fn main() -> Result<()> {
                 }
             };
         }
+        Cmd::Restart => {
+            let was_running = Client::stop_and_wait(&dir)?;
+            let port = cli.port.unwrap_or(crate::DEFAULT_PORT);
+            crate::client::spawn_daemon(&dir, port)?;
+            let c = Client::connect(&dir, Some(port))?;
+            let h = c.health()?;
+            println!(
+                "{} daemon at {}  pid {}  v{}",
+                if was_running { "restarted" } else { "started" },
+                c.base(),
+                h.pid,
+                h.version
+            );
+            return Ok(());
+        }
         Cmd::Tui { context } => return crate::tui::run(&dir, cli.port, context),
         Cmd::Mcp => return crate::mcp::run(&dir, cli.port),
         Cmd::Status => {
             return match Client::discover(&dir) {
                 Some(c) => {
                     let h = c.health()?;
+                    let stale = c.is_stale();
                     if json {
                         println!(
                             "{}",
-                            serde_json::json!({"running": true, "url": c.base(), "pid": h.pid, "version": h.version, "rev": h.rev, "dir": h.todo_dir})
+                            serde_json::json!({"running": true, "url": c.base(), "pid": h.pid, "version": h.version, "rev": h.rev, "dir": h.todo_dir, "stale": stale})
                         );
                     } else {
                         println!(
-                            "running  {}  pid {}  v{}  rev {}  {}",
+                            "running  {}  pid {}  v{}  rev {}  {}{}",
                             c.base(),
                             h.pid,
                             h.version,
                             h.rev,
-                            h.todo_dir.display()
+                            h.todo_dir.display(),
+                            if stale {
+                                "  (stale: started before this binary was built — run `tododo restart`)"
+                            } else {
+                                ""
+                            }
                         );
                     }
                     Ok(())
@@ -110,7 +131,25 @@ pub fn main() -> Result<()> {
     for w in backend.warnings() {
         eprintln!("warning: {w}");
     }
+    if !direct
+        && !env_truthy("TODODO_NO_STALE_WARNING")
+        && Client::discover(&dir).is_some_and(|c| c.is_stale())
+    {
+        eprintln!(
+            "warning: the daemon started before this binary was built — run `tododo restart`"
+        );
+    }
     run(backend.as_mut(), cli.cmd, json)
+}
+
+fn reply_label(o: &tododo_core::command::ReplyOutcome) -> String {
+    use tododo_core::command::ReplyOutcome as R;
+    match o {
+        R::Answered => "answered".into(),
+        R::Declined => "declined".into(),
+        R::Partial => "partial".into(),
+        R::Redirected { to } => format!("redirected to {to}"),
+    }
 }
 
 /// `1`, `true`, `yes`, `on` (any case) count as set.
@@ -128,8 +167,82 @@ fn env_truthy(name: &str) -> bool {
 pub fn run(b: &mut dyn Backend, cmd: Cmd, json: bool) -> Result<()> {
     let now = Zoned::now();
     match cmd {
-        Cmd::Init | Cmd::Serve { .. } | Cmd::Stop | Cmd::Status | Cmd::Tui { .. } | Cmd::Mcp => {
+        Cmd::Init
+        | Cmd::Serve { .. }
+        | Cmd::Stop
+        | Cmd::Restart
+        | Cmd::Status
+        | Cmd::Tui { .. }
+        | Cmd::Mcp => {
             unreachable!("handled in main")
+        }
+
+        Cmd::Chase { id, until, note } => {
+            let id = b.resolve(&id)?;
+            let note = if note.is_empty() {
+                None
+            } else {
+                Some(note.join(" "))
+            };
+            let out = b.apply(Command::Chase {
+                id,
+                until,
+                note,
+                source: None,
+                dedupe: None,
+            })?;
+            report(b, &out, json, &now)
+        }
+
+        Cmd::Waiting { context, due } => {
+            let tree = b.tree()?;
+            let mut groups = tododo_core::action::waiting_on(&tree, &now, context);
+            if due {
+                for g in &mut groups {
+                    g.items.retain(|i| i.due_now);
+                }
+                groups.retain(|g| !g.items.is_empty());
+            }
+            if json {
+                println!("{}", serde_json::to_string_pretty(&groups)?);
+            } else if groups.is_empty() {
+                println!("not waiting on anyone");
+            } else {
+                print!("{}", render::waiting_text(&groups, &now));
+            }
+            Ok(())
+        }
+
+        Cmd::Reply {
+            id,
+            outcome,
+            to,
+            waiting_ref,
+            summary,
+        } => {
+            use tododo_core::command::ReplyOutcome as R;
+            let id = b.resolve(&id)?;
+            let outcome = match outcome.to_ascii_lowercase().as_str() {
+                "answered" | "yes" | "replied" => R::Answered,
+                "declined" | "no" => R::Declined,
+                "partial" => R::Partial,
+                "redirected" | "redirect" => R::Redirected {
+                    to: to
+                        .clone()
+                        .ok_or_else(|| anyhow::anyhow!("redirected: say who with --to PERSON"))?,
+                },
+                other => bail!(
+                    "unknown outcome {other:?}: answered | declined | partial | redirected --to X"
+                ),
+            };
+            let out = b.apply(Command::RecordReply {
+                id,
+                outcome,
+                summary: summary.join(" "),
+                waiting_ref,
+                source: None,
+            })?;
+            report(b, &out, json, &now)
         }
 
         Cmd::Add(a) => {
@@ -182,16 +295,30 @@ pub fn run(b: &mut dyn Backend, cmd: Cmd, json: bool) -> Result<()> {
         }
         Cmd::Reopen { id } => set_status(b, &id, Status::Todo, None, None, false, json, &now),
         Cmd::Someday { id } => set_status(b, &id, Status::Someday, None, None, false, json, &now),
-        Cmd::Wait { id, until, reason } => set_status(
-            b,
-            &id,
-            Status::Waiting,
-            Some(reason.join(" ")),
+        Cmd::Wait {
+            id,
             until,
-            false,
-            json,
-            &now,
-        ),
+            waiting_ref,
+            reason,
+        } => {
+            let rid = b.resolve(&id)?;
+            set_status(
+                b,
+                &id,
+                Status::Waiting,
+                Some(reason.join(" ")),
+                until,
+                false,
+                json,
+                &now,
+            )?;
+            if let Some(r) = waiting_ref {
+                let mut edit = EditTask::new(rid);
+                edit.waiting_ref = Set::To(r);
+                b.apply(Command::Edit(edit))?;
+            }
+            Ok(())
+        }
 
         Cmd::Touch { id, note } => {
             let id = b.resolve(&id)?;
@@ -263,6 +390,9 @@ fn add_task(a: AddArgs, title: String, parent: Option<TaskId>) -> AddTask {
             None
         },
         after: None,
+        waiting_on: a.waiting_on,
+        until: a.until,
+        waiting_ref: a.waiting_ref,
     }
 }
 
@@ -328,6 +458,8 @@ fn edit(b: &mut dyn Backend, e: EditArgs, json: bool, now: &Zoned) -> Result<()>
     } else {
         e.priority.map(Set::To).unwrap_or(Set::Keep)
     };
+    edit.waiting_on = e.waiting_on.map(Set::To).unwrap_or(Set::Keep);
+    edit.waiting_ref = e.waiting_ref.map(Set::To).unwrap_or(Set::Keep);
     edit.tags = if e.tags.is_empty() {
         None
     } else {
@@ -396,6 +528,35 @@ fn report(b: &mut dyn Backend, out: &Outcome, json: bool, now: &Zoned) -> Result
             }
             Event::CascadeClosed { id, status } => {
                 println!("{status} subtask {id}  {}", title(id))
+            }
+            Event::Chased {
+                id,
+                person,
+                count,
+                deduped,
+            } => {
+                if *deduped {
+                    println!("{id}  already chased {person} today; nothing changed");
+                } else {
+                    let until = tree
+                        .get(id)
+                        .and_then(|t| t.until)
+                        .map(|u| format!("; follow up again {u}"))
+                        .unwrap_or_default();
+                    println!("{id}  chased {person} ({count}×){until}");
+                }
+            }
+            Event::ReplyReceived {
+                id,
+                person,
+                outcome,
+            } => println!(
+                "{id}  {person} replied ({}): {}",
+                reply_label(outcome),
+                title(id)
+            ),
+            Event::HandedOff { id, from, to } => {
+                println!("{id}  handed off: {from} → {to}  (follow-up reset)")
             }
             Event::Deleted { id } => println!("deleted {id}"),
             Event::ReloadedFromDisk { id } => println!("(reloaded {id} from disk first)"),

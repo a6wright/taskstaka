@@ -49,6 +49,11 @@ pub struct AddTask {
     pub status: Option<Status>,
     /// Place the new task right after this sibling. Omit to append at the end.
     pub after: Option<TaskId>,
+    /// Create it already waiting on this person (`status` is then ignored).
+    pub waiting_on: Option<String>,
+    /// Follow-up date for `waiting_on`; defaults per store config.
+    pub until: Option<Date>,
+    pub waiting_ref: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -62,6 +67,12 @@ pub struct EditTask {
     pub due: Set<Date>,
     pub tags: Option<Vec<String>>,
     pub body: Option<String>,
+    /// Handoff: change who a waiting task waits on (journaled). Only valid
+    /// while waiting; `Clear` is refused (use a status change instead).
+    #[serde(default)]
+    pub waiting_on: Set<String>,
+    #[serde(default)]
+    pub waiting_ref: Set<String>,
 }
 
 impl EditTask {
@@ -75,8 +86,24 @@ impl EditTask {
             due: Set::Keep,
             tags: None,
             body: None,
+            waiting_on: Set::Keep,
+            waiting_ref: Set::Keep,
         }
     }
+}
+
+/// What came back from the person you were waiting on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ReplyOutcome {
+    /// They answered: the task is yours again (`todo`).
+    Answered,
+    /// They pointed you at someone else: keep waiting, on that person.
+    Redirected { to: String },
+    /// Something, but not enough: keep waiting, follow-up reset.
+    Partial,
+    /// They said no: the task is yours again to decide what's next.
+    Declined,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -106,6 +133,31 @@ pub enum Command {
         /// Appended to the body as a timestamped journal line.
         note: Option<String>,
     },
+    /// You poked the person again. Requires `waiting`. Shortens the next
+    /// follow-up and records the chase.
+    Chase {
+        id: TaskId,
+        until: Option<Date>,
+        note: Option<String>,
+        /// Who is acting, e.g. "agent"; tagged in the journal.
+        #[serde(default)]
+        source: Option<String>,
+        /// Idempotency key (e.g. today's date): a repeat with the same key
+        /// changes nothing and reports `deduped`.
+        #[serde(default)]
+        dedupe: Option<String>,
+    },
+    /// The person got back to you. Requires `waiting`.
+    RecordReply {
+        id: TaskId,
+        outcome: ReplyOutcome,
+        /// One line on what they said; always journaled.
+        summary: String,
+        #[serde(default)]
+        waiting_ref: Option<String>,
+        #[serde(default)]
+        source: Option<String>,
+    },
     Delete {
         id: TaskId,
         /// Also delete descendants. Without it, only leaves may be deleted.
@@ -133,6 +185,25 @@ pub enum Event {
     CascadeClosed {
         id: TaskId,
         status: Status,
+    },
+    Chased {
+        id: TaskId,
+        person: String,
+        /// Total chases during this wait, after this one.
+        count: usize,
+        /// The dedupe key matched an earlier chase; nothing changed.
+        deduped: bool,
+    },
+    ReplyReceived {
+        id: TaskId,
+        person: String,
+        outcome: ReplyOutcome,
+    },
+    /// `waiting_on` changed while still waiting.
+    HandedOff {
+        id: TaskId,
+        from: String,
+        to: String,
     },
     Deleted {
         id: TaskId,

@@ -263,3 +263,67 @@ fn init_is_idempotent() {
         .success()
         .stdout(predicate::str::contains("already initialized"));
 }
+
+/// The scenario that motivated P8: ask A, A says talk to B, B goes quiet.
+#[test]
+fn dns_scenario_waiting_chase_handoff_and_reply() {
+    let env = Env::new();
+    let dns = env.add(&["Get DNS address"]);
+    let ask = env.add(&["What's possible for wildcard?", "-p", &dns, "-w", "A"]);
+
+    // Follow-up defaulted; the parent knows who it is waiting on.
+    env.cmd()
+        .args(["show", &ask])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("waiting   A (until"));
+    let next = env.next();
+    assert!(!next.contains(&dns), "DNS is blocked:\n{next}");
+    env.cmd().args(["waiting"]).assert().success().stdout(
+        predicate::str::contains("A  (1 item").and(predicate::str::contains("Get DNS address")),
+    );
+
+    // Handoff to B, then chase B twice (second one dedupes only via the API; CLI always chases).
+    env.cmd()
+        .args([
+            "edit",
+            &ask,
+            "--waiting-on",
+            "B",
+            "--ref",
+            "https://teams.example/t/1",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("handed off: A → B"));
+    env.cmd()
+        .args(["chase", &ask, "pinged", "again"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("chased B (1×); follow up again"));
+    env.cmd()
+        .args(["waiting", "--json"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("\"person\": \"B\"")
+                .and(predicate::str::contains("\"chases\": 1")),
+        );
+
+    // B answers: the subtask is todo again, journaled, and the story is still blocked
+    // (by the now-actionable subtask) until it is done.
+    env.cmd()
+        .args(["reply", &ask, "answered", "use", "the", "wildcard", "cert"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("B replied (answered)"));
+    env.cmd().args(["show", &ask]).assert().success().stdout(
+        predicate::str::contains("status    todo")
+            .and(predicate::str::contains("B replied: use the wildcard cert")),
+    );
+    env.cmd()
+        .args(["waiting"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("not waiting on anyone"));
+}

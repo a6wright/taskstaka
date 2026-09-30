@@ -108,16 +108,54 @@ pub enum Cmd {
     /// Park it. Someday tasks don't block their parent and don't rank.
     Someday { id: String },
 
-    /// Waiting on something external. The reason is required.
+    /// Waiting on someone. Follow-up defaults to 2 days out.
     Wait {
         id: String,
         /// Follow-up date: YYYY-MM-DD, today, tomorrow, +Nd.
         #[arg(long, value_parser = dates::parse_date)]
         until: Option<jiff::civil::Date>,
-        /// What you are waiting on.
+        /// Link to the conversation (thread URL, message id).
+        #[arg(long = "ref")]
+        waiting_ref: Option<String>,
+        /// Who (or what) you are waiting on.
         #[arg(required = true)]
         reason: Vec<String>,
     },
+
+    /// You poked them again: records the chase and shortens the next follow-up.
+    Chase {
+        id: String,
+        #[arg(long, value_parser = dates::parse_date)]
+        until: Option<jiff::civil::Date>,
+        note: Vec<String>,
+    },
+
+    /// Who am I waiting on, for what, how long? Grouped by person.
+    Waiting {
+        #[arg(short, long)]
+        context: Option<Context>,
+        /// Only follow-ups that are due.
+        #[arg(long)]
+        due: bool,
+    },
+
+    /// They got back to you: answered | declined | partial | redirected TO.
+    Reply {
+        id: String,
+        /// answered, declined, partial, or redirected
+        outcome: String,
+        /// For `redirected`: the person to wait on now.
+        #[arg(long)]
+        to: Option<String>,
+        #[arg(long = "ref")]
+        waiting_ref: Option<String>,
+        /// One line on what they said.
+        #[arg(required = true)]
+        summary: Vec<String>,
+    },
+
+    /// Stop the daemon and start a fresh one (after installing a new build).
+    Restart,
 
     /// Bump "last touched"; optionally journal a note into the body.
     Touch { id: String, note: Vec<String> },
@@ -169,6 +207,15 @@ pub struct AddArgs {
     /// Create and start immediately.
     #[arg(long, conflicts_with = "someday")]
     pub start: bool,
+    /// Create it already waiting on this person.
+    #[arg(short = 'w', long = "waiting-on", conflicts_with_all = ["someday", "start"])]
+    pub waiting_on: Option<String>,
+    /// Follow-up date for --waiting-on (default +2d).
+    #[arg(long, value_parser = dates::parse_date, requires = "waiting_on")]
+    pub until: Option<jiff::civil::Date>,
+    /// Conversation link for --waiting-on.
+    #[arg(long = "ref", requires = "waiting_on")]
+    pub waiting_ref: Option<String>,
     #[arg(required = true)]
     pub title: Vec<String>,
 }
@@ -206,6 +253,12 @@ pub struct EditArgs {
     /// Replace the tag list.
     #[arg(short, long = "tag")]
     pub tags: Vec<String>,
+    /// Handoff: wait on this person instead (task must be waiting).
+    #[arg(long = "waiting-on")]
+    pub waiting_on: Option<String>,
+    /// Set the conversation link.
+    #[arg(long = "ref")]
+    pub waiting_ref: Option<String>,
 }
 
 impl EditArgs {
@@ -217,6 +270,8 @@ impl EditArgs {
             || self.priority.is_some()
             || self.no_priority
             || !self.tags.is_empty()
+            || self.waiting_on.is_some()
+            || self.waiting_ref.is_some()
     }
 }
 

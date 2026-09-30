@@ -249,3 +249,51 @@ fn truncate(s: &str, max: usize) -> String {
         t
     }
 }
+
+/// `tododo waiting`: grouped by person, due follow-ups first.
+pub fn waiting_text(groups: &[tododo_core::action::PersonGroup], now: &Zoned) -> String {
+    let mut out = String::new();
+    let today = now.date();
+    for g in groups {
+        let due = if g.any_due { " · follow-up due" } else { "" };
+        let _ = writeln!(
+            out,
+            "{}  ({} item{} · oldest {}{due})",
+            g.person,
+            g.items.len(),
+            if g.items.len() == 1 { "" } else { "s" },
+            humanize::duration(g.oldest_secs),
+        );
+        for i in &g.items {
+            let root = i
+                .root_title
+                .as_deref()
+                .map(|r| format!("  ‹ {r}"))
+                .unwrap_or_default();
+            let chased = match i.wait.chases {
+                0 => String::new(),
+                n => format!(" · chased {n}×"),
+            };
+            let until = match i.wait.until {
+                Some(u) if u < today => format!(" · follow-up was {u}"),
+                Some(u) if u == today => " · follow up today".to_string(),
+                Some(u) => format!(" · follow up {u}"),
+                None => String::new(),
+            };
+            let link = i
+                .wait
+                .waiting_ref
+                .as_deref()
+                .map(|r| format!("\n           {r}"))
+                .unwrap_or_default();
+            let _ = writeln!(
+                out,
+                "   {}  {}{root}  {}{chased}{until}{link}",
+                i.wait.task_id,
+                i.wait.title,
+                humanize::duration(i.since_secs),
+            );
+        }
+    }
+    out
+}

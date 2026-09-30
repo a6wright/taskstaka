@@ -11,7 +11,7 @@ use std::time::SystemTime;
 use jiff::Zoned;
 use thiserror::Error;
 
-use crate::command::{AddTask, Command, EditTask, Event, Outcome};
+use crate::command::{AddTask, Command, EditTask, Event, Outcome, Set};
 use crate::frontmatter::{self, FrontmatterError};
 use crate::index_md;
 use crate::model::{Status, Task, TaskId};
@@ -96,7 +96,11 @@ pub struct Store {
     _lock: File,
     /// Non-fatal problems found at load (e.g. dangling parents).
     pub load_warnings: Vec<String>,
+    /// Default follow-up window when a task enters `waiting` without `until`.
+    pub follow_up_days: i64,
 }
+
+pub const DEFAULT_FOLLOW_UP_DAYS: i64 = 2;
 
 fn io_err(path: &Path, source: std::io::Error) -> StoreError {
     StoreError::Io {
@@ -137,6 +141,7 @@ impl Store {
             stamps: HashMap::new(),
             _lock: lock,
             load_warnings: Vec::new(),
+            follow_up_days: DEFAULT_FOLLOW_UP_DAYS,
         };
         store.reload()?;
         store.reindex(&Zoned::now())?;
@@ -290,7 +295,7 @@ impl Store {
 
         match cmd {
             Command::Add(add) => {
-                let task = self.plan_add(add, ts)?;
+                let task = self.plan_add(add, now)?;
                 outcome.primary = Some(task.id.clone());
                 outcome.events.push(Event::Created {
                     id: task.id.clone(),
@@ -311,14 +316,14 @@ impl Store {
                     waiting_on,
                     until,
                     cascade,
-                    ts,
+                    now,
                     &mut writes,
                     &mut outcome,
                 )?;
             }
             Command::Edit(edit) => {
                 outcome.primary = Some(edit.id.clone());
-                writes.push(self.plan_edit(edit, ts)?);
+                writes.push(self.plan_edit(edit, now, &mut outcome)?);
             }
             Command::Move { id, parent, after } => {
                 outcome.primary = Some(id.clone());
@@ -329,15 +334,166 @@ impl Store {
                 let mut t = self.get(&id)?.clone();
                 t.updated = ts;
                 if let Some(note) = note.filter(|n| !n.trim().is_empty()) {
-                    if !t.body.is_empty() && !t.body.ends_with('\n') {
-                        t.body.push('\n');
-                    }
-                    t.body.push_str(&format!(
-                        "- {} {}\n",
-                        now.strftime("%Y-%m-%d %H:%M"),
-                        note.trim()
+                    journal(&mut t, now, None, note.trim());
+                }
+                writes.push(t);
+            }
+            Command::Chase {
+                id,
+                until,
+                note,
+                source,
+                dedupe,
+            } => {
+                outcome.primary = Some(id.clone());
+                let mut t = self.get(&id)?.clone();
+                if t.status != Status::Waiting {
+                    return Err(StoreError::InvalidTransition {
+                        id: id.clone(),
+                        from: t.status,
+                        to: Status::Waiting,
+                        reason: "only a waiting task can be chased".into(),
+                    });
+                }
+                let person = t.waiting_on.clone().unwrap_or_else(|| "someone".into());
+                // Idempotency: the same dedupe key within this wait is a no-op.
+                let key_line = dedupe.as_ref().map(|k| format!("[chase:{k}]"));
+                if let Some(k) = &key_line
+                    && t.body.contains(k.as_str())
+                {
+                    outcome.events.push(Event::Chased {
+                        id: id.clone(),
+                        person,
+                        count: t.chases.len(),
+                        deduped: true,
+                    });
+                    return Ok(outcome);
+                }
+                t.chases.push(ts);
+                t.updated = ts;
+                let today = now.date();
+                let n = t.chases.len() as i64;
+                t.until = Some(match until {
+                    Some(u) => u,
+                    None => today
+                        .checked_add(jiff::Span::new().days((self.follow_up_days - n).max(1)))
+                        .unwrap_or(today),
+                });
+                let mut line = format!("chased {person}; follow up {}", t.until.unwrap_or(today));
+                if let Some(n) = note.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+                    line.push_str(": ");
+                    line.push_str(n);
+                }
+                if let Some(k) = key_line {
+                    line.push(' ');
+                    line.push_str(&k);
+                }
+                journal(&mut t, now, source.as_deref(), &line);
+                outcome.events.push(Event::Chased {
+                    id: id.clone(),
+                    person,
+                    count: t.chases.len(),
+                    deduped: false,
+                });
+                writes.push(t);
+            }
+            Command::RecordReply {
+                id,
+                outcome: reply,
+                summary,
+                waiting_ref,
+                source,
+            } => {
+                outcome.primary = Some(id.clone());
+                let mut t = self.get(&id)?.clone();
+                if t.status != Status::Waiting {
+                    return Err(StoreError::InvalidTransition {
+                        id: id.clone(),
+                        from: t.status,
+                        to: Status::Todo,
+                        reason: "only a waiting task can receive a reply".into(),
+                    });
+                }
+                let summary = summary.trim();
+                if summary.is_empty() {
+                    return Err(StoreError::Validation(
+                        "record_reply needs a one-line summary of what they said".into(),
                     ));
                 }
+                let person = t.waiting_on.clone().unwrap_or_else(|| "someone".into());
+                if let Some(r) = waiting_ref {
+                    t.waiting_ref = Some(r);
+                }
+                let today = now.date();
+                use crate::command::ReplyOutcome as R;
+                match &reply {
+                    R::Answered => {
+                        journal(
+                            &mut t,
+                            now,
+                            source.as_deref(),
+                            &format!("{person} replied: {summary}"),
+                        );
+                        t.clear_waiting();
+                        t.status = Status::Todo;
+                        outcome.events.push(Event::StatusChanged {
+                            id: id.clone(),
+                            from: Status::Waiting,
+                            to: Status::Todo,
+                        });
+                    }
+                    R::Declined => {
+                        journal(
+                            &mut t,
+                            now,
+                            source.as_deref(),
+                            &format!("{person} declined: {summary}"),
+                        );
+                        t.clear_waiting();
+                        t.status = Status::Todo;
+                        outcome.events.push(Event::StatusChanged {
+                            id: id.clone(),
+                            from: Status::Waiting,
+                            to: Status::Todo,
+                        });
+                    }
+                    R::Redirected { to } => {
+                        let to = to.trim().to_string();
+                        if to.is_empty() {
+                            return Err(StoreError::Validation("redirected: to whom?".into()));
+                        }
+                        journal(
+                            &mut t,
+                            now,
+                            source.as_deref(),
+                            &format!("{person} redirected to {to}: {summary}"),
+                        );
+                        outcome.events.push(Event::HandedOff {
+                            id: id.clone(),
+                            from: person.clone(),
+                            to: to.clone(),
+                        });
+                        t.waiting_on = Some(to);
+                        t.waiting_since = Some(ts);
+                        t.chases.clear();
+                        t.until = Some(self.default_until(today));
+                    }
+                    R::Partial => {
+                        journal(
+                            &mut t,
+                            now,
+                            source.as_deref(),
+                            &format!("{person} partially: {summary}"),
+                        );
+                        t.until = Some(self.default_until(today));
+                    }
+                }
+                t.updated = ts;
+                outcome.events.push(Event::ReplyReceived {
+                    id: id.clone(),
+                    person,
+                    outcome: reply,
+                });
                 writes.push(t);
             }
             Command::Delete { id, force } => {
@@ -392,7 +548,12 @@ impl Store {
         }
     }
 
-    fn plan_add(&self, add: AddTask, ts: jiff::Timestamp) -> Result<Task> {
+    fn plan_add(&self, add: AddTask, now: &Zoned) -> Result<Task> {
+        let ts = now
+            .timestamp()
+            .round(jiff::Unit::Second)
+            .unwrap_or_else(|_| now.timestamp());
+        let today = now.date();
         let title = add.title.trim();
         if title.is_empty() {
             return Err(StoreError::Validation("title must not be empty".into()));
@@ -430,6 +591,22 @@ impl Store {
         task.due = add.due;
         task.tags = add.tags;
         task.body = add.body;
+        if let Some(who) = add
+            .waiting_on
+            .as_deref()
+            .map(str::trim)
+            .filter(|w| !w.is_empty())
+        {
+            task.status = Status::Waiting;
+            task.waiting_on = Some(who.to_string());
+            task.waiting_since = Some(ts);
+            task.waiting_ref = add.waiting_ref.clone();
+            let until = add.until.unwrap_or_else(|| self.default_until(today));
+            task.until = Some(until);
+            let line = format!("waiting on {who}; follow up {until}");
+            journal(&mut task, now, None, &line);
+            return Ok(task);
+        }
         if let Some(status) = add.status {
             if status.is_closed() {
                 return Err(StoreError::Validation(
@@ -438,7 +615,7 @@ impl Store {
             }
             if status == Status::Waiting {
                 return Err(StoreError::Validation(
-                    "create the task first, then `wait` it with a reason".into(),
+                    "use waiting_on to create a task that is waiting on someone".into(),
                 ));
             }
             task.status = status;
@@ -457,10 +634,14 @@ impl Store {
         waiting_on: Option<String>,
         until: Option<jiff::civil::Date>,
         cascade: bool,
-        ts: jiff::Timestamp,
+        now: &Zoned,
         writes: &mut Vec<Task>,
         outcome: &mut Outcome,
     ) -> Result<()> {
+        let ts = now
+            .timestamp()
+            .round(jiff::Unit::Second)
+            .unwrap_or_else(|_| now.timestamp());
         let mut t = self.get(id)?.clone();
         let from = t.status;
 
@@ -474,8 +655,27 @@ impl Store {
                     "waiting needs a reason: what are you waiting on?".into(),
                 ));
             };
+            let today = now.date();
+            if from != Status::Waiting || t.waiting_on.as_deref() != Some(who) {
+                // A new wait (or a handoff via status): fresh clock and count.
+                if let (Status::Waiting, Some(prev)) = (from, t.waiting_on.as_deref())
+                    && prev != who
+                {
+                    outcome.events.push(Event::HandedOff {
+                        id: id.clone(),
+                        from: prev.to_string(),
+                        to: who.to_string(),
+                    });
+                }
+                t.waiting_since = Some(ts);
+                t.chases.clear();
+            }
             t.waiting_on = Some(who.to_string());
-            t.until = until;
+            // Invariant: a waiting task always has a follow-up date.
+            let until = until.unwrap_or_else(|| self.default_until(today));
+            t.until = Some(until);
+            let line = format!("waiting on {who}; follow up {until}");
+            journal(&mut t, now, None, &line);
             let open_kids = self
                 .tree
                 .children(id)
@@ -486,9 +686,8 @@ impl Store {
                     "{id} has {open_kids} open subtask(s); consider marking the blocked subtask as waiting instead (block at the leaf)"
                 ));
             }
-        } else {
-            t.waiting_on = None;
-            t.until = None;
+        } else if from == Status::Waiting {
+            t.clear_waiting();
         }
 
         if to.is_closed() {
@@ -560,9 +759,57 @@ impl Store {
         Ok(())
     }
 
-    fn plan_edit(&self, edit: EditTask, ts: jiff::Timestamp) -> Result<Task> {
+    /// `today + follow_up_days`, the standard follow-up horizon.
+    fn default_until(&self, today: jiff::civil::Date) -> jiff::civil::Date {
+        today
+            .checked_add(jiff::Span::new().days(self.follow_up_days.max(0)))
+            .unwrap_or(today)
+    }
+
+    fn plan_edit(&self, edit: EditTask, now: &Zoned, outcome: &mut Outcome) -> Result<Task> {
+        let ts = now
+            .timestamp()
+            .round(jiff::Unit::Second)
+            .unwrap_or_else(|_| now.timestamp());
         let mut t = self.get(&edit.id)?.clone();
         let mut changed = false;
+        match edit.waiting_on {
+            Set::Keep => {}
+            Set::Clear => {
+                return Err(StoreError::Validation(
+                    "to stop waiting, change the status (reopen/done) instead".into(),
+                ));
+            }
+            Set::To(to) => {
+                let to = to.trim().to_string();
+                if t.status != Status::Waiting {
+                    return Err(StoreError::InvalidTransition {
+                        id: t.id.clone(),
+                        from: t.status,
+                        to: Status::Waiting,
+                        reason: "not waiting; use `wait` to start waiting on someone".into(),
+                    });
+                }
+                if to.is_empty() {
+                    return Err(StoreError::Validation("waiting on whom?".into()));
+                }
+                let from = t.waiting_on.clone().unwrap_or_default();
+                if from != to {
+                    journal(&mut t, now, None, &format!("handed off: {from} → {to}"));
+                    outcome.events.push(Event::HandedOff {
+                        id: t.id.clone(),
+                        from,
+                        to: to.clone(),
+                    });
+                    t.waiting_on = Some(to);
+                    t.waiting_since = Some(ts);
+                    t.chases.clear();
+                    t.until = Some(self.default_until(now.date()));
+                    changed = true;
+                }
+            }
+        }
+        changed |= edit.waiting_ref.apply_to(&mut t.waiting_ref);
         if let Some(title) = edit.title {
             let title = title.trim();
             if title.is_empty() {
@@ -662,9 +909,27 @@ fn cmd_target(cmd: &Command) -> Option<TaskId> {
         Command::SetStatus { id, .. }
         | Command::Move { id, .. }
         | Command::Touch { id, .. }
+        | Command::Chase { id, .. }
+        | Command::RecordReply { id, .. }
         | Command::Delete { id, .. } => Some(id.clone()),
         Command::Edit(e) => Some(e.id.clone()),
     }
+}
+
+/// Append a dated line to the body. Lines from non-human sources are tagged,
+/// so the history says who did what.
+fn journal(t: &mut Task, now: &Zoned, source: Option<&str>, line: &str) {
+    if !t.body.is_empty() && !t.body.ends_with('\n') {
+        t.body.push('\n');
+    }
+    let tag = match source {
+        Some(s) if !s.is_empty() => format!(" [{s}]"),
+        _ => String::new(),
+    };
+    t.body.push_str(&format!(
+        "- {}{tag} {line}\n",
+        now.strftime("%Y-%m-%d %H:%M")
+    ));
 }
 
 /// Write via a temp file in the same directory, fsync, rename, fsync the
@@ -1131,5 +1396,272 @@ mod order_tests {
         );
         let d = crate::action::derive(store.tree(), store.tree().get(&kid).unwrap(), now().date());
         assert!(d.orphaned && d.actionable);
+    }
+}
+
+#[cfg(test)]
+mod waiting_tests {
+    use super::*;
+    use crate::command::{AddTask, ReplyOutcome, Set};
+    use jiff::ToSpan;
+    use jiff::civil::date;
+
+    fn now() -> Zoned {
+        "2026-09-29T15:00:00[UTC]".parse().unwrap()
+    }
+
+    fn add(store: &mut Store, title: &str) -> TaskId {
+        store
+            .apply(
+                Command::Add(AddTask {
+                    title: title.into(),
+                    ..Default::default()
+                }),
+                &now(),
+            )
+            .unwrap()
+            .primary
+            .unwrap()
+    }
+
+    fn wait(
+        store: &mut Store,
+        id: &TaskId,
+        who: &str,
+        until: Option<jiff::civil::Date>,
+    ) -> Outcome {
+        store
+            .apply(
+                Command::SetStatus {
+                    id: id.clone(),
+                    status: Status::Waiting,
+                    waiting_on: Some(who.into()),
+                    until,
+                    cascade: false,
+                },
+                &now(),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn waiting_always_has_a_follow_up_and_a_clock() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::init(dir.path()).unwrap();
+        let t = add(&mut store, "DNS: what's possible?");
+        wait(&mut store, &t, "A", None);
+        let task = store.tree().get(&t).unwrap();
+        assert_eq!(task.until, Some(date(2026, 10, 1)), "today + 2");
+        assert_eq!(task.waiting_since, Some(now().timestamp()));
+        assert!(
+            task.body.contains("waiting on A; follow up 2026-10-01"),
+            "{}",
+            task.body
+        );
+
+        // Created already waiting, with an explicit date and a ref.
+        let out = store
+            .apply(
+                Command::Add(AddTask {
+                    title: "TTL question".into(),
+                    waiting_on: Some("B".into()),
+                    until: Some(date(2026, 10, 5)),
+                    waiting_ref: Some("https://teams/thread/1".into()),
+                    ..Default::default()
+                }),
+                &now(),
+            )
+            .unwrap();
+        let t2 = store.tree().get(out.primary.as_ref().unwrap()).unwrap();
+        assert_eq!(t2.status, Status::Waiting);
+        assert_eq!(t2.until, Some(date(2026, 10, 5)));
+        assert_eq!(t2.waiting_ref.as_deref(), Some("https://teams/thread/1"));
+
+        // Leaving waiting forgets the wait entirely.
+        store
+            .apply(
+                Command::SetStatus {
+                    id: t.clone(),
+                    status: Status::Todo,
+                    waiting_on: None,
+                    until: None,
+                    cascade: false,
+                },
+                &now(),
+            )
+            .unwrap();
+        let task = store.tree().get(&t).unwrap();
+        assert!(task.waiting_on.is_none() && task.until.is_none() && task.waiting_since.is_none());
+    }
+
+    #[test]
+    fn chase_escalates_and_dedupes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::init(dir.path()).unwrap();
+        let t = add(&mut store, "DNS");
+        assert!(matches!(
+            store.apply(
+                Command::Chase {
+                    id: t.clone(),
+                    until: None,
+                    note: None,
+                    source: None,
+                    dedupe: None
+                },
+                &now()
+            ),
+            Err(StoreError::InvalidTransition { .. })
+        ));
+        wait(&mut store, &t, "B", None);
+
+        let chase = |store: &mut Store, dedupe: Option<&str>, at: &Zoned| {
+            store
+                .apply(
+                    Command::Chase {
+                        id: t.clone(),
+                        until: None,
+                        note: Some("pinged again".into()),
+                        source: Some("agent".into()),
+                        dedupe: dedupe.map(str::to_string),
+                    },
+                    at,
+                )
+                .unwrap()
+        };
+        let day1 = now() + 2.days();
+        let out = chase(&mut store, Some("2026-10-01"), &day1);
+        assert!(out.events.iter().any(|e| matches!(
+            e,
+            Event::Chased {
+                count: 1,
+                deduped: false,
+                ..
+            }
+        )));
+        let task = store.tree().get(&t).unwrap();
+        assert_eq!(task.chases.len(), 1);
+        assert_eq!(task.until, Some(date(2026, 10, 2)), "2 - 1 = 1 day out");
+        assert!(
+            task.body.contains(
+                "[agent] chased B; follow up 2026-10-02: pinged again [chase:2026-10-01]"
+            ),
+            "{}",
+            task.body
+        );
+
+        // Same dedupe key: no-op, reported.
+        let out = chase(&mut store, Some("2026-10-01"), &day1);
+        assert!(
+            out.events
+                .iter()
+                .any(|e| matches!(e, Event::Chased { deduped: true, .. }))
+        );
+        assert_eq!(store.tree().get(&t).unwrap().chases.len(), 1);
+
+        // Next day: another chase, follow-up never shorter than 1 day.
+        let day2 = now() + 3.days();
+        chase(&mut store, Some("2026-10-02"), &day2);
+        let task = store.tree().get(&t).unwrap();
+        assert_eq!(task.chases.len(), 2);
+        assert_eq!(task.until, Some(date(2026, 10, 3)));
+    }
+
+    #[test]
+    fn handoff_and_replies() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::init(dir.path()).unwrap();
+        let t = add(&mut store, "DNS");
+        wait(&mut store, &t, "A", None);
+        store
+            .apply(
+                Command::Chase {
+                    id: t.clone(),
+                    until: None,
+                    note: None,
+                    source: None,
+                    dedupe: None,
+                },
+                &now(),
+            )
+            .unwrap();
+
+        // Handoff via edit: new person, fresh clock and count, journaled.
+        let later = now() + 1.day();
+        let out = store
+            .apply(
+                Command::Edit(EditTask {
+                    waiting_on: Set::To("B".into()),
+                    ..EditTask::new(t.clone())
+                }),
+                &later,
+            )
+            .unwrap();
+        assert!(out.events.contains(&Event::HandedOff {
+            id: t.clone(),
+            from: "A".into(),
+            to: "B".into()
+        }));
+        let task = store.tree().get(&t).unwrap();
+        assert_eq!(task.waiting_on.as_deref(), Some("B"));
+        assert!(task.chases.is_empty());
+        assert_eq!(task.waiting_since, Some(later.timestamp()));
+        assert!(task.body.contains("handed off: A → B"));
+
+        // Redirected reply: same effect, with the summary journaled.
+        let out = store
+            .apply(
+                Command::RecordReply {
+                    id: t.clone(),
+                    outcome: ReplyOutcome::Redirected { to: "C".into() },
+                    summary: "C owns DNS now".into(),
+                    waiting_ref: Some("https://teams/thread/9".into()),
+                    source: Some("agent".into()),
+                },
+                &later,
+            )
+            .unwrap();
+        assert!(
+            out.events
+                .iter()
+                .any(|e| matches!(e, Event::ReplyReceived { .. }))
+        );
+        let task = store.tree().get(&t).unwrap();
+        assert_eq!(task.waiting_on.as_deref(), Some("C"));
+        assert!(
+            task.body
+                .contains("[agent] B redirected to C: C owns DNS now")
+        );
+        assert_eq!(task.waiting_ref.as_deref(), Some("https://teams/thread/9"));
+
+        // Empty summary is refused; answered makes it todo again.
+        assert!(matches!(
+            store.apply(
+                Command::RecordReply {
+                    id: t.clone(),
+                    outcome: ReplyOutcome::Answered,
+                    summary: "  ".into(),
+                    waiting_ref: None,
+                    source: None
+                },
+                &later
+            ),
+            Err(StoreError::Validation(_))
+        ));
+        store
+            .apply(
+                Command::RecordReply {
+                    id: t.clone(),
+                    outcome: ReplyOutcome::Answered,
+                    summary: "use the wildcard".into(),
+                    waiting_ref: None,
+                    source: None,
+                },
+                &later,
+            )
+            .unwrap();
+        let task = store.tree().get(&t).unwrap();
+        assert_eq!(task.status, Status::Todo);
+        assert!(task.waiting_on.is_none());
+        assert!(task.body.contains("C replied: use the wildcard"));
     }
 }

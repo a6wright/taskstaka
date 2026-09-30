@@ -83,6 +83,8 @@ pub struct Health {
     pub rev: u64,
     pub todo_dir: PathBuf,
     pub pid: u32,
+    #[serde(default)]
+    pub started: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -241,6 +243,61 @@ impl Client {
 
     pub fn nudges(&self) -> Result<Vec<tododo_core::nudge::Nudge>> {
         self.get("/api/v1/nudges")
+    }
+
+    pub fn waiting(
+        &self,
+        context: Option<Context>,
+        due: bool,
+    ) -> Result<Vec<tododo_core::action::PersonGroup>> {
+        let mut q = vec![format!("due={due}")];
+        if let Some(c) = context {
+            q.push(format!("context={c}"));
+        }
+        self.get(&format!("/api/v1/waiting?{}", q.join("&")))
+    }
+
+    /// The daemon started before this binary was built: it is serving old
+    /// code. `tododo restart` fixes it.
+    pub fn is_stale(&self) -> bool {
+        let Ok(h) = self.health() else { return false };
+        let Some(started) = h
+            .started
+            .as_deref()
+            .and_then(|s| s.parse::<jiff::Timestamp>().ok())
+        else {
+            return false;
+        };
+        let Ok(exe) = std::env::current_exe() else {
+            return false;
+        };
+        let Ok(md) = std::fs::metadata(exe) else {
+            return false;
+        };
+        let Ok(mtime) = md.modified() else {
+            return false;
+        };
+        let Ok(mtime) = jiff::Timestamp::try_from(mtime) else {
+            return false;
+        };
+        mtime > started
+    }
+
+    /// Stop the daemon (if any) and wait until it is gone.
+    pub fn stop_and_wait(dir: &Path) -> Result<bool> {
+        let Some(c) = Self::discover(dir) else {
+            DaemonInfo::remove(dir);
+            return Ok(false);
+        };
+        c.shutdown()?;
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
+            if c.health().is_err() {
+                return Ok(true);
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        bail!("the daemon at {} did not stop within 3s", c.base())
     }
 
     pub fn tasks_filtered(

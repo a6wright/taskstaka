@@ -117,7 +117,13 @@ fn annotations(tree: &Tree, task: &Task, now: &Zoned) -> Vec<String> {
         Status::Someday => notes.push("💤 someday".into()),
         _ => {}
     }
-    if d.blocked_by > 0 {
+    if let Some(w) = &d.waiting_on_summary {
+        notes.push(format!(
+            "⌛ waiting on {} · {}",
+            w.person,
+            humanize::since(w.since, ts)
+        ));
+    } else if d.blocked_by > 0 {
         notes.push(format!("⏳ blocked by {}", d.blocked_by));
     }
     if d.resurfaced_at.is_some() {

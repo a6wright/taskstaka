@@ -161,9 +161,11 @@ async fn nudges_are_recomputed_after_mutations() {
             break;
         }
     }
-    assert_eq!(nudges.len(), 1, "{nudges:?}");
-    assert_eq!(nudges[0].rule, tododo_core::nudge::Rule::AllBlocked);
-    assert!(nudges[0].message.contains("waiting on Bob"));
+    let blocked = nudges
+        .iter()
+        .find(|n| n.rule == tododo_core::nudge::Rule::AllBlocked)
+        .unwrap_or_else(|| panic!("{nudges:?}"));
+    assert!(blocked.message.contains("waiting on Bob"));
 
     client.shutdown().unwrap();
     handle.await.unwrap().unwrap();

@@ -37,6 +37,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/w/{id}/edit", post(form_edit))
         .route("/w/{id}/touch", post(form_touch))
         .route("/w/{id}/move", post(form_move))
+        .route("/w/{id}/chase", post(form_chase))
+        .route("/w/{id}/reply", post(form_reply))
         .route("/style.css", get(css))
 }
 
@@ -264,6 +266,7 @@ async fn index(State(s): S, Query(q): Query<IndexQuery>) -> Result<Html<String>,
 
     let mut out = String::new();
     header(&mut out, tree, &now, q.context, q.msg.as_deref(), &nudges);
+    out.push_str(&waiting_strip(tree, &now, q.context, &back));
 
     let _ = write!(
         out,
@@ -467,6 +470,8 @@ async fn task_page(
         out,
         r#"<div class="forms">
 <form method="post" action="/w/{id}/status" class="inline"><input type="hidden" name="status" value="waiting"><input type="hidden" name="back" value="{back}"><input name="waiting_on" placeholder="waiting on…" required><input name="until" placeholder="until (+3d)" size="10"><button>wait</button></form>
+<form method="post" action="/w/{id}/chase" class="inline"><input type="hidden" name="back" value="{back}"><input name="note" placeholder="chased them again (note)"><button>chase</button></form>
+<form method="post" action="/w/{id}/reply" class="inline"><input type="hidden" name="back" value="{back}"><select name="outcome"><option value="answered">answered</option><option value="partial">partial</option><option value="declined">declined</option><option value="redirected">redirected to…</option></select><input name="to" placeholder="person (if redirected)" size="12"><input name="summary" placeholder="what they said" required><button>reply</button></form>
 <form method="post" action="/w/{id}/touch" class="inline"><input type="hidden" name="back" value="{back}"><input name="note" placeholder="note (optional)"><button>touch</button></form>
 <form method="post" action="/w/add" class="inline"><input type="hidden" name="parent" value="{id}"><input type="hidden" name="back" value="{back}"><input name="title" placeholder="add subtask…" required><button>add subtask</button></form>
 </div>"#
@@ -508,6 +513,8 @@ async fn task_page(
 <label>due <input name="due" value="{due}" placeholder="YYYY-MM-DD or +3d"></label>
 <label>tags <input name="tags" value="{tags}" placeholder="comma, separated"></label>
 <label>parent <input name="parent" value="{parent}" placeholder="id (blank = root)"></label>
+<label>waiting on <input name="waiting_on" value="{waiting_on}" placeholder="(only while waiting)"></label>
+<label>conversation link <input name="waiting_ref" value="{waiting_ref}" placeholder="thread URL"></label>
 <label class="wide">notes <textarea name="body" rows="8">{body}</textarea></label>
 <button class="primary">save</button></form></section>"#,
         title = esc(&t.title),
@@ -520,6 +527,8 @@ async fn task_page(
         tags = esc(&t.tags.join(", ")),
         parent = t.parent.as_ref().map(|p| p.to_string()).unwrap_or_default(),
         body = esc(&t.body),
+        waiting_on = esc(t.waiting_on.as_deref().unwrap_or("")),
+        waiting_ref = esc(t.waiting_ref.as_deref().unwrap_or("")),
     );
 
     Ok(page_shell(&format!("{} · tododo", t.title), &out))
@@ -631,6 +640,8 @@ struct EditForm {
     tags: Option<String>,
     parent: Option<String>,
     body: Option<String>,
+    waiting_on: Option<String>,
+    waiting_ref: Option<String>,
     back: Option<String>,
 }
 
@@ -676,6 +687,20 @@ async fn form_edit(
             .collect()
     });
     edit.body = f.body.map(|b| b.replace("\r\n", "\n"));
+    // Only a changed, non-empty "waiting on" is a handoff; blank means keep.
+    let current_person = s
+        .store
+        .lock()
+        .ok()
+        .and_then(|st| st.tree().get(&id).and_then(|t| t.waiting_on.clone()));
+    edit.waiting_on = match f.waiting_on.as_deref().map(str::trim) {
+        Some(p) if !p.is_empty() && Some(p) != current_person.as_deref() => Set::To(p.to_string()),
+        _ => Set::Keep,
+    };
+    edit.waiting_ref = match f.waiting_ref.as_deref().map(str::trim) {
+        Some("") | None => Set::Keep,
+        Some(r) => Set::To(r.to_string()),
+    };
 
     if let Err(e) = apply(&s, Command::Edit(edit)).await {
         return back_to(f.back.as_deref(), &e.message).into_response();
@@ -783,6 +808,7 @@ async fn css() -> impl IntoResponse {
 }
 
 const CSS: &str = r#"
+.waiting h2{margin-top:14px}.people{list-style:none;margin:0;padding:0}.people>li{padding:6px 0;border-top:1px solid var(--line)}.people .who{font-weight:600;margin-right:6px}.people ul{list-style:none;margin:2px 0 0 14px;padding:0}.people ul li{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;padding:2px 0}.people .ref{font-size:12px;color:var(--accent)}
 /* outline */
 ul.outline{list-style:none;margin:0;padding:0}ul.outline ul.outline{margin-left:26px;border-left:1px solid var(--line);padding-left:6px}
 li.kids{list-style:none}
@@ -844,5 +870,174 @@ mod tests {
         assert_eq!(r.headers()[header::LOCATION], "/?msg=m");
         let r = back_to(Some("/t/abc?x=1"), "hi there").into_response();
         assert_eq!(r.headers()[header::LOCATION], "/t/abc?x=1&msg=hi+there");
+    }
+}
+
+// ---------- waiting on people ----------
+
+/// The "Waiting on" strip: everyone you are waiting on, grouped, with a
+/// chase button each. Empty string when you are waiting on nobody.
+pub fn waiting_strip(tree: &Tree, now: &Zoned, ctx: Option<Context>, back: &str) -> String {
+    let groups = tododo_core::action::waiting_on(tree, now, ctx);
+    if groups.is_empty() {
+        return String::new();
+    }
+    let mut out = String::new();
+    let _ = write!(
+        out,
+        r#"<section class="waiting"><h2>waiting on {} {}</h2><ul class="people">"#,
+        groups.len(),
+        if groups.len() == 1 {
+            "person"
+        } else {
+            "people"
+        }
+    );
+    for g in groups {
+        let due = if g.any_due {
+            r#" <span class="b overdue">follow-up due</span>"#
+        } else {
+            ""
+        };
+        let _ = write!(
+            out,
+            r#"<li class="person"><span class="who">{}</span>{due}<ul>"#,
+            esc(&g.person)
+        );
+        for i in g.items {
+            let root = i
+                .root_title
+                .as_deref()
+                .map(|r| format!(r#" <span class="crumb">‹ {}</span>"#, esc(r)))
+                .unwrap_or_default();
+            let chased = match i.wait.chases {
+                0 => String::new(),
+                n => format!(" · chased {n}×"),
+            };
+            let until = i
+                .wait
+                .until
+                .map(|u| format!(" · follow up {u}"))
+                .unwrap_or_default();
+            let link = i
+                .wait
+                .waiting_ref
+                .as_deref()
+                .map(|r| {
+                    format!(
+                        r#" <a class="ref" href="{}" target="_blank" rel="noopener">thread ↗</a>"#,
+                        esc(r)
+                    )
+                })
+                .unwrap_or_default();
+            let _ = write!(
+                out,
+                r#"<li><a href="/t/{id}">{title}</a>{root} <span class="reason">{age}{chased}{until}</span>{link} <form method="post" action="/w/{id}/chase" class="inline"><input type="hidden" name="back" value="{back}"><button class="quiet" title="I pinged them again">chase</button></form></li>"#,
+                id = i.wait.task_id,
+                title = esc(&i.wait.title),
+                age = humanize::duration(i.since_secs),
+                back = esc(back),
+            );
+        }
+        out.push_str("</ul></li>");
+    }
+    out.push_str("</ul></section>");
+    out
+}
+
+#[derive(Deserialize)]
+struct ChaseForm {
+    note: Option<String>,
+    until: Option<String>,
+    back: Option<String>,
+}
+
+async fn form_chase(
+    State(s): S,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(f): Form<ChaseForm>,
+) -> Response {
+    if let Some(r) = cross_site_refusal(&headers) {
+        return r;
+    }
+    let id = match resolve_id(&s, &id) {
+        Ok(id) => id,
+        Err(e) => return back_to(f.back.as_deref(), &e.message).into_response(),
+    };
+    let until = match f.until.as_deref().map(str::trim).filter(|u| !u.is_empty()) {
+        Some(u) => match dates::parse_date(u) {
+            Ok(d) => Some(d),
+            Err(e) => return back_to(f.back.as_deref(), &e).into_response(),
+        },
+        None => None,
+    };
+    let cmd = Command::Chase {
+        id,
+        until,
+        note: f.note.filter(|n| !n.trim().is_empty()),
+        source: None,
+        dedupe: None,
+    };
+    match apply(&s, cmd).await {
+        Ok(out) => {
+            let msg = out
+                .events
+                .iter()
+                .find_map(|e| match e {
+                    tododo_core::Event::Chased { person, count, .. } => {
+                        Some(format!("chased {person} ({count}×)"))
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| "chased".into());
+            back_to(f.back.as_deref(), &msg).into_response()
+        }
+        Err(e) => back_to(f.back.as_deref(), &e.message).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct ReplyForm {
+    outcome: String,
+    to: Option<String>,
+    summary: String,
+    back: Option<String>,
+}
+
+async fn form_reply(
+    State(s): S,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(f): Form<ReplyForm>,
+) -> Response {
+    use tododo_core::command::ReplyOutcome as R;
+    if let Some(r) = cross_site_refusal(&headers) {
+        return r;
+    }
+    let id = match resolve_id(&s, &id) {
+        Ok(id) => id,
+        Err(e) => return back_to(f.back.as_deref(), &e.message).into_response(),
+    };
+    let outcome = match f.outcome.as_str() {
+        "answered" => R::Answered,
+        "declined" => R::Declined,
+        "partial" => R::Partial,
+        "redirected" => match f.to.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+            Some(to) => R::Redirected { to: to.to_string() },
+            None => return back_to(f.back.as_deref(), "redirected to whom?").into_response(),
+        },
+        _ => return back_to(f.back.as_deref(), "unknown outcome").into_response(),
+    };
+    let cmd = Command::RecordReply {
+        id,
+        outcome,
+        summary: f.summary,
+        waiting_ref: None,
+        source: None,
+    };
+    match apply(&s, cmd).await {
+        Ok(_) => back_to(f.back.as_deref(), "reply recorded").into_response(),
+        Err(e) => back_to(f.back.as_deref(), &e.message).into_response(),
     }
 }

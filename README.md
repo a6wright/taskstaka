@@ -27,6 +27,47 @@ cargo install --path crates/tododo
 tododo init                 # creates ~/todo (or $TODODO_DIR)
 ```
 
+## Updating and running
+
+Day to day the daemon starts itself; you rarely think about it.
+
+Rebuild and install after pulling changes:
+
+```
+cargo install --path crates/tododo
+tododo restart              # the old daemon keeps running old code until you do this
+```
+
+Any command will also warn `the daemon started before this binary was built` until you
+restart (silence with `TODODO_NO_STALE_WARNING=1`).
+
+Run without installing (development):
+
+```
+cargo run -p tododo -- next
+cargo run -p tododo -- serve   # foreground daemon; logs to stderr, RUST_LOG=debug for more
+cargo test                     # cargo clippy --all-targets before committing
+```
+
+Where things are:
+
+```
+~/todo/notes/*.md      your tasks (TODODO_DIR moves it)
+~/todo/index.md        generated tree — open in Obsidian
+~/todo/.tododo/        daemon.json (pid, port), lock, nudge log — safe to delete when stopped
+```
+
+Daemon controls:
+
+```
+tododo status | stop | restart
+tododo serve --port 7407 --quiet 22-8 --no-notify
+systemctl --user restart tododo                    # if you installed the unit below
+launchctl kickstart -k gui/$(id -u)/dev.tododo     # macOS
+```
+
+If a command says the directory is locked, a daemon is running: drop `--direct`, or stop it.
+
 ## Daily use
 
 ```
@@ -34,7 +75,11 @@ tododo add "Ship auth story" -c work
 tododo add "Fix JWT expiry" -p <id>          # subtask; the story is now blocked
 tododo next --explain                        # ranked, with a reason per row
 tododo start <id> · done <id> · drop <id>
-tododo wait <id> --until +3d Sam's review    # waiting on someone; follow-up date
+tododo wait <id> Sam                         # waiting on someone; follow-up defaults to +2d
+tododo chase <id> pinged again               # poked them again; next follow-up gets shorter
+tododo reply <id> redirected --to Bo "Bo owns DNS"   # answered | declined | partial | redirected
+tododo waiting                               # who am I waiting on, for what, how long?
+tododo add "TTL question?" -p <id> -w Bo     # create it already waiting on Bo
 tododo someday <id>                          # park it (doesn't block, doesn't rank)
 tododo touch <id> pinged Sam                 # bump "last touched", journal a note
 tododo edit <id>                             # open the note in $EDITOR
@@ -107,6 +152,40 @@ tasks rotting untouched > 14 days, a parent resurfacing, follow-ups due, too muc
     ```
   - Linux, sxhkd + rofi: `super + t` →
     `t=$(rofi -dmenu -p 'todo') && [ -n "$t" ] && tododo add "$t"`
+
+## Waiting on people
+
+The scenario this exists for: you ask A, A says talk to B, B leaves you on read, and
+you forget B is the reason the story is stuck. So:
+
+- a wait **always** has a follow-up date (default two days out);
+- `chase` records that you poked them and shortens the next follow-up;
+- `waiting` (and the strip at the top of the panel, TUI header, and web pages) lists
+  everyone you're waiting on, grouped by person, with how long and how many chases;
+- a blocked story says `⌛ B · 4d`, not "blocked by 1";
+- at 9:00 you get one digest: "Waiting on 2 people: B — DNS address (4d, 2×) · …".
+
+In the web outliner, ending a line with `@Name` creates it waiting on that person
+(`ask about TTL @B +3d`).
+
+## Agents
+
+The MCP server gives an agent everything to keep the list honest for you: `waiting`
+(with `due=true` for follow-ups that are due), `chase` (idempotent per `dedupe`, tagged
+`source="agent"`), `record_reply` (answered / declined / partial / redirected, with a
+summary), and `waiting_ref` links back to the conversation. Nothing sends messages;
+agents draft, you send.
+
+A daily routine with the tododo MCP and a messages MCP (Teams, Slack, mail):
+
+> For each item in `tododo.waiting(due=true)`: open `waiting_ref` if set, else search
+> messages with the person for the task title since `since`. If they replied, call
+> `record_reply` with a one-line summary (`redirected` if they named someone). If silent,
+> call `chase` with `dedupe=today` and draft a short follow-up for me to send. End with
+> the drafts.
+
+Answered items resurface in `next`; chases move the counts; you get a notification
+"B replied on DNS address: …".
 
 ## Repo layout
 

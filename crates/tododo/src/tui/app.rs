@@ -369,6 +369,35 @@ impl App {
                 }
                 None => Action::None,
             },
+            KeyCode::Char('f') => {
+                // Chase: the selected waiting task, or the waiting subtask a
+                // blocked parent ultimately depends on.
+                let target = sel.and_then(|id| {
+                    let t = self.tree.get(&id)?;
+                    if t.status == Status::Waiting {
+                        return Some(id);
+                    }
+                    derive(&self.tree, t, self.now.date())
+                        .waiting_on_summary
+                        .map(|w| w.task_id)
+                });
+                match target {
+                    Some(id) => Action::Apply(Command::Chase {
+                        id,
+                        until: None,
+                        note: None,
+                        source: None,
+                        dedupe: None,
+                    }),
+                    None => {
+                        self.say(
+                            MessageKind::Info,
+                            "nothing to chase here: not waiting on anyone",
+                        );
+                        Action::None
+                    }
+                }
+            }
             KeyCode::Char('t') => match sel {
                 Some(id) => {
                     self.mode = Mode::Prompt(Prompt {

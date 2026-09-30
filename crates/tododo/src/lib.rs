@@ -6,6 +6,7 @@ pub mod backend;
 pub mod cli;
 pub mod client;
 pub mod dates;
+pub mod mcp;
 pub mod render;
 pub mod server;
 pub mod tui;

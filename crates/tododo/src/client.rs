@@ -243,6 +243,34 @@ impl Client {
         self.get("/api/v1/nudges")
     }
 
+    pub fn tasks_filtered(
+        &self,
+        status: Option<tododo_core::Status>,
+        context: Option<Context>,
+        include_closed: bool,
+    ) -> Result<Vec<TaskView>> {
+        let mut q = vec![format!("include_closed={include_closed}")];
+        if let Some(s) = status {
+            q.push(format!("status={s}"));
+        }
+        if let Some(c) = context {
+            q.push(format!("context={c}"));
+        }
+        self.get(&format!("/api/v1/tasks?{}", q.join("&")))
+    }
+
+    pub fn tree(
+        &self,
+        context: Option<Context>,
+        include_closed: bool,
+    ) -> Result<Vec<tododo_core::view::TreeNode>> {
+        let mut q = vec![format!("include_closed={include_closed}")];
+        if let Some(c) = context {
+            q.push(format!("context={c}"));
+        }
+        self.get(&format!("/api/v1/tree?{}", q.join("&")))
+    }
+
     /// Block until the daemon's revision exceeds `after` (or ~25s pass).
     pub fn changes(&self, after: u64) -> Result<u64> {
         let res = self

@@ -56,6 +56,9 @@ pub enum Cmd {
     /// Show whether a daemon is running and where.
     Status,
 
+    /// Speak MCP on stdin/stdout for agents (Claude Code, Claude Desktop).
+    Mcp,
+
     /// The always-on panel: what needs action, live.
     Tui {
         /// Start filtered to this context (c cycles at runtime).

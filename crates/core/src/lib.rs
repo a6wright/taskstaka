@@ -8,6 +8,7 @@ pub mod frontmatter;
 pub mod humanize;
 pub mod index_md;
 pub mod model;
+pub mod nudge;
 pub mod store;
 pub mod tree;
 pub mod view;

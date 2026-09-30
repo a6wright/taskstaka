@@ -42,6 +42,12 @@ pub enum Cmd {
         /// Fork into the background and return immediately.
         #[arg(long)]
         detach: bool,
+        /// Log nudges instead of sending desktop notifications.
+        #[arg(long, env = "TODODO_NO_NOTIFY")]
+        no_notify: bool,
+        /// Suppress desktop notifications between these local hours, e.g. 22-8.
+        #[arg(long, env = "TODODO_QUIET", value_parser = parse_quiet)]
+        quiet: Option<(u8, u8)>,
     },
 
     /// Ask the running daemon to shut down.
@@ -209,6 +215,21 @@ impl EditArgs {
             || self.no_priority
             || !self.tags.is_empty()
     }
+}
+
+/// "22-8" → (22, 8).
+pub fn parse_quiet(s: &str) -> Result<(u8, u8), String> {
+    let (a, b) = s
+        .split_once('-')
+        .ok_or_else(|| format!("{s:?}: expected START-END hours, e.g. 22-8"))?;
+    let parse = |x: &str| {
+        x.trim()
+            .parse::<u8>()
+            .ok()
+            .filter(|h| *h < 24)
+            .ok_or_else(|| format!("{x:?} is not an hour (0-23)"))
+    };
+    Ok((parse(a)?, parse(b)?))
 }
 
 pub fn default_dir() -> PathBuf {

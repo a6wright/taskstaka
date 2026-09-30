@@ -239,6 +239,10 @@ impl Client {
         Ok(())
     }
 
+    pub fn nudges(&self) -> Result<Vec<tododo_core::nudge::Nudge>> {
+        self.get("/api/v1/nudges")
+    }
+
     /// Block until the daemon's revision exceeds `after` (or ~25s pass).
     pub fn changes(&self, after: u64) -> Result<u64> {
         let res = self

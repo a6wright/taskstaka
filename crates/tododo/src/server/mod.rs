@@ -2,15 +2,18 @@
 //! counter for long-polling, and the lifecycle around `daemon.json`.
 
 pub mod error;
+pub mod nudge;
 pub mod routes;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use anyhow::{Context as _, Result};
 use axum::Router;
 use jiff::Timestamp;
+use tododo_core::nudge::{Nudge, NudgeConfig};
 use tododo_core::{Store, StoreError};
 use tokio::net::TcpListener;
 use tokio::sync::{Notify, watch};
@@ -18,6 +21,7 @@ use tracing::info;
 
 use crate::VERSION;
 use crate::client::DaemonInfo;
+use nudge::{DesktopNotifier, LogNotifier, Notifier, Nudger};
 
 pub struct AppState {
     pub store: Mutex<Store>,
@@ -25,6 +29,10 @@ pub struct AppState {
     pub shutdown: Notify,
     pub dir: PathBuf,
     pub started: Timestamp,
+    /// The current nudge set, republished on every evaluation.
+    pub nudges: Mutex<Vec<Nudge>>,
+    /// Set once serving starts; routes use it for event-driven nudges.
+    pub nudger: Mutex<Option<Arc<Nudger>>>,
 }
 
 impl AppState {
@@ -37,7 +45,13 @@ impl AppState {
             shutdown: Notify::new(),
             dir: dir.to_path_buf(),
             started: Timestamp::now(),
+            nudges: Mutex::new(Vec::new()),
+            nudger: Mutex::new(None),
         }))
+    }
+
+    pub fn nudger(&self) -> Option<Arc<Nudger>> {
+        self.nudger.lock().ok().and_then(|g| g.clone())
     }
 
     pub fn bump(&self) {
@@ -56,6 +70,9 @@ pub fn router(state: Arc<AppState>) -> Router {
 pub struct ServeOpts {
     pub dir: PathBuf,
     pub port: u16,
+    /// Send desktop notifications (false: log only).
+    pub notify: bool,
+    pub quiet_hours: Option<(u8, u8)>,
 }
 
 /// A daemon bound and ready to serve; `run` and tests drive it.
@@ -63,6 +80,7 @@ pub struct Bound {
     pub state: Arc<AppState>,
     pub addr: SocketAddr,
     listener: TcpListener,
+    nudger: Option<Arc<Nudger>>,
 }
 
 impl Bound {
@@ -82,7 +100,14 @@ impl Bound {
             state,
             addr,
             listener,
+            nudger: None,
         })
+    }
+
+    /// Configure nudge delivery. Without this, nudges are only logged.
+    pub fn with_nudger(mut self, cfg: NudgeConfig, notifier: Box<dyn Notifier>) -> Self {
+        self.nudger = Some(Arc::new(Nudger::new(&self.state, cfg, notifier)));
+        self
     }
 
     /// Serve until a shutdown request or signal. Writes and removes daemon.json.
@@ -91,6 +116,7 @@ impl Bound {
             state,
             addr,
             listener,
+            nudger,
         } = self;
         let info = DaemonInfo {
             pid: std::process::id(),
@@ -100,6 +126,18 @@ impl Bound {
         };
         info.write(&state.dir).context("writing daemon.json")?;
         info!(%addr, dir = %state.dir.display(), "tododo daemon listening");
+
+        let nudger = nudger.unwrap_or_else(|| {
+            Arc::new(Nudger::new(
+                &state,
+                NudgeConfig::default(),
+                Box::new(LogNotifier),
+            ))
+        });
+        if let Ok(mut slot) = state.nudger.lock() {
+            *slot = Some(nudger.clone());
+        }
+        nudge::spawn_scheduler(state.clone(), nudger, Duration::from_secs(300));
 
         let app = router(state.clone());
         let shutdown_state = state.clone();
@@ -147,7 +185,16 @@ pub fn run(opts: ServeOpts) -> Result<()> {
             }
             Err(e) => return Err(e),
         };
-        bound.serve().await
+        let cfg = NudgeConfig {
+            quiet_hours: opts.quiet_hours,
+            ..NudgeConfig::default()
+        };
+        let notifier: Box<dyn Notifier> = if opts.notify {
+            Box::new(DesktopNotifier)
+        } else {
+            Box::new(LogNotifier)
+        };
+        bound.with_nudger(cfg, notifier).serve().await
     })
 }
 

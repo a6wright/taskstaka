@@ -27,7 +27,11 @@ pub fn main() -> Result<()> {
             println!("  index.md   generated tree (open it in Obsidian)");
             return Ok(());
         }
-        Cmd::Serve { detach } => {
+        Cmd::Serve {
+            detach,
+            no_notify,
+            quiet,
+        } => {
             let port = cli.port.unwrap_or(crate::DEFAULT_PORT);
             if detach {
                 crate::client::spawn_daemon(&dir, port)?;
@@ -35,7 +39,12 @@ pub fn main() -> Result<()> {
                 println!("daemon running at {}", c.base());
                 return Ok(());
             }
-            return server::run(server::ServeOpts { dir, port });
+            return server::run(server::ServeOpts {
+                dir,
+                port,
+                notify: !no_notify,
+                quiet_hours: quiet,
+            });
         }
         Cmd::Stop => {
             return match Client::discover(&dir) {

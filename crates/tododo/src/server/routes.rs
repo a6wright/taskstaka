@@ -81,6 +81,11 @@ async fn apply(s: &Arc<AppState>, cmd: Command) -> Result<Outcome, ApiError> {
     .await
     .map_err(ApiError::internal)??;
     s.bump();
+    if let Some(nudger) = s.nudger() {
+        let st = s.clone();
+        let snapshot = out.clone();
+        tokio::task::spawn_blocking(move || nudger.on_outcome(&st, &snapshot));
+    }
     Ok(out)
 }
 
@@ -347,9 +352,14 @@ async fn changes(State(s): S, Query(q): Query<ChangesQuery>) -> Json<Changes> {
     }
 }
 
-/// Phase 4 fills this in; the shape is fixed now so clients can depend on it.
-async fn nudges() -> Json<Vec<serde_json::Value>> {
-    Json(Vec::new())
+/// The current nudge set (cooldowns do not apply here; the panel shows all).
+async fn nudges(State(s): S) -> R<Vec<tododo_core::nudge::Nudge>> {
+    let list = s
+        .nudges
+        .lock()
+        .map_err(|_| ApiError::internal("nudges mutex poisoned"))?
+        .clone();
+    Ok(Json(list))
 }
 
 async fn reindex(State(s): S) -> R<serde_json::Value> {

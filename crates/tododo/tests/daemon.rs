@@ -137,3 +137,34 @@ async fn second_daemon_on_same_dir_is_refused() {
     client.shutdown().unwrap();
     handle.await.unwrap().unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn nudges_are_recomputed_after_mutations() {
+    let (_dir, client, handle) = start().await;
+    let id = add(&client, "Waiting on the world", None);
+    client
+        .apply(&Command::SetStatus {
+            id: id.parse().unwrap(),
+            status: Status::Waiting,
+            waiting_on: Some("Bob".into()),
+            until: None,
+            cascade: false,
+        })
+        .unwrap();
+
+    // The scheduler debounces mutations briefly, then republishes.
+    let mut nudges = Vec::new();
+    for _ in 0..40 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        nudges = client.nudges().unwrap();
+        if !nudges.is_empty() {
+            break;
+        }
+    }
+    assert_eq!(nudges.len(), 1, "{nudges:?}");
+    assert_eq!(nudges[0].rule, tododo_core::nudge::Rule::AllBlocked);
+    assert!(nudges[0].message.contains("waiting on Bob"));
+
+    client.shutdown().unwrap();
+    handle.await.unwrap().unwrap();
+}

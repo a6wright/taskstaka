@@ -73,6 +73,10 @@ fn refresh(app: &mut App, client: &Client) {
         Ok(views) => {
             app.set_tree(tree_from_views(views), Zoned::now());
             app.connected = true;
+            app.nudges = client
+                .nudges()
+                .map(|ns| ns.into_iter().map(|n| n.message).collect())
+                .unwrap_or_default();
         }
         Err(e) => {
             app.connected = false;

@@ -289,15 +289,21 @@ impl Client {
             DaemonInfo::remove(dir);
             return Ok(false);
         };
+        let pid = c.health().ok().map(|h| h.pid);
         c.shutdown()?;
-        let deadline = Instant::now() + Duration::from_secs(3);
+        let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
-            if c.health().is_err() {
+            // Gone means: port closed, daemon.json removed, and (where we can
+            // tell) the process itself exited — so the lock is free.
+            let port_closed = c.health().is_err();
+            let file_gone = !DaemonInfo::path(dir).exists();
+            let process_gone = pid.is_none_or(|p| !process_alive(p));
+            if port_closed && file_gone && process_gone {
                 return Ok(true);
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        bail!("the daemon at {} did not stop within 3s", c.base())
+        bail!("the daemon at {} did not stop within 5s", c.base())
     }
 
     pub fn tasks_filtered(
@@ -339,6 +345,16 @@ impl Client {
             .call()?;
         let r: ChangesResponse = Self::read(res)?;
         Ok(r.rev)
+    }
+}
+
+/// Best-effort liveness check by pid. On non-Linux platforms we cannot tell
+/// cheaply and assume the process is gone once its port has closed.
+fn process_alive(pid: u32) -> bool {
+    if cfg!(target_os = "linux") {
+        std::path::Path::new(&format!("/proc/{pid}")).exists()
+    } else {
+        false
     }
 }
 

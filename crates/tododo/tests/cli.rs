@@ -327,3 +327,31 @@ fn dns_scenario_waiting_chase_handoff_and_reply() {
         .success()
         .stdout(predicate::str::contains("not waiting on anyone"));
 }
+
+#[test]
+fn restart_swaps_the_daemon_process() {
+    let env = DaemonEnv::new();
+    env.cmd().args(["add", "before restart"]).assert().success();
+    let pid = |env: &DaemonEnv| -> String {
+        let out = env.cmd().args(["status"]).output().unwrap();
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .split_whitespace()
+            .nth(3)
+            .unwrap()
+            .to_string()
+    };
+    let before = pid(&env);
+    env.cmd()
+        .args(["restart"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("restarted daemon"));
+    let after = pid(&env);
+    assert_ne!(before, after, "a new process serves the same directory");
+    env.cmd()
+        .args(["ls"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("before restart"));
+}

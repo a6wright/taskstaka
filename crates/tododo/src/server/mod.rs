@@ -88,12 +88,25 @@ pub struct Bound {
 impl Bound {
     /// Take the lock, load the store, bind the port. Does not serve yet.
     pub async fn bind(dir: &Path, port: u16) -> Result<Bound> {
-        let state = AppState::open(dir).map_err(|e| match e {
-            StoreError::Locked(p) => {
-                anyhow::anyhow!("another daemon already holds {}", p.display())
+        // A predecessor may still be releasing the lock (restart, or a stop
+        // that has closed its port but not yet exited): give it a moment.
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let state = loop {
+            match AppState::open(dir) {
+                Ok(s) => break s,
+                Err(StoreError::Locked(p)) if std::time::Instant::now() < deadline => {
+                    tracing::debug!("lock held by another process at {}; retrying", p.display());
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                Err(StoreError::Locked(p)) => {
+                    return Err(anyhow::anyhow!(
+                        "another daemon already holds {}",
+                        p.display()
+                    ));
+                }
+                Err(other) => return Err(anyhow::Error::from(other)),
             }
-            other => anyhow::Error::from(other),
-        })?;
+        };
         let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port)))
             .await
             .with_context(|| format!("binding 127.0.0.1:{port}"))?;

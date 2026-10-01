@@ -170,3 +170,27 @@ async fn nudges_are_recomputed_after_mutations() {
     client.shutdown().unwrap();
     handle.await.unwrap().unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shutdown_releases_long_polls_immediately() {
+    let (_dir, client, handle) = start().await;
+    let rev = client.health().unwrap().rev;
+    let waiter = {
+        let c = client.clone();
+        tokio::task::spawn_blocking(move || c.changes(rev))
+    };
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let t0 = std::time::Instant::now();
+    client.shutdown().unwrap();
+    // The long-poll must come back now, not after its 25 s deadline, and the
+    // server must finish right behind it.
+    let _ = tokio::time::timeout(Duration::from_secs(3), waiter)
+        .await
+        .expect("long-poll released");
+    tokio::time::timeout(Duration::from_secs(3), handle)
+        .await
+        .expect("server stopped")
+        .unwrap()
+        .unwrap();
+    assert!(t0.elapsed() < Duration::from_secs(3));
+}

@@ -346,6 +346,7 @@ struct Changes {
 /// Long-poll: return as soon as the revision passes `after`, or after ~25s.
 async fn changes(State(s): S, Query(q): Query<ChangesQuery>) -> Json<Changes> {
     let mut rx = s.rev.subscribe();
+    let mut shut = s.shutting_down.subscribe();
     let deadline = tokio::time::sleep(Duration::from_secs(25));
     tokio::pin!(deadline);
     loop {
@@ -360,6 +361,7 @@ async fn changes(State(s): S, Query(q): Query<ChangesQuery>) -> Json<Changes> {
                 }
             }
             _ = &mut deadline => return Json(Changes { rev: cur }),
+            _ = shut.wait_for(|v| *v) => return Json(Changes { rev: cur }),
         }
     }
 }
@@ -408,7 +410,7 @@ async fn reload(State(s): S) -> R<serde_json::Value> {
 }
 
 async fn shutdown(State(s): S) -> impl IntoResponse {
-    s.shutdown.notify_one();
+    s.request_shutdown();
     Json(serde_json::json!({ "ok": true }))
 }
 

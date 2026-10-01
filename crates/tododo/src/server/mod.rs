@@ -34,6 +34,9 @@ pub struct AppState {
     pub nudges: Mutex<Vec<Nudge>>,
     /// Set once serving starts; routes use it for event-driven nudges.
     pub nudger: Mutex<Option<Arc<Nudger>>>,
+    /// Flips to true on shutdown so long-polls return immediately instead
+    /// of holding graceful shutdown open for up to 25 s.
+    pub shutting_down: watch::Sender<bool>,
 }
 
 impl AppState {
@@ -48,7 +51,14 @@ impl AppState {
             started: Timestamp::now(),
             nudges: Mutex::new(Vec::new()),
             nudger: Mutex::new(None),
+            shutting_down: watch::channel(false).0,
         }))
+    }
+
+    /// Ask the server to stop: wakes the shutdown future and every long-poll.
+    pub fn request_shutdown(&self) {
+        let _ = self.shutting_down.send(true);
+        self.shutdown.notify_one();
     }
 
     pub fn nudger(&self) -> Option<Arc<Nudger>> {
@@ -175,6 +185,8 @@ impl Bound {
                     _ = term => info!("SIGTERM"),
                     _ = shutdown_state.shutdown.notified() => info!("shutdown requested"),
                 }
+                // Signals arrive here directly; make sure long-polls let go too.
+                let _ = shutdown_state.shutting_down.send(true);
             })
             .await?;
         DaemonInfo::remove(&state.dir);

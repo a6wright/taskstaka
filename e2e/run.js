@@ -13,18 +13,18 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const BIN = path.resolve(__dirname, '..', 'target', 'debug', 'tododo');
+const BIN = path.resolve(__dirname, '..', 'target', 'debug', 'taskstaka');
 const SHOTS = path.join(__dirname, 'shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tododo-e2e-'));
-execFileSync(BIN, ['init'], { env: { ...process.env, TODODO_DIR: dir } });
-const daemon = spawn(BIN, ['serve', '--port', '0', '--no-notify'], { env: { ...process.env, TODODO_DIR: dir }, stdio: ['ignore', 'ignore', 'pipe'] });
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskstaka-e2e-'));
+execFileSync(BIN, ['init'], { env: { ...process.env, TASKSTAKA_DIR: dir } });
+const daemon = spawn(BIN, ['serve', '--port', '0', '--no-notify'], { env: { ...process.env, TASKSTAKA_DIR: dir }, stdio: ['ignore', 'ignore', 'pipe'] });
 let stderr = '';
 daemon.stderr.on('data', d => { stderr += d; });
 
 async function waitForDaemon() {
-  const f = path.join(dir, '.tododo', 'daemon.json');
+  const f = path.join(dir, '.taskstaka', 'daemon.json');
   for (let i = 0; i < 100; i++) {
     if (fs.existsSync(f)) { try { return JSON.parse(fs.readFileSync(f, 'utf8')).port; } catch (_) {} }
     await new Promise(r => setTimeout(r, 50));
@@ -138,7 +138,7 @@ function check(cond, what) {
   check(!(await page.locator('#toggle-done').evaluate(e => e.classList.contains('on'))), 'completed are hidden by default');
   await page.locator('#toggle-done').click(); await settle();
   check(await page.locator('#toggle-done').evaluate(e => e.classList.contains('on')), 'toggle turns on');
-  check((await page.evaluate(() => localStorage.getItem('tododo.showDone'))) === '1', 'and is remembered');
+  check((await page.evaluate(() => localStorage.getItem('taskstaka.showDone'))) === '1', 'and is remembered');
   await page.locator('#toggle-done').click(); await settle();
 
   console.log('pane chevron on the boundary');

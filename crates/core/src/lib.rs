@@ -1,4 +1,4 @@
-//! tododo-core: the task model, the markdown-backed store, and the needs-action
+//! taskstaka-core: the task model, the markdown-backed store, and the needs-action
 //! computation. This crate is synchronous and free of any server/UI framework so
 //! that the product logic can be unit-tested with an injected clock.
 

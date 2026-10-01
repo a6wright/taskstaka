@@ -1,4 +1,4 @@
-# tododo
+# taskstaka
 
 A single person's task tree, and the computation that says which of those tasks needs action right now. Exists because work is a tree — a story spawns subtasks that block it — and every list-shaped tool loses the parent once you descend into a child.
 
@@ -68,7 +68,7 @@ _Avoid_: dangling, stranded, zombie
 A waiting task whose `until` date is today or past. Actionable; the action is to chase. Every wait has one; the store sets a default.
 
 **Chase**:
-Recording that you poked the person again. Bumps the chase count and shortens the next follow-up. An agent may record a chase on your behalf (tagged), but nobody sends messages through tododo.
+Recording that you poked the person again. Bumps the chase count and shortens the next follow-up. An agent may record a chase on your behalf (tagged), but nobody sends messages through taskstaka.
 _Avoid_: ping, nag, remind (that is a nudge)
 
 **Handoff**:

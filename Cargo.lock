@@ -2347,6 +2347,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "taskstaka"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "axum",
+ "clap",
+ "insta",
+ "jiff",
+ "predicates",
+ "ratatui",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "taskstaka-core",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "ureq",
+]
+
+[[package]]
+name = "taskstaka-core"
+version = "0.1.0"
+dependencies = [
+ "fd-lock",
+ "insta",
+ "jiff",
+ "rand 0.9.5",
+ "serde",
+ "serde_json",
+ "serde_norway",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2530,44 +2568,6 @@ checksum = "b1e27c91459209c2986af3dcf603a5a74a4368754ce37414f59acc971167f643"
 dependencies = [
  "displaydoc",
  "zerovec",
-]
-
-[[package]]
-name = "tododo"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "axum",
- "clap",
- "insta",
- "jiff",
- "predicates",
- "ratatui",
- "rmcp",
- "serde",
- "serde_json",
- "tempfile",
- "tododo-core",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "ureq",
-]
-
-[[package]]
-name = "tododo-core"
-version = "0.1.0"
-dependencies = [
- "fd-lock",
- "insta",
- "jiff",
- "rand 0.9.5",
- "serde",
- "serde_json",
- "serde_norway",
- "tempfile",
- "thiserror 2.0.21",
 ]
 
 [[package]]

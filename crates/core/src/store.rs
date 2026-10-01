@@ -19,7 +19,7 @@ use crate::tree::{Resolution, Tree};
 
 pub const NOTES_DIR: &str = "notes";
 pub const INDEX_FILE: &str = "index.md";
-pub const META_DIR: &str = ".tododo";
+pub const META_DIR: &str = ".taskstaka";
 pub const LOCK_FILE: &str = "lock";
 
 #[derive(Debug, Error)]
@@ -36,11 +36,11 @@ pub enum StoreError {
         #[source]
         source: FrontmatterError,
     },
-    #[error("{0} is not a tododo directory (run `tododo init`)")]
+    #[error("{0} is not a taskstaka directory (run `taskstaka init`)")]
     NotInitialized(PathBuf),
     #[error("{0} is already initialized")]
     AlreadyInitialized(PathBuf),
-    #[error("another tododo process holds the lock on {0}")]
+    #[error("another taskstaka process holds the lock on {0}")]
     Locked(PathBuf),
     #[error("duplicate id {id} in {a} and {b}")]
     DuplicateId { id: TaskId, a: PathBuf, b: PathBuf },
@@ -102,6 +102,21 @@ pub struct Store {
 
 pub const DEFAULT_FOLLOW_UP_DAYS: i64 = 2;
 
+/// The project was renamed from "tododo"; directories initialized under the
+/// old name carry a `.tododo/` metadata folder. Rename it in place so the
+/// notes keep working without a re-init. Only metadata lives there (lock,
+/// daemon.json, nudge log), so this is safe at any time nothing is running.
+pub const LEGACY_META_DIR: &str = ".tododo";
+
+fn migrate_legacy_meta_dir(dir: &Path) -> Result<()> {
+    let old = dir.join(LEGACY_META_DIR);
+    let new = dir.join(META_DIR);
+    if old.is_dir() && !new.exists() {
+        fs::rename(&old, &new).map_err(|e| io_err(&old, e))?;
+    }
+    Ok(())
+}
+
 fn io_err(path: &Path, source: std::io::Error) -> StoreError {
     StoreError::Io {
         path: path.to_path_buf(),
@@ -112,6 +127,7 @@ fn io_err(path: &Path, source: std::io::Error) -> StoreError {
 impl Store {
     /// Create the directory layout. Fails if already initialized.
     pub fn init(dir: &Path) -> Result<Store> {
+        migrate_legacy_meta_dir(dir)?;
         if dir.join(META_DIR).exists() {
             return Err(StoreError::AlreadyInitialized(dir.to_path_buf()));
         }
@@ -127,6 +143,7 @@ impl Store {
     /// the index write).
     pub fn open(dir: &Path) -> Result<Store> {
         let dir = dir.to_path_buf();
+        migrate_legacy_meta_dir(&dir)?;
         if !dir.join(META_DIR).is_dir() || !dir.join(NOTES_DIR).is_dir() {
             return Err(StoreError::NotInitialized(dir));
         }
@@ -1663,5 +1680,26 @@ mod waiting_tests {
         assert_eq!(task.status, Status::Todo);
         assert!(task.waiting_on.is_none());
         assert!(task.body.contains("C replied: use the wildcard"));
+    }
+}
+
+#[cfg(test)]
+mod rename_migration_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_tododo_meta_dir_is_migrated_on_open() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(NOTES_DIR)).unwrap();
+        fs::create_dir_all(dir.path().join(LEGACY_META_DIR)).unwrap();
+        fs::write(dir.path().join(LEGACY_META_DIR).join("nudges.json"), "{}").unwrap();
+        let store = Store::open(dir.path()).expect("opens a tododo-era directory");
+        assert!(dir.path().join(META_DIR).join("nudges.json").exists());
+        assert!(!dir.path().join(LEGACY_META_DIR).exists());
+        drop(store);
+        assert!(matches!(
+            Store::init(dir.path()),
+            Err(StoreError::AlreadyInitialized(_))
+        ));
     }
 }

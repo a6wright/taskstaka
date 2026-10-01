@@ -1,0 +1,28 @@
+---
+source: crates/taskstaka/src/tui/ui.rs
+expression: "render(&app, 100, 24)"
+---
+" taskstaka · all · 3 actionable · 1 doing · 1 blocked · 1 waiting · 1 someday                       "
+" ⌛ waiting on Service Canada · Renew passport · 4d                                                 " Hidden by multi-width symbols: [(2, " ")]
+"› OVERDUE   ┌──────────────────────────────────────────────────────────────────────────┐  1d ·   1d "
+"  ↩ back    │ taskstaka — keys                                                         │  8d ·   8d "
+"  ▶ doing   │                                                                          │  2d ·   2d "
+" ── waiting │ j / k, ↑ / ↓     move        g / G   first / last                        │            "
+"  ·         │ d                done        x       drop                                │    someday "
+"  ·         │ s                start       o       reopen (back to todo)               │locked by 2 "
+"  ·         │ w                waiting on … (append ' @ +3d' for a follow-up)          │vice Canada "
+"            │ z                someday     t       touch, with an optional note        │            "
+"            │ a                add task    A       add subtask under selection         │            "
+"            │ e / Enter        open the note in $EDITOR                                │            "
+"            │ b                show / hide waiting & blocked tasks                     │            "
+"            │ c                cycle context: all → work → personal                    │            "
+"            │ r                refresh     q       quit                                │            "
+"────────────│                                                                          │────────────"
+" m1gr00 Ship│ Rows are what needs action, best first. A ↩ back row is a task whose     │            "
+" todo · work│ subtasks all closed and that you have not touched since.                 │            "
+"            │                                                                          │            "
+"            │ any key to close                                                         │            "
+"            └──────────────────────────────────────────────────────────────────────────┘            "
+"                                                                                                    "
+"                                                                                                    "
+" ranked · v tree · j/k · d done · s start · w wait · f chase · a/A add · e edit · b hide stuck · c c"

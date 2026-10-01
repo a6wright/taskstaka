@@ -31,7 +31,7 @@ Decisions:
 Alternatives rejected: a "waiting" *status on the parent* (breaks block-at-the-leaf and
 loses which subtask is stuck); a free-text journal only (nothing to rank or digest);
 auto-restarting the daemon after `cargo install` (surprising mid-TUI; we warn instead —
-see `tododo restart`).
+see `taskstaka restart`).
 
 ## Consequences
 

@@ -1,16 +1,16 @@
-# tododo
+# taskstaka
 
 A "what needs action next" task server, backed by markdown.
 
 Work is a tree: a story spawns subtasks, the subtasks block the story, and every
-list-shaped tool loses the parent once you descend into a child. tododo stores what
+list-shaped tool loses the parent once you descend into a child. taskstaka stores what
 you *said* about each task and computes what *needs action*: a task with open
 subtasks is blocked and stays out of your way; when its last subtask closes, the
 parent comes back to the top of the list, flagged **resurfaced**. That moment is
 the whole product.
 
 ```
-$ tododo done z9v416
+$ taskstaka done z9v416
 
 ↩  Ship auth story  (12atqg) is back: all its subtasks are done. It needs action.
 z9v416  Write migration: todo → done
@@ -23,8 +23,8 @@ git, Drive, whatever — the files are yours.
 ## Install
 
 ```
-cargo install --path crates/tododo
-tododo init                 # creates ~/todo (or $TODODO_DIR)
+cargo install --path crates/taskstaka
+taskstaka init                 # creates ~/todo (or $TASKSTAKA_DIR)
 ```
 
 ## Updating and running
@@ -34,18 +34,18 @@ Day to day the daemon starts itself; you rarely think about it.
 Rebuild and install after pulling changes:
 
 ```
-cargo install --path crates/tododo
-tododo restart              # the old daemon keeps running old code until you do this
+cargo install --path crates/taskstaka
+taskstaka restart              # the old daemon keeps running old code until you do this
 ```
 
 Any command will also warn `the daemon started before this binary was built` until you
-restart (silence with `TODODO_NO_STALE_WARNING=1`).
+restart (silence with `TASKSTAKA_NO_STALE_WARNING=1`).
 
 Run without installing (development):
 
 ```
-cargo run -p tododo -- next
-cargo run -p tododo -- serve   # foreground daemon; logs to stderr, RUST_LOG=debug for more
+cargo run -p taskstaka -- next
+cargo run -p taskstaka -- serve   # foreground daemon; logs to stderr, RUST_LOG=debug for more
 cargo test                     # cargo clippy --all-targets before committing
 cd e2e && npm install && npx playwright install chromium && npm test   # browser scenario, screenshots in e2e/shots/
 ```
@@ -53,18 +53,18 @@ cd e2e && npm install && npx playwright install chromium && npm test   # browser
 Where things are:
 
 ```
-~/todo/notes/*.md      your tasks (TODODO_DIR moves it)
+~/todo/notes/*.md      your tasks (TASKSTAKA_DIR moves it)
 ~/todo/index.md        generated tree — open in Obsidian
-~/todo/.tododo/        daemon.json (pid, port), lock, nudge log — safe to delete when stopped
+~/todo/.taskstaka/        daemon.json (pid, port), lock, nudge log — safe to delete when stopped
 ```
 
 Daemon controls:
 
 ```
-tododo status | stop | restart
-tododo serve --port 7407 --quiet 22-8 --no-notify
-systemctl --user restart tododo                    # if you installed the unit below
-launchctl kickstart -k gui/$(id -u)/dev.tododo     # macOS
+taskstaka status | stop | restart
+taskstaka serve --port 7407 --quiet 22-8 --no-notify
+systemctl --user restart taskstaka                    # if you installed the unit below
+launchctl kickstart -k gui/$(id -u)/dev.taskstaka     # macOS
 ```
 
 If a command says the directory is locked, a daemon is running: drop `--direct`, or stop it.
@@ -72,20 +72,20 @@ If a command says the directory is locked, a daemon is running: drop `--direct`,
 ## Daily use
 
 ```
-tododo add "Ship auth story" -c work
-tododo add "Fix JWT expiry" -p <id>          # subtask; the story is now blocked
-tododo next --explain                        # ranked, with a reason per row
-tododo start <id> · done <id> · drop <id>
-tododo wait <id> Sam                         # waiting on someone; follow-up defaults to +2d
-tododo chase <id> pinged again               # poked them again; next follow-up gets shorter
-tododo reply <id> redirected --to Bo "Bo owns DNS"   # answered | declined | partial | redirected
-tododo waiting                               # who am I waiting on, for what, how long?
-tododo add "TTL question?" -p <id> -w Bo     # create it already waiting on Bo
-tododo someday <id>                          # park it (doesn't block, doesn't rank)
-tododo touch <id> pinged Sam                 # bump "last touched", journal a note
-tododo edit <id>                             # open the note in $EDITOR
-tododo ls · show <id> · mv <id> <parent>
-tododo tui                                   # the always-on panel
+taskstaka add "Ship auth story" -c work
+taskstaka add "Fix JWT expiry" -p <id>          # subtask; the story is now blocked
+taskstaka next --explain                        # ranked, with a reason per row
+taskstaka start <id> · done <id> · drop <id>
+taskstaka wait <id> Sam                         # waiting on someone; follow-up defaults to +2d
+taskstaka chase <id> pinged again               # poked them again; next follow-up gets shorter
+taskstaka reply <id> redirected --to Bo "Bo owns DNS"   # answered | declined | partial | redirected
+taskstaka waiting                               # who am I waiting on, for what, how long?
+taskstaka add "TTL question?" -p <id> -w Bo     # create it already waiting on Bo
+taskstaka someday <id>                          # park it (doesn't block, doesn't rank)
+taskstaka touch <id> pinged Sam                 # bump "last touched", journal a note
+taskstaka edit <id>                             # open the note in $EDITOR
+taskstaka ls · show <id> · mv <id> <parent>
+taskstaka tui                                   # the always-on panel
 ```
 
 Ids are 6 characters; any unique prefix works. Add `--json` to anything for scripts.
@@ -94,43 +94,43 @@ Ids are 6 characters; any unique prefix works. Add `--json` to anything for scri
 
 Actionable tasks are ordered by tier, then age: **overdue → resurfaced → doing →
 follow-up due → due soon → high → normal → low**. Context (`work` / `personal`) is
-a filter, not a rank: `next -c work`, or `TODODO_CONTEXT=work`.
+a filter, not a rank: `next -c work`, or `TASKSTAKA_CONTEXT=work`.
 
 ## The daemon
 
-The first command auto-starts `tododo serve` in the background; it owns the files
-and every client talks to it on `127.0.0.1:7407`. `tododo status` / `tododo stop`.
+The first command auto-starts `taskstaka serve` in the background; it owns the files
+and every client talks to it on `127.0.0.1:7407`. `taskstaka status` / `taskstaka stop`.
 For always-on, install a service:
 
-**systemd (Linux)** — `~/.config/systemd/user/tododo.service`
+**systemd (Linux)** — `~/.config/systemd/user/taskstaka.service`
 ```ini
 [Unit]
-Description=tododo daemon
+Description=taskstaka daemon
 [Service]
-ExecStart=%h/.cargo/bin/tododo serve
-Environment=TODODO_DIR=%h/todo
+ExecStart=%h/.cargo/bin/taskstaka serve
+Environment=TASKSTAKA_DIR=%h/todo
 Restart=on-failure
 [Install]
 WantedBy=default.target
 ```
-`systemctl --user enable --now tododo`
+`systemctl --user enable --now taskstaka`
 
-**launchd (macOS)** — `~/Library/LaunchAgents/dev.tododo.plist`
+**launchd (macOS)** — `~/Library/LaunchAgents/dev.taskstaka.plist`
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>Label</key><string>dev.tododo</string>
-  <key>ProgramArguments</key><array><string>/Users/you/.cargo/bin/tododo</string><string>serve</string></array>
-  <key>EnvironmentVariables</key><dict><key>TODODO_DIR</key><string>/Users/you/todo</string></dict>
+  <key>Label</key><string>dev.taskstaka</string>
+  <key>ProgramArguments</key><array><string>/Users/you/.cargo/bin/taskstaka</string><string>serve</string></array>
+  <key>EnvironmentVariables</key><dict><key>TASKSTAKA_DIR</key><string>/Users/you/todo</string></dict>
   <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
 </dict></plist>
 ```
-`launchctl load ~/Library/LaunchAgents/dev.tododo.plist`
+`launchctl load ~/Library/LaunchAgents/dev.taskstaka.plist`
 
 Nudges (desktop notifications) fire for: stuck in *doing* > 2 days, nothing actionable,
 tasks rotting untouched > 14 days, a parent resurfacing, follow-ups due, too much WIP.
-`tododo serve --quiet 22-8` silences them overnight; `--no-notify` logs only.
+`taskstaka serve --quiet 22-8` silences them overnight; `--no-notify` logs only.
 
 ## Other clients
 
@@ -141,11 +141,11 @@ tasks rotting untouched > 14 days, a parent resurfacing, follow-ups due, too muc
   parent's box finishes its subtree), end a line with `@Name` to wait on someone.
   Hover a row for `▶ start` and `open`; `Ctrl+.` starts/stops the focused row; `open` (or `Ctrl+Enter`) slides in the pane: properties, subtasks, notes,
   activity, and the wait / chase / reply actions. `Esc` closes it; `\\` or the chevron on the sidebar's edge collapses the sidebar.
-- **MCP** (Claude Code, Claude Desktop): `claude mcp add tododo -- tododo mcp`. Then ask
+- **MCP** (Claude Code, Claude Desktop): `claude mcp add taskstaka -- taskstaka mcp`. Then ask
   "what should I work on?" — the server's instructions teach the model the tree rules.
 - **Obsidian:** open `~/todo` as a vault. `index.md` is the tree; each note is a task.
   Read-only in v1 — the daemon overwrites `index.md`, and notes it writes win.
-- **Hotkey:** bind a key to a one-line prompt that runs `tododo add`.
+- **Hotkey:** bind a key to a one-line prompt that runs `taskstaka add`.
   - macOS, Raycast script command:
     ```bash
     #!/bin/bash
@@ -153,10 +153,10 @@ tasks rotting untouched > 14 days, a parent resurfacing, follow-ups due, too muc
     # @raycast.title Add todo
     # @raycast.mode silent
     # @raycast.argument1 { "type": "text", "placeholder": "task" }
-    TODODO_DIR="$HOME/todo" "$HOME/.cargo/bin/tododo" add "$1"
+    TASKSTAKA_DIR="$HOME/todo" "$HOME/.cargo/bin/taskstaka" add "$1"
     ```
   - Linux, sxhkd + rofi: `super + t` →
-    `t=$(rofi -dmenu -p 'todo') && [ -n "$t" ] && tododo add "$t"`
+    `t=$(rofi -dmenu -p 'todo') && [ -n "$t" ] && taskstaka add "$t"`
 
 ## Waiting on people
 
@@ -181,9 +181,9 @@ The MCP server gives an agent everything to keep the list honest for you: `waiti
 summary), and `waiting_ref` links back to the conversation. Nothing sends messages;
 agents draft, you send.
 
-A daily routine with the tododo MCP and a messages MCP (Teams, Slack, mail):
+A daily routine with the taskstaka MCP and a messages MCP (Teams, Slack, mail):
 
-> For each item in `tododo.waiting(due=true)`: open `waiting_ref` if set, else search
+> For each item in `taskstaka.waiting(due=true)`: open `waiting_ref` if set, else search
 > messages with the person for the task title since `since`. If they replied, call
 > `record_reply` with a one-line summary (`redirected` if they named someone). If silent,
 > call `chase` with `dedupe=today` and draft a short follow-up for me to send. End with
@@ -194,9 +194,9 @@ Answered items resurface in `next`; chases move the counts; you get a notificati
 
 ## Repo layout
 
-- `crates/core` — `tododo-core`: model, frontmatter, tree, store, the needs-action
+- `crates/core` — `taskstaka-core`: model, frontmatter, tree, store, the needs-action
   computation, nudge rules. Sync, no framework deps, unit-tested with an injected clock.
-- `crates/tododo` — the binary: CLI, daemon, TUI, MCP bridge, web UI.
+- `crates/taskstaka` — the binary: CLI, daemon, TUI, MCP bridge, web UI.
 - `docs/PLAN.md` — design and phase status. `docs/adr/` — why the non-obvious decisions.
   `CONTEXT.md` — the vocabulary.
 

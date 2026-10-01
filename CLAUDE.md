@@ -1,4 +1,4 @@
-# tododo
+# taskstaka
 
 A "what needs action next" task server backed by markdown. Read these before changing anything:
 
@@ -8,8 +8,8 @@ A "what needs action next" task server backed by markdown. Read these before cha
 
 ## Layout
 
-- `crates/core` (`tododo-core`) — sync, framework-free: model, frontmatter, tree, store, `action.rs` (the product), nudges. **No tokio/axum/ratatui here**; that is enforced by it being a separate package.
-- `crates/tododo` — the one binary: CLI, daemon, TUI, MCP bridge, web.
+- `crates/core` (`taskstaka-core`) — sync, framework-free: model, frontmatter, tree, store, `action.rs` (the product), nudges. **No tokio/axum/ratatui here**; that is enforced by it being a separate package.
+- `crates/taskstaka` — the one binary: CLI, daemon, TUI, MCP bridge, web.
 
 ## Conventions
 
@@ -17,6 +17,6 @@ A "what needs action next" task server backed by markdown. Read these before cha
 - Inject the clock: every core function that needs "now" takes a `&Zoned`; tests use `"2026-09-29T15:00:00[UTC]"`.
 - `updated` bumps only on user-visible edits and `touch` (invariant I5). Derived changes never bump it.
 - Mutations go through `Command` → `Store::apply` → `Outcome`. Do not write task files any other way.
-- `cargo fmt --all && cargo clippy --all-targets && cargo test` must be clean before a commit. Snapshots: `INSTA_UPDATE=always cargo test -p tododo-core` after checking the diff is intended.
-- After `cargo install --path crates/tododo`, run `tododo restart` — the running daemon keeps serving the old binary otherwise (README "Updating and running").
+- `cargo fmt --all && cargo clippy --all-targets && cargo test` must be clean before a commit. Snapshots: `INSTA_UPDATE=always cargo test -p taskstaka-core` after checking the diff is intended.
+- After `cargo install --path crates/taskstaka`, run `taskstaka restart` — the running daemon keeps serving the old binary otherwise (README "Updating and running").
 - A `waiting` task always has `until`; `chase`/`record_reply` are the only ways to move a wait forward. See ADR 0007.

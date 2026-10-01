@@ -1,5 +1,5 @@
 {
-  "name": "tododo-e2e",
+  "name": "taskstaka-e2e",
   "private": true,
   "description": "Drives the real daemon's web UI in headless Chromium. Run: npm test (after cargo build).",
   "scripts": { "test": "node run.js" },

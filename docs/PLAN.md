@@ -1,4 +1,4 @@
-# tododo — a "what needs action next" server backed by markdown
+# taskstaka — a "what needs action next" server backed by markdown
 
 ## Context
 
@@ -56,7 +56,7 @@ business), Obsidian *editing* (read-only view), mobile, recurring tasks, snooze.
 todo/
   index.md                 # GENERATED nested checklist tree, rewritten on every mutation
   notes/<id>-<slug>.md     # source of truth, one per task; slug frozen at creation
-  .tododo/                 # daemon.json {pid,port}, lock, nudges.json (Obsidian ignores dot-dirs)
+  .taskstaka/                 # daemon.json {pid,port}, lock, nudges.json (Obsidian ignores dot-dirs)
 ```
 
 Per-task file (canonical output; parser tolerates any valid YAML incl. Obsidian rewrites):
@@ -128,14 +128,14 @@ rank. `next` defaults to the configured context; `--all` shows both.
 
 **Single writer.** The daemon owns the files. Every client (CLI, TUI, MCP, web) talks
 HTTP+JSON to `127.0.0.1:7407`. Clients auto-start the daemon if `/health` fails (read
-`.tododo/daemon.json` → spawn `tododo serve --detach` → poll ≤2s; `fd-lock` on
-`.tododo/lock` guarantees one daemon wins a race). Recommend a systemd user unit /
+`.taskstaka/daemon.json` → spawn `taskstaka serve --detach` → poll ≤2s; `fd-lock` on
+`.taskstaka/lock` guarantees one daemon wins a race). Recommend a systemd user unit /
 launchd plist for always-on.
 
 **Cargo workspace, two packages** (`resolver = "3"`, edition 2024):
 ```
 Cargo.toml                       # [workspace] members = ["crates/*"], [workspace.dependencies]
-crates/core/     tododo-core     # lib: sync, pure, NO tokio/axum/ratatui — compiler-enforced
+crates/core/     taskstaka-core     # lib: sync, pure, NO tokio/axum/ratatui — compiler-enforced
   src/model.rs        Task, TaskId, Status, Context, Priority, TaskView/NextItem/Nudge (wire DTOs)
   src/frontmatter.rs  split/parse/render (serde_norway); round-trip tested
   src/tree.rs         children map, ancestors(), cycle check
@@ -144,7 +144,7 @@ crates/core/     tododo-core     # lib: sync, pure, NO tokio/axum/ratatui — co
   src/action.rs       needs_action(tree, now, ctx, cfg) -> Vec<NextItem>
   src/index_md.rs     render index.md
   src/nudge.rs        nudges(tree, now, cfg, last_fired) -> Vec<Nudge>
-crates/tododo/   tododo          # one binary, clap subcommands
+crates/taskstaka/   taskstaka          # one binary, clap subcommands
   src/main.rs         serve|init|add|start|done|wait|someday|drop|reopen|next|ls|show|mv|edit|touch|tui|mcp|reindex
   src/client.rs       ureq client, discovery, auto-start
   src/server/         axum routes, AppState, notifier, nudge scheduler
@@ -194,7 +194,7 @@ disk and apply on top, warn) → atomic-write affected files → mutate memory �
 Mutations accept JSON bodies only, no CORS headers → browser drive-by can't reach them.
 
 **Nudges** (pure rules in core; daemon evaluates every 5 min + after each mutation;
-per-(rule,task) cooldown persisted in `.tododo/nudges.json`; quiet hours in config):
+per-(rule,task) cooldown persisted in `.taskstaka/nudges.json`; quiet hours in config):
 
 | Rule | Trigger | Cooldown |
 |---|---|---|
@@ -205,12 +205,12 @@ per-(rule,task) cooldown persisted in `.tododo/nudges.json`; quiet hours in conf
 | R5 follow_up_due | `followup(t)` | 24h/task |
 | R6 wip_limit | `count(doing) > 3` — "Pick one." | 24h |
 
-**MCP:** `tododo mcp` is a stdio process that auto-starts the daemon and maps tools 1:1
+**MCP:** `taskstaka mcp` is a stdio process that auto-starts the daemon and maps tools 1:1
 to HTTP: `next`, `add_task`, `get_task`, `set_status`, `update_task`, `move_task`,
-`touch`, `tree`; resources `tododo://index`, `tododo://task/{id}`.
+`touch`, `tree`; resources `taskstaka://index`, `taskstaka://task/{id}`.
 
-**Hotkey:** out of the binary. macOS: Raycast/Alfred/Hammerspoon script → `tododo add`.
-Linux: sxhkd/rofi → `tododo add`. Resolve `TODODO_DIR` at spawn and pass explicitly (hotkey
+**Hotkey:** out of the binary. macOS: Raycast/Alfred/Hammerspoon script → `taskstaka add`.
+Linux: sxhkd/rofi → `taskstaka add`. Resolve `TASKSTAKA_DIR` at spawn and pass explicitly (hotkey
 env is minimal).
 
 ## Build phases
@@ -219,15 +219,15 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 
 | | Phase | Deliverable | Verified by |
 |---|---|---|---|
-| ✅ | **P1 core + CLI** | `tododo-core` complete; CLI runs `Store` in-process. `init add start done wait someday drop reopen next ls show mv edit touch rm reindex path`. **Usable alone.** | 30 core unit tests (every tier, resurfaced, someday inheritance, followup); frontmatter round-trip incl. Obsidian-rewritten YAML; `insta` snapshots of `index.md` and canonical frontmatter; 3 `assert_cmd` e2e tests in `crates/tododo/tests/cli.rs` |
-| ✅ | **P2 daemon** | axum on `127.0.0.1:7407`, all endpoints incl. generic `POST /api/v1/commands`, daemon.json, lock, auto-start from any CLI command, `/changes` long-poll, `serve/stop/status`; CLI → ureq via a `Backend` trait (direct mode kept as `--direct` / `TODODO_DIRECT=1`) | `crates/tododo/tests/daemon.rs` drives the real router in-process on port 0 (resurface flow, error envelope, long-poll wake, second-daemon refusal); `tests/cli.rs` auto-starts a real detached daemon on `TODODO_PORT=0`, reuses it, and stops it |
-| ✅ | **P3 TUI** | `tododo tui [-c ctx]`: ranked rows with tier badge, `‹ root` crumb, queued/touched ages; detail pane; `b` toggles a "waiting & blocked" section that says *why* each is stuck; keys `j/k d s w x z o a A t e b c r ? q`; prompts for add/wait/note; `e` suspends to `$EDITOR` and reloads; refreshes on `/changes` long-poll + 30s age tick; header shows DISCONNECTED if the daemon goes away | `tui/app.rs` unit tests (ranking rows, selection survives rebuild, keys → Commands); `tui/ui.rs` `TestBackend` snapshots (`panel_snapshot`, `panel_stuck`, `panel_help`) + empty/all-blocked states |
-| ✅ | **P4 nudges** | R1–R6 as pure rules in `core::nudge` (`evaluate`, event-driven `resurfaced`); `NudgeLog` cooldowns persisted to `.tododo/nudges.json`; daemon scheduler every 5 min + 300 ms after each mutation; `Notifier` trait with `DesktopNotifier` (shell-out) and `LogNotifier`; `serve --no-notify`, `--quiet 22-8`; `GET /nudges` returns the current set; TUI header shows the first nudge | `core::nudge` tests: every rule's message, all-blocked, cooldown suppression + persistence across reload, prune, quiet hours wrapping midnight; `tests/daemon.rs` asserts `/nudges` republishes after a mutation |
-| ✅ | **P5 MCP** | `tododo mcp`: rmcp 3.5 stdio server proxying to the daemon (auto-starts it). Tools `next get_task list_tasks tree add_task set_status update_task move_task touch nudges`; resources `tododo://index`, `tododo://next`; server instructions explain the model (block at the leaf, resurfaced). Logs to stderr. | `crates/tododo/tests/mcp.rs` speaks raw newline-delimited JSON-RPC to the spawned binary: initialize, tools/list, add → next (blocked) → set_status (resurfaced event) → resources/read, and error mapping. To register: `claude mcp add tododo -- tododo mcp` |
-| ✅ | **P6 web** | Served by the daemon at `http://127.0.0.1:7407/`: panel page (summary, nudges, quick-add, ranked rows with status buttons, toggleable waiting & blocked section, context pills) and task page (ancestry, facts, subtasks with buttons, wait/touch/add-subtask forms, full edit form incl. body and reparent). Plain HTML + one CSS file, dark-mode aware, phone-width layout. Form posts gated on `Sec-Fetch-Site`/`Origin`. | `crates/tododo/tests/web.rs` against the in-process router: pages render, escaping, add → subtask → blocked, refused close surfaces as flash, edit form round-trip, cross-site/cross-origin posts → 403, 404 for unknown ids |
+| ✅ | **P1 core + CLI** | `taskstaka-core` complete; CLI runs `Store` in-process. `init add start done wait someday drop reopen next ls show mv edit touch rm reindex path`. **Usable alone.** | 30 core unit tests (every tier, resurfaced, someday inheritance, followup); frontmatter round-trip incl. Obsidian-rewritten YAML; `insta` snapshots of `index.md` and canonical frontmatter; 3 `assert_cmd` e2e tests in `crates/taskstaka/tests/cli.rs` |
+| ✅ | **P2 daemon** | axum on `127.0.0.1:7407`, all endpoints incl. generic `POST /api/v1/commands`, daemon.json, lock, auto-start from any CLI command, `/changes` long-poll, `serve/stop/status`; CLI → ureq via a `Backend` trait (direct mode kept as `--direct` / `TASKSTAKA_DIRECT=1`) | `crates/taskstaka/tests/daemon.rs` drives the real router in-process on port 0 (resurface flow, error envelope, long-poll wake, second-daemon refusal); `tests/cli.rs` auto-starts a real detached daemon on `TASKSTAKA_PORT=0`, reuses it, and stops it |
+| ✅ | **P3 TUI** | `taskstaka tui [-c ctx]`: ranked rows with tier badge, `‹ root` crumb, queued/touched ages; detail pane; `b` toggles a "waiting & blocked" section that says *why* each is stuck; keys `j/k d s w x z o a A t e b c r ? q`; prompts for add/wait/note; `e` suspends to `$EDITOR` and reloads; refreshes on `/changes` long-poll + 30s age tick; header shows DISCONNECTED if the daemon goes away | `tui/app.rs` unit tests (ranking rows, selection survives rebuild, keys → Commands); `tui/ui.rs` `TestBackend` snapshots (`panel_snapshot`, `panel_stuck`, `panel_help`) + empty/all-blocked states |
+| ✅ | **P4 nudges** | R1–R6 as pure rules in `core::nudge` (`evaluate`, event-driven `resurfaced`); `NudgeLog` cooldowns persisted to `.taskstaka/nudges.json`; daemon scheduler every 5 min + 300 ms after each mutation; `Notifier` trait with `DesktopNotifier` (shell-out) and `LogNotifier`; `serve --no-notify`, `--quiet 22-8`; `GET /nudges` returns the current set; TUI header shows the first nudge | `core::nudge` tests: every rule's message, all-blocked, cooldown suppression + persistence across reload, prune, quiet hours wrapping midnight; `tests/daemon.rs` asserts `/nudges` republishes after a mutation |
+| ✅ | **P5 MCP** | `taskstaka mcp`: rmcp 3.5 stdio server proxying to the daemon (auto-starts it). Tools `next get_task list_tasks tree add_task set_status update_task move_task touch nudges`; resources `taskstaka://index`, `taskstaka://next`; server instructions explain the model (block at the leaf, resurfaced). Logs to stderr. | `crates/taskstaka/tests/mcp.rs` speaks raw newline-delimited JSON-RPC to the spawned binary: initialize, tools/list, add → next (blocked) → set_status (resurfaced event) → resources/read, and error mapping. To register: `claude mcp add taskstaka -- taskstaka mcp` |
+| ✅ | **P6 web** | Served by the daemon at `http://127.0.0.1:7407/`: panel page (summary, nudges, quick-add, ranked rows with status buttons, toggleable waiting & blocked section, context pills) and task page (ancestry, facts, subtasks with buttons, wait/touch/add-subtask forms, full edit form incl. body and reparent). Plain HTML + one CSS file, dark-mode aware, phone-width layout. Form posts gated on `Sec-Fetch-Site`/`Origin`. | `crates/taskstaka/tests/web.rs` against the in-process router: pages render, escaping, add → subtask → blocked, refused close surfaces as flash, edit form round-trip, cross-site/cross-origin posts → 403, 404 for unknown ids |
 | ✅ | **P7 outliner** (post-v1, from first use) | Web `/` is now an outliner: nested checklist over the tree, `Enter` new line, `Tab`/`Shift+Tab` indent/outdent, checkbox completes the subtree, `⌫` on an empty line deletes, live via long-poll. The ranked panel moved to `/next`. Core: sibling `order` + `after` on Add/Move, cascade-close with same status, orphans instead of auto-reopen (ADR 0006). | core tests for ordering, cascade-done and orphans; web test asserts the outline shell + `/next`; JS syntax-checked with node. **Interaction not yet exercised in a real browser** — first manual pass pending. |
-| ✅ | **P8 waiting on people** (from the DNS scenario, ADR 0007) | Waiting always has a follow-up (default +2d); `chase` escalates (2d→1d), idempotent per `dedupe`, `source`-tagged; `reply answered/declined/partial/redirected` with a required summary; handoff via `edit --waiting-on`; `waiting_ref` conversation link; blocked parents report `waiting_on_summary` ("⌛ B · 4d"); `waiting` view grouped by person in CLI/TUI header/web strip; R5 mentions chase count, R7 daily digest; outline `@Name [+3d]` quick-capture; MCP tools `waiting chase record_reply`, agent-shaped output and instructions; `tododo restart` + stale-daemon warning | core tests (default until, chase escalation + dedupe, handoff, replies, grouping, parent summary, digest once/day); `tests/cli.rs` DNS scenario end to end; `tests/mcp.rs` agent loop (waiting → chase ×2 dedupes → redirected → answered); web strip/forms in `tests/web.rs` |
-| ✅ | **P9 web shell** (Linear/Notion-inspired, from `inspo/`) | One single-page shell served for every page route: sidebar with contexts + views (Outline, Next, Waiting on, Someday, Done, nudges), Notion-quiet rows (checkbox · title · one state chip; age/priority/`open` on hover), Linear-style side pane replacing `/t/{id}` (title, properties, actions, wait/chase/reply, subtasks, notes, activity from the journal). Dark-first, Inter with system fallback. Assets live in `crates/tododo/assets/` and are `include_str!`-ed; the form endpoints are gone — the page uses the JSON API only. | `tests/web.rs`: every page route serves the shell, assets have correct types, the API endpoints the first paint needs answer, form bodies are refused (415), old `/w/*` is 404; `node --check` on the script; **`e2e/run.js` drives headless Chromium (Playwright) against a real daemon**: type/Tab/Enter, `@B`, blocked-parent chip, hover start, pane open/done/Esc, sidebar chevron + `\\`, Waiting/Next views, parent checkbox cascade — screenshots in `e2e/shots/`. |
+| ✅ | **P8 waiting on people** (from the DNS scenario, ADR 0007) | Waiting always has a follow-up (default +2d); `chase` escalates (2d→1d), idempotent per `dedupe`, `source`-tagged; `reply answered/declined/partial/redirected` with a required summary; handoff via `edit --waiting-on`; `waiting_ref` conversation link; blocked parents report `waiting_on_summary` ("⌛ B · 4d"); `waiting` view grouped by person in CLI/TUI header/web strip; R5 mentions chase count, R7 daily digest; outline `@Name [+3d]` quick-capture; MCP tools `waiting chase record_reply`, agent-shaped output and instructions; `taskstaka restart` + stale-daemon warning | core tests (default until, chase escalation + dedupe, handoff, replies, grouping, parent summary, digest once/day); `tests/cli.rs` DNS scenario end to end; `tests/mcp.rs` agent loop (waiting → chase ×2 dedupes → redirected → answered); web strip/forms in `tests/web.rs` |
+| ✅ | **P9 web shell** (Linear/Notion-inspired, from `inspo/`) | One single-page shell served for every page route: sidebar with contexts + views (Outline, Next, Waiting on, Someday, Done, nudges), Notion-quiet rows (checkbox · title · one state chip; age/priority/`open` on hover), Linear-style side pane replacing `/t/{id}` (title, properties, actions, wait/chase/reply, subtasks, notes, activity from the journal). Dark-first, Inter with system fallback. Assets live in `crates/taskstaka/assets/` and are `include_str!`-ed; the form endpoints are gone — the page uses the JSON API only. | `tests/web.rs`: every page route serves the shell, assets have correct types, the API endpoints the first paint needs answer, form bodies are refused (415), old `/w/*` is 404; `node --check` on the script; **`e2e/run.js` drives headless Chromium (Playwright) against a real daemon**: type/Tab/Enter, `@B`, blocked-parent chip, hover start, pane open/done/Esc, sidebar chevron + `\\`, Waiting/Next views, parent checkbox cascade — screenshots in `e2e/shots/`. |
 | | post-v1 | snooze, Obsidian two-way (file watching), streamable-HTTP `/mcp`, recurring, outliner in the TUI, business-day follow-ups, Teams/Slack read integration, keyboard palette (Ctrl+K) in the web shell | |
 
 ### Deviations from the original plan (recorded as they happen)
@@ -237,7 +237,7 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 - **P1:** `edit <id>` with no flags opens the note in `$EDITOR` and reloads — simpler than a body-only PATCH round-trip for the CLI. The HTTP `PATCH` still carries `body`.
 - **P2:** the CLI computes `next`/`ls`/`show` locally from a full `GET /tasks?include_closed=true` snapshot rebuilt into a `Tree`, rather than calling `/next`. One rendering path for direct and daemon modes, and CLI/TUI can never disagree with each other. `/next` exists for MCP, web and curl.
 - **P2:** added `GET /api/v1/resolve/{prefix}` and a generic `POST /api/v1/commands` (takes a `Command`); the resource-style endpoints build the same `Command`s internally.
-- **P2:** the binary crate is also a library (`crates/tododo/src/lib.rs`) so integration tests can bind the real router in-process.
+- **P2:** the binary crate is also a library (`crates/taskstaka/src/lib.rs`) so integration tests can bind the real router in-process.
 - **P3:** the TUI always talks to the daemon (no `--direct`): holding the exclusive lock for the panel's lifetime would block every CLI command. Like the CLI it rebuilds a local `Tree` from `GET /tasks` and ranks with core, so the two can never disagree.
 - **P3:** added a `b` "waiting & blocked" section not in the original key list — seeing *what* is blocking is the natural follow-up to "nothing actionable".
 - **P4:** no `notify-rust`. Desktop notifications shell out to `notify-send` (Linux) and `osascript` (macOS): zero extra dependencies, and it works from an unbundled binary on macOS where the native API needs a signed .app. Failures are logged at debug and ignored — the panel is the reliable surface.
@@ -258,7 +258,7 @@ Candidate next steps, roughly in order of how much they would change daily use:
 
 1. **Live with it for a week** before adding features; tune tier order via `next --explain`.
 2. **Snooze** (`snoozed_until` hides a todo/doing task until a date) — plan already sketches it as `¬snoozed(t)` in `actionable`.
-3. **Obsidian two-way**: file watching (`notify` crate) so edits in the vault show up without `tododo reload`. The `(mtime, len)` guard already prevents clobbering; this is about latency.
+3. **Obsidian two-way**: file watching (`notify` crate) so edits in the vault show up without `taskstaka reload`. The `(mtime, len)` guard already prevents clobbering; this is about latency.
 4. **`--bind` + auth token** so the web UI works from a phone on the LAN.
 5. **Recurring tasks**, **streamable-HTTP `/mcp`** mounted in the daemon, **R6 WIP limit tuning**.
 6. TUI niceties: tree view mode, search, multi-select.
@@ -270,13 +270,13 @@ future reader.
 ## Verification (end to end, after P1–P3)
 
 ```
-tododo init && tododo add "Ship auth story" -c work
-tododo add "Fix JWT expiry" --parent <id> && tododo add "Write migration" --parent <id>
-tododo next --explain      # story is NOT shown (blocked by 2); both children T6
-tododo start <jwt>         # → T2 doing
-tododo done <jwt>; tododo done <migration>
-tododo next --explain      # story is back at T1 "resurfaced: all subtasks done 0m ago"
-tododo tui                 # panel shows the same; R4 notification fired
+taskstaka init && taskstaka add "Ship auth story" -c work
+taskstaka add "Fix JWT expiry" --parent <id> && taskstaka add "Write migration" --parent <id>
+taskstaka next --explain      # story is NOT shown (blocked by 2); both children T6
+taskstaka start <jwt>         # → T2 doing
+taskstaka done <jwt>; taskstaka done <migration>
+taskstaka next --explain      # story is back at T1 "resurfaced: all subtasks done 0m ago"
+taskstaka tui                 # panel shows the same; R4 notification fired
 cat todo/index.md          # tree with ⏳/▶ annotations; open in Obsidian, links resolve
 ```
 

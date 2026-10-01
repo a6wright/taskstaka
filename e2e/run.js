@@ -74,7 +74,8 @@ function check(cond, what) {
   await page.locator('li.row .title').nth(1).click();
   await page.keyboard.press('End');
   await page.keyboard.press('Enter'); await settle();
-  await page.keyboard.type('Ask B about wildcard certs @B'); await page.keyboard.press('Enter'); await settle();
+  // "@B today": waiting on B with the follow-up due today, so it is actionable.
+  await page.keyboard.type('Ask B about wildcard certs @B today'); await page.keyboard.press('Enter'); await settle();
   let titles = await page.locator('li.row .title').allTextContents();
   check(titles[2] === 'Ask B about wildcard certs', `Enter inserts right after the row (${titles.join(' | ')})`);
   check(await page.locator('li.row').nth(2).locator('.chip.wait').count() === 1, '@B made it waiting on B');

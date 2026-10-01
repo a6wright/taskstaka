@@ -8,6 +8,19 @@ const S = {
   view: 'outline', ctx: '', open: null,     // route
   tree: [], next: null, waiting: [], nudges: [], all: [],
   rev: 0, dirty: false, pendingRefresh: false, focus: null,
+  showDone: false,                           // outline: show completed tasks
+  // The always-present capture box at the bottom of the outline keeps its
+  // indentation across Enters, like Notion: Tab nests it under the row
+  // above, and each created task becomes the `after` for the next.
+  draft: { parent: null, after: null, depth: 0 },
+};
+try { S.showDone = localStorage.getItem('tododo.showDone') === '1'; } catch (_) {}
+const VIEW_HELP = {
+  outline: '',
+  next: 'What is yours to do right now — open, not blocked by subtasks, not parked, not waiting on anyone (unless the follow-up is due) — ranked. "Doing" is a status you set; it is one reason to rank high here.',
+  waiting: 'Everyone you are waiting on, grouped. Chase when you ping them; reply when they answer.',
+  someday: 'The icebox. Parked tasks do not block their parent and never rank.',
+  done: 'Finished or dropped in the last two weeks.',
 };
 const VIEWS = {
   outline: { ico: '☰', label: 'Outline' },
@@ -180,8 +193,11 @@ function renderMain() {
   else if (S.view === 'waiting') body = renderWaiting();
   else if (S.view === 'someday') body = renderSomeday();
   else if (S.view === 'done') body = renderDone();
+  const doneToggle = S.view === 'outline'
+    ? `<button class="toggle ${S.showDone ? 'on' : ''}" id="toggle-done" title="show completed tasks">✓ completed</button>` : '';
   $('#main').innerHTML = `
-    <div class="head"><h1>${v.label}</h1><span class="sum">${line}</span><span class="sp"></span><span class="sum">${S.ctx || 'all'}</span></div>
+    <div class="head"><h1>${v.label}</h1><span class="sum">${line}</span><span class="sp"></span>${doneToggle}<span class="sum">${S.ctx || 'all'}</span></div>
+    ${VIEW_HELP[S.view] ? `<p class="viewhelp">${esc(VIEW_HELP[S.view])}</p>` : ''}
     <div id="flash" class="flash" hidden></div>
     ${S.nudges.length && S.view !== 'waiting' ? `<div class="nudge">⚑ ${esc(S.nudges[0].message)}</div>` : ''}
     <div class="content">${body}</div>`;
@@ -223,11 +239,14 @@ function rowHtml(t, d, depth, { editable = true, crumb = '' } = {}) {
 
 function renderOutline() {
   const parts = [];
+  // Completed rows stay visible for a few minutes after you tick them (so
+  // the tick is not a vanishing act), then hide unless "✓ completed" is on.
+  const justDone = (t) => t.completed && (Date.now() - Date.parse(t.completed)) < 5 * 60e3;
   const walk = (nodes, depth) => {
     parts.push('<ul class="rows">');
     for (const n of nodes) {
       const t = n.task;
-      if (isClosed(t) && !recent(t.completed)) continue;
+      if (isClosed(t) && !S.showDone && !justDone(t)) continue;
       if (depth === 0 && t.status === 'someday') continue;   // the icebox has its own view
       parts.push(rowHtml(t, t.derived, depth));
       if (n.children && n.children.length) { parts.push('<li class="kids">'); walk(n.children, depth + 1); parts.push('</li>'); }
@@ -236,7 +255,10 @@ function renderOutline() {
   };
   if (!S.tree.length) parts.push('<p class="empty">Nothing here yet. Type below.</p>');
   else walk(S.tree, 0);
-  parts.push(`<div class="newline"><span class="plus">＋</span><span class="title draft" contenteditable="true" spellcheck="false" data-placeholder="add a task… (end with @Name to wait on someone)"></span></div>`);
+  // If the draft's parent vanished (done, deleted), fall back to the root.
+  if (S.draft.parent && !byId(S.draft.parent)) S.draft = { parent: null, after: null, depth: 0 };
+  const d = S.draft;
+  parts.push(`<div class="newline" style="--depth:${d.depth}"><span class="plus">＋</span><span class="title draft" contenteditable="true" spellcheck="false" data-parent="${d.parent || ''}" data-after="${d.after || ''}" data-placeholder="${d.depth ? 'add a subtask… (Shift+Tab to outdent)' : 'add a task… (Tab to nest under the row above, @Name to wait on someone)'}"></span></div>`);
   return parts.join('');
 }
 
@@ -386,7 +408,28 @@ async function createDraft(el, parent, after) {
     title = m[1]; waiting_on = m[2];
     try { until = m[3] ? await resolveDate(m[3]) : null; } catch (err) { el.textContent = text; return flash(err.message, 'error'); }
   }
-  await act(() => api('POST', '/api/v1/tasks', { title, parent: parent || null, after: after || null, context: (!parent && S.ctx) ? S.ctx : null, waiting_on, until }), { id: null, atEnd: true });
+  const fromBottom = !!el.closest('.newline');
+  const out = await act(() => api('POST', '/api/v1/tasks', { title, parent: parent || null, after: after || null, context: (!parent && S.ctx) ? S.ctx : null, waiting_on, until }), { id: null, atEnd: true });
+  // Rapid capture: the next line from the bottom box goes right after this one.
+  if (fromBottom && out && out.primary) { S.draft.after = out.primary; const box = $('#main .newline .title'); if (box) box.dataset.after = out.primary; }
+}
+
+// Tab / Shift+Tab in the bottom box: nest under the row above (at the same
+// depth), or step back out. Purely local until the line is submitted.
+function indentBottomDraft(el, outdent) {
+  const rows = [...document.querySelectorAll('#main li.row')];
+  if (outdent) {
+    if (!S.draft.depth) return;
+    const p = byId(S.draft.parent);
+    S.draft = { parent: p && p.parent ? p.parent : null, after: p ? p.id : null, depth: S.draft.depth - 1 };
+  } else {
+    const anchor = [...rows].reverse().find(li => +li.dataset.depth === S.draft.depth && (li.dataset.parent || '') === (S.draft.parent || ''));
+    if (!anchor) return;
+    S.draft = { parent: anchor.dataset.id, after: null, depth: S.draft.depth + 1 };
+  }
+  el.dataset.parent = S.draft.parent || ''; el.dataset.after = S.draft.after || '';
+  const box = el.closest('.newline'); if (box) box.style.setProperty('--depth', S.draft.depth);
+  el.dataset.placeholder = S.draft.depth ? 'add a subtask… (Shift+Tab to outdent)' : 'add a task… (Tab to nest under the row above, @Name to wait on someone)';
 }
 
 // ---------- events ----------
@@ -402,8 +445,9 @@ document.addEventListener('click', async (e) => {
   if (!b) return;
   const id = b.dataset.id || b.dataset.open || b.dataset.chase || b.dataset.reply || b.dataset.wait || b.dataset.addsub || b.dataset.delete;
   if (b.dataset.open) return go({ open: b.dataset.open });
-  if (b.hasAttribute('data-close')) return go({ open: null });
+  if (b.hasAttribute('data-close') || b.id === 'pane-toggle') return go({ open: null });
   if (b.id === 'side-toggle') return toggleSide();
+  if (b.id === 'toggle-done') { S.showDone = !S.showDone; try { localStorage.setItem('tododo.showDone', S.showDone ? '1' : '0'); } catch (_) {} return render(); }
   if (b.dataset.status) return act(() => api('POST', `/api/v1/tasks/${id}/status`, { status: b.dataset.status, cascade: true }));
   if (b.dataset.chase) { const note = $('#chase-note') ? $('#chase-note').value : ''; return act(() => api('POST', `/api/v1/tasks/${id}/chase`, { note: note || null })); }
   if (b.dataset.reply) {
@@ -507,6 +551,7 @@ document.addEventListener('keydown', async (e) => {
   if (e.key === 'Tab') {
     e.preventDefault();
     if (isDraft) {
+      if (el.closest('.newline')) return indentBottomDraft(el, e.shiftKey);
       const d = el.closest('.draftrow'); const prev = d ? prevSibling(d) : null;
       if (!e.shiftKey && prev) { el.dataset.parent = prev.dataset.id; el.dataset.after = ''; d.style.setProperty('--depth', +prev.dataset.depth + 1); }
       return;
@@ -524,6 +569,7 @@ document.addEventListener('keydown', async (e) => {
   if (e.key === 'Backspace' && el.textContent.length === 0) {
     e.preventDefault();
     const rows = titleEls(); const i = rows.indexOf(el); const prev = rows[i - 1];
+    if (isDraft && el.closest('.newline')) { if (S.draft.depth) indentBottomDraft(el, true); return; }
     if (isDraft) { const d = el.closest('.draftrow'); if (d) d.remove(); S.dirty = false; if (prev) placeCaret(prev, true); return; }
     if (li.nextElementSibling && li.nextElementSibling.classList.contains('kids')) return flash('has subtasks; finish or move them first', '');
     S.dirty = false;

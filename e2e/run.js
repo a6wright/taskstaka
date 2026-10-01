@@ -121,8 +121,34 @@ function check(cond, what) {
   check(/Ask B about wildcard certs/.test(await page.locator('#main li.row .title').allTextContents().then(a => a.join('|'))), 'the due follow-up is one of them');
   await shot('04-next');
 
-  console.log('checkbox on a parent completes the subtree');
+  console.log('bottom box: Tab nests under the row above, Shift+Tab steps out');
   await page.locator('a[data-view="outline"]').click(); await settle();
+  await page.locator('.newline .title').click();
+  await page.keyboard.press('Tab'); await settle();
+  const depthOf = () => page.locator('.newline').evaluate(e => e.style.getPropertyValue('--depth').trim());
+  check((await depthOf()) === '1', 'Tab indents the capture box');
+  await page.keyboard.type('Nested from the bottom'); await page.keyboard.press('Enter'); await settle();
+  const nested = await page.locator('li.row[data-depth="1"] .title').allTextContents();
+  check(nested.includes('Nested from the bottom'), `created as a subtask of the row above (${nested.join(' | ')})`);
+  check((await depthOf()) === '1', 'the box stays indented for the next line');
+  await page.keyboard.press('Shift+Tab'); await settle();
+  check((await depthOf()) === '0', 'Shift+Tab steps back out');
+
+  console.log('completed toggle');
+  check(!(await page.locator('#toggle-done').evaluate(e => e.classList.contains('on'))), 'completed are hidden by default');
+  await page.locator('#toggle-done').click(); await settle();
+  check(await page.locator('#toggle-done').evaluate(e => e.classList.contains('on')), 'toggle turns on');
+  check((await page.evaluate(() => localStorage.getItem('tododo.showDone'))) === '1', 'and is remembered');
+  await page.locator('#toggle-done').click(); await settle();
+
+  console.log('pane chevron on the boundary');
+  const row0 = page.locator('li.row').nth(0);
+  await row0.hover(); await row0.locator('button.openbtn').click(); await settle();
+  check(await page.locator('#pane-toggle').isVisible(), 'chevron appears on the list/pane boundary');
+  await page.locator('#pane-toggle').click(); await settle();
+  check(await page.locator('#app.pane-open').count() === 0, 'and closes the pane');
+
+  console.log('checkbox on a parent completes the subtree');
   await page.locator('li.row').nth(0).locator('.cb').check(); await settle();
   const checked = await page.locator('li.row .cb').evaluateAll(els => els.map(e => e.checked));
   check(checked.every(Boolean), `all rows ticked (${checked})`);

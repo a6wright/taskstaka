@@ -446,17 +446,17 @@ fn classify(t: &Task, d: &Derived, today: Date, soon: Date, now: Timestamp) -> (
         Some(Priority::High) => (
             Tier::High,
             format!("high priority, queued {}", ago(t.created)),
-            t.created.as_second(),
+            t.order_key() as i64,
         ),
         None => (
             Tier::Normal,
             format!("queued {}", ago(t.created)),
-            t.created.as_second(),
+            t.order_key() as i64,
         ),
         Some(Priority::Low) => (
             Tier::Low,
             format!("low priority, queued {}", ago(t.created)),
-            t.created.as_second(),
+            t.order_key() as i64,
         ),
     }
 }

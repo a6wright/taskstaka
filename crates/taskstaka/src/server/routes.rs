@@ -288,13 +288,26 @@ async fn set_status(State(s): S, Path(id): Path<String>, Json(b): Json<StatusBod
 struct MoveBody {
     parent: Option<String>,
     after: Option<String>,
+    before: Option<String>,
 }
 
 async fn move_task(State(s): S, Path(id): Path<String>, Json(b): Json<MoveBody>) -> R<Outcome> {
     let id = resolve_id(&s, &id)?;
     let parent = b.parent.as_deref().map(|p| resolve_id(&s, p)).transpose()?;
     let after = b.after.as_deref().map(|p| resolve_id(&s, p)).transpose()?;
-    Ok(Json(apply(&s, Command::Move { id, parent, after }).await?))
+    let before = b.before.as_deref().map(|p| resolve_id(&s, p)).transpose()?;
+    Ok(Json(
+        apply(
+            &s,
+            Command::Move {
+                id,
+                parent,
+                after,
+                before,
+            },
+        )
+        .await?,
+    ))
 }
 
 #[derive(Deserialize, Default)]

@@ -116,6 +116,8 @@ pub struct App {
     pub ctx: Option<Context>,
     pub view: View,
     pub show_stuck: bool,
+    /// Tree view: include tasks closed in the last two weeks.
+    pub show_done: bool,
     pub rows: Vec<Row>,
     pub selected: usize,
     pub summary: Summary,
@@ -133,6 +135,7 @@ impl App {
             ctx,
             view: View::Tree,
             show_stuck: false,
+            show_done: false,
             rows: Vec::new(),
             selected: 0,
             summary: Summary::default(),
@@ -231,8 +234,9 @@ impl App {
         let today = self.now.date();
         let ts = self.now.timestamp();
         let recent = |t: &Task| {
-            t.completed
-                .is_some_and(|c| ts.as_second() - c.as_second() < 24 * 3600)
+            self.show_done
+                && t.completed
+                    .is_some_and(|c| ts.as_second() - c.as_second() < 14 * 24 * 3600)
         };
         let mut rows = Vec::new();
         let mut stack: Vec<(&Task, usize)> = self
@@ -437,6 +441,16 @@ impl App {
                 self.mode = Mode::Help;
                 Action::None
             }
+            // Shift+arrows rearrange the tree: up/down among siblings,
+            // right nests under the row above, left steps out.
+            KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right
+                if key.modifiers.contains(KeyModifiers::SHIFT) && self.view == View::Tree =>
+            {
+                match sel.and_then(|id| self.shift_move(&id, key.code)) {
+                    Some(cmd) => Action::Apply(cmd),
+                    None => Action::None,
+                }
+            }
             KeyCode::Char('j') | KeyCode::Down => {
                 self.move_sel(1);
                 Action::None
@@ -462,6 +476,11 @@ impl App {
             }
             KeyCode::Char('c') => {
                 self.cycle_context();
+                Action::None
+            }
+            KeyCode::Char('h') => {
+                self.show_done = !self.show_done;
+                self.rebuild();
                 Action::None
             }
             KeyCode::Char('v') => {
@@ -555,6 +574,46 @@ impl App {
             },
             _ => Action::None,
         }
+    }
+
+    /// Build the Move for a Shift+arrow on `id`, or None if it cannot move
+    /// that way (first/last sibling, root, no row above).
+    fn shift_move(&self, id: &TaskId, dir: KeyCode) -> Option<Command> {
+        let t = self.tree.get(id)?;
+        let siblings: Vec<&Task> = match &t.parent {
+            Some(p) => self.tree.children(p).collect(),
+            None => self.tree.roots(),
+        };
+        let i = siblings.iter().position(|s| s.id == *id)?;
+        let (parent, after, before) = match dir {
+            KeyCode::Up => (
+                t.parent.clone(),
+                None,
+                Some(siblings.get(i.checked_sub(1)?)?.id.clone()),
+            ),
+            KeyCode::Down => (
+                t.parent.clone(),
+                Some(siblings.get(i + 1)?.id.clone()),
+                None,
+            ),
+            KeyCode::Right => (
+                Some(siblings.get(i.checked_sub(1)?)?.id.clone()),
+                None,
+                None,
+            ),
+            KeyCode::Left => {
+                let p = t.parent.clone()?;
+                let gp = self.tree.get(&p)?.parent.clone();
+                (gp, Some(p), None)
+            }
+            _ => return None,
+        };
+        Some(Command::Move {
+            id: id.clone(),
+            parent,
+            after,
+            before,
+        })
     }
 
     fn status(&mut self, id: Option<TaskId>, status: Status) -> Action {

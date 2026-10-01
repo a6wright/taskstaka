@@ -342,9 +342,14 @@ impl Store {
                 outcome.primary = Some(edit.id.clone());
                 writes.push(self.plan_edit(edit, now, &mut outcome)?);
             }
-            Command::Move { id, parent, after } => {
+            Command::Move {
+                id,
+                parent,
+                after,
+                before,
+            } => {
                 outcome.primary = Some(id.clone());
-                writes.push(self.plan_move(&id, parent, after)?);
+                writes.push(self.plan_move(&id, parent, after, before)?);
             }
             Command::Touch { id, note } => {
                 outcome.primary = Some(id.clone());
@@ -704,6 +709,10 @@ impl Store {
                 ));
             }
         } else if from == Status::Waiting {
+            // The wait is over: say so in the history before forgetting it.
+            let who = t.waiting_on.clone().unwrap_or_else(|| "someone".into());
+            let line = format!("unblocked: no longer waiting on {who}");
+            journal(&mut t, now, None, &line);
             t.clear_waiting();
         }
 
@@ -860,6 +869,7 @@ impl Store {
         id: &TaskId,
         parent: Option<TaskId>,
         after: Option<TaskId>,
+        before: Option<TaskId>,
     ) -> Result<Task> {
         let mut t = self.get(id)?.clone();
         if let Some(p) = &parent {
@@ -878,7 +888,10 @@ impl Store {
             }
         }
         // I5: reparenting is structural, not a touch.
-        t.order = Some(self.order_for(parent.as_ref(), after.as_ref(), Some(id), t.order_key())?);
+        t.order = Some(match before {
+            Some(b) => self.order_before(parent.as_ref(), &b, Some(id))?,
+            None => self.order_for(parent.as_ref(), after.as_ref(), Some(id), t.order_key())?,
+        });
         t.parent = parent;
         Ok(t)
     }
@@ -917,6 +930,37 @@ impl Store {
                 })
             }
         }
+    }
+}
+
+impl Store {
+    /// Position just before sibling `before`: halfway to its predecessor, or
+    /// one step ahead of it when it is first.
+    fn order_before(
+        &self,
+        parent: Option<&TaskId>,
+        before: &TaskId,
+        exclude: Option<&TaskId>,
+    ) -> Result<f64> {
+        let siblings: Vec<&Task> = match parent {
+            Some(p) => self.tree.children(p).collect(),
+            None => self.tree.roots(),
+        };
+        let siblings: Vec<&Task> = siblings
+            .into_iter()
+            .filter(|s| exclude.is_none_or(|x| s.id != *x))
+            .collect();
+        let idx = siblings
+            .iter()
+            .position(|s| s.id == *before)
+            .ok_or_else(|| {
+                StoreError::Validation(format!("{before} is not a sibling under the target parent"))
+            })?;
+        let next = siblings[idx].order_key();
+        Ok(match idx.checked_sub(1).and_then(|i| siblings.get(i)) {
+            Some(prev) => (prev.order_key() + next) / 2.0,
+            None => next - 1.0,
+        })
     }
 }
 
@@ -1150,6 +1194,7 @@ mod tests {
                     id: a.clone(),
                     parent: Some(b.clone()),
                     after: None,
+                    before: None,
                 },
                 &now()
             ),
@@ -1162,6 +1207,7 @@ mod tests {
                     id: b.clone(),
                     parent: None,
                     after: None,
+                    before: None,
                 },
                 &(now() + 1.hour()),
             )
@@ -1322,6 +1368,7 @@ mod order_tests {
                     id: b.clone(),
                     parent: Some(a.clone()),
                     after: None,
+                    before: None,
                 },
                 &now(),
             )
@@ -1334,6 +1381,7 @@ mod order_tests {
                     id: b.clone(),
                     parent: None,
                     after: Some(a.clone()),
+                    before: None,
                 },
                 &now(),
             )
@@ -1347,6 +1395,7 @@ mod order_tests {
                     id: a.clone(),
                     parent: None,
                     after: Some(c.clone()),
+                    before: None,
                 },
                 &now(),
             )
@@ -1358,6 +1407,7 @@ mod order_tests {
                     id: c.clone(),
                     parent: Some(a.clone()),
                     after: Some(b.clone()),
+                    before: None,
                 },
                 &now(),
             )

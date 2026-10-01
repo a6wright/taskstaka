@@ -341,7 +341,13 @@ impl TaskstakaMcp {
             Some(p) => Some(self.resolve(&p).await?),
             None => None,
         };
-        self.apply(Command::Move { id, parent, after }).await
+        self.apply(Command::Move {
+            id,
+            parent,
+            after,
+            before: None,
+        })
+        .await
     }
 
     #[tool(

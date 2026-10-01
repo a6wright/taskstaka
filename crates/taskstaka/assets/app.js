@@ -17,10 +17,10 @@ const S = {
 try { S.showDone = localStorage.getItem('taskstaka.showDone') === '1'; } catch (_) {}
 const VIEW_HELP = {
   outline: '',
-  next: 'What is yours to do right now — open, not blocked by subtasks, not parked, not waiting on anyone (unless the follow-up is due) — ranked. "Doing" is a status you set; it is one reason to rank high here.',
-  waiting: 'Everyone you are waiting on, grouped. Chase when you ping them; reply when they answer.',
-  someday: 'The icebox. Parked tasks do not block their parent and never rank.',
-  done: 'Finished or dropped in the last two weeks.',
+  next: 'Tasks you can act on now, best first. Anything blocked, parked or waiting on someone stays out of the way until it is ready.',
+  waiting: 'People you are waiting on, and for what. Chase when you nudge them; unblock when they get back to you.',
+  someday: 'Parked ideas. They do not block anything and stay out of Next until you revive them.',
+  done: 'Finished in the last two weeks.',
 };
 const VIEWS = {
   outline: { ico: '☰', label: 'Outline' },
@@ -170,8 +170,7 @@ function renderSide() {
     <div class="brand"><span><span class="dot"></span>taskstaka</span></div>
     <div class="ctxs">${['', 'work', 'personal'].map(c => `<a href="${urlFor({ ctx: c })}" data-ctx="${c}" class="${S.ctx === c ? 'active' : ''}">${c || 'all'}</a>`).join('')}</div>
     <nav class="nav">${Object.entries(VIEWS).map(([k, v]) => `<a href="${urlFor({ view: k })}" data-view="${k}" class="${S.view === k ? 'active' : ''}"><span class="ico">${v.ico}</span>${v.label}<span class="count">${counts[k]}</span></a>`).join('')}</nav>
-    ${S.nudges.length ? `<div class="nav"><a href="#" class="nudges" title="${esc(S.nudges.map(n => n.message).join('\n'))}"><span class="ico">⚑</span>nudges<span class="count">${S.nudges.length}</span></a></div>` : ''}
-    <div class="side-foot"><span class="kbd">Enter</span> new · <span class="kbd">Tab</span> subtask · <span class="kbd">⌫</span> delete empty · <span class="kbd">Esc</span> close</div>`;
+    ${S.nudges.length ? `<div class="nav"><a href="#" class="nudges" title="${esc(S.nudges.map(n => n.message).join('\n'))}"><span class="ico">⚑</span>nudges<span class="count">${S.nudges.length}</span></a></div>` : ''}`;
 }
 
 function inCtx(t) {
@@ -224,15 +223,17 @@ function hoverMeta(t) {
   // lives on the row too, not only in the pane.
   const startStop = t.status === 'doing'
     ? `<button class="rowbtn" data-status="todo" data-id="${t.id}" title="stop working on this">stop</button>`
+    : t.status === 'waiting' ? `<button class="rowbtn start" data-status="doing" data-id="${t.id}" title="they got back to you — start on it">unblock</button>`
     : (t.status === 'todo' || t.status === 'someday') ? `<button class="rowbtn start" data-status="doing" data-id="${t.id}" title="start working on this (▶)">▶ start</button>` : '';
   return `<span class="hover">${bits.map(b => `<span>${esc(b)}</span>`).join('')}${startStop}<button class="openbtn" data-open="${t.id}">open</button></span>`;
 }
 function rowHtml(t, d, depth, { editable = true, crumb = '' } = {}) {
   const closed = isClosed(t);
-  const cls = ['row', closed ? 'closed' : '', t.status === 'someday' ? 'someday' : '', d && d.blocked_by > 0 ? 'blocked' : '', d && d.deferred_by && d.deferred_by !== t.id ? 'deferred' : '', S.open === t.id ? 'selected' : ''].join(' ');
+  const cls = ['row', editable ? '' : 'compact', closed ? 'closed' : '', t.status === 'someday' ? 'someday' : '', d && d.blocked_by > 0 ? 'blocked' : '', d && d.deferred_by && d.deferred_by !== t.id ? 'deferred' : '', S.open === t.id ? 'selected' : ''].join(' ');
   return `<li class="${cls}" data-id="${t.id}" data-parent="${t.parent || ''}" data-depth="${depth}">
+    ${editable ? `<span class="grip" draggable="true" title="drag to reorder or nest">⋮⋮</span>` : ''}
     <input type="checkbox" class="cb" ${closed ? 'checked' : ''} title="${closed ? 'reopen' : 'done'}">
-    <span class="title" ${editable ? 'contenteditable="true" spellcheck="false"' : ''}>${esc(t.title)}</span>${crumb}
+    <span class="title" ${editable ? 'contenteditable="true" spellcheck="false"' : ''}>${esc(t.title)}${crumb}</span>
     <span class="meta">${chips(t, d)}${hoverMeta(t)}</span>
   </li>`;
 }
@@ -332,7 +333,7 @@ function renderPane() {
   if (st === 'todo' || st === 'someday') actions.push(['doing', 'start', '']);
   if (!isClosed(t)) actions.push(['done', 'done', 'primary']);
   if (st === 'doing') actions.push(['todo', 'stop', '']);
-  if (st === 'waiting') actions.push(['todo', 'unblock', '']);
+  if (st === 'waiting') actions.push(['doing', 'unblock', 'primary']);
   if (st !== 'someday' && !isClosed(t)) actions.push(['someday', 'someday', '']);
   if (!isClosed(t)) actions.push(['dropped', 'drop', 'danger']);
   if (isClosed(t)) actions.push(['todo', 'reopen', '']);
@@ -356,8 +357,7 @@ function renderPane() {
         <label>thread</label><input data-prop="waiting_ref" data-id="${t.id}" value="${esc(t.waiting_ref || '')}" placeholder="link to the conversation">` : ''}
       </div>
       ${st === 'waiting' ? `
-      <div class="inline-form"><input id="chase-note" placeholder="chased them again — note (optional)"><button class="btn" data-chase="${t.id}">chase</button></div>
-      <div class="inline-form"><select id="reply-outcome"><option value="answered">answered</option><option value="partial">partial</option><option value="declined">declined</option><option value="redirected">redirected to…</option></select><input id="reply-to" placeholder="person" style="max-width:110px"><input id="reply-summary" placeholder="what they said"><button class="btn" data-reply="${t.id}">reply</button></div>` : `
+      <div class="inline-form"><input id="chase-note" placeholder="chased them again — note (optional)"><button class="btn" data-chase="${t.id}">chase</button></div>` : `
       <div class="inline-form"><input id="wait-who" placeholder="waiting on…"><input id="wait-until" placeholder="until (+3d)" style="max-width:110px"><button class="btn" data-wait="${t.id}">wait</button></div>`}
       <h3>subtasks</h3>
       <ul class="rows subs">${kids.map(k => rowHtml(k, k.derived, 0, { editable: false })).join('')}</ul>
@@ -582,6 +582,39 @@ document.addEventListener('keydown', async (e) => {
   if (e.key === 'Escape') { el.blur(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && id) { e.preventDefault(); return go({ open: id }); }
 });
+
+// ---------- drag to reorder / nest (outline) ----------
+let dragId = null;
+document.addEventListener('dragstart', (e) => {
+  const grip = e.target.closest && e.target.closest('.grip'); if (!grip) return;
+  const li = rowOf(grip); dragId = li.dataset.id; li.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragId);
+  try { e.dataTransfer.setDragImage(li, 10, 10); } catch (_) {}
+});
+const clearDrop = () => document.querySelectorAll('.drop-before, .drop-after, .drop-into').forEach(el => el.classList.remove('drop-before', 'drop-after', 'drop-into'));
+function dropZone(li, e) {
+  const r = li.getBoundingClientRect(); const y = (e.clientY - r.top) / r.height;
+  return y < 0.3 ? 'before' : y > 0.7 ? 'after' : 'into';
+}
+document.addEventListener('dragover', (e) => {
+  if (!dragId) return;
+  const li = e.target.closest && e.target.closest('li.row'); if (!li || li.dataset.id === dragId) return;
+  e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+  clearDrop(); li.classList.add('drop-' + dropZone(li, e));
+});
+document.addEventListener('dragleave', (e) => { if (e.target.closest && e.target.closest('li.row') && !e.relatedTarget) clearDrop(); });
+document.addEventListener('drop', async (e) => {
+  if (!dragId) return;
+  const li = e.target.closest && e.target.closest('li.row'); if (!li || li.dataset.id === dragId) return;
+  e.preventDefault();
+  const zone = dropZone(li, e); const target = li.dataset.id; const id = dragId;
+  clearDrop(); dragId = null;
+  const body = zone === 'into' ? { parent: target, after: null }
+    : zone === 'before' ? { parent: li.dataset.parent || null, before: target }
+    : { parent: li.dataset.parent || null, after: target };
+  await act(() => api('POST', `/api/v1/tasks/${id}/move`, body), { id, atEnd: true });
+});
+document.addEventListener('dragend', () => { dragId = null; clearDrop(); document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging')); });
 
 // ---------- live ----------
 (async function watch() {

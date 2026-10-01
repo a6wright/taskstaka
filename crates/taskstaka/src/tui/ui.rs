@@ -424,7 +424,7 @@ fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     let keys = match app.view {
         super::app::View::Tree => {
-            " tree · v ranked list · j/k · d done · s start · w wait · f chase · a/A add · e edit · c ctx · ? help · q"
+            " tree · v ranked · j/k · ⇧↑↓←→ move · d done · s start · w wait · f chase · a/A add · h completed · c ctx · ? · q"
         }
         super::app::View::Next if app.show_stuck => {
             " ranked · v tree · j/k · d done · s start · w wait · f chase · a/A add · e edit · b hide stuck · c ctx · ? · q"
@@ -455,6 +455,8 @@ fn draw_help(f: &mut Frame, area: Rect) {
         Line::from(" e / Enter        open the note in $EDITOR"),
         Line::from(" b                show / hide waiting & blocked tasks"),
         Line::from(" c                cycle context: all → work → personal"),
+        Line::from(" ⇧↑ / ⇧↓          move among siblings · ⇧→ nest under row above · ⇧← out"),
+        Line::from(" h                show / hide completed (tree view)"),
         Line::from(" r                refresh     q       quit"),
         Line::from(""),
         Line::from(Span::styled(

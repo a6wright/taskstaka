@@ -342,6 +342,7 @@ pub fn run(b: &mut dyn Backend, cmd: Cmd, json: bool) -> Result<()> {
                 id,
                 parent,
                 after: None,
+                before: None,
             })?;
             report(b, &out, json, &now)
         }

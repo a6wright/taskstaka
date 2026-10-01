@@ -75,6 +75,10 @@ _Avoid_: ping, nag, remind (that is a nudge)
 Changing who a waiting task waits on (A said "talk to B"). Resets the wait's clock and chase count; journaled.
 _Avoid_: reassign, escalate
 
+**Unblock**:
+The person you were waiting on got back to you (or it is otherwise ready): the task leaves `waiting` and goes straight to `doing`, so it is at the top of Next.
+_Avoid_: resolve, release
+
 **Reply**:
 What came back from the person: answered, declined, partial, or redirected to someone else. Recorded with a one-line summary; answered/declined hand the task back to you.
 

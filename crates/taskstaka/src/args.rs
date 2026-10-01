@@ -84,7 +84,9 @@ pub enum Cmd {
     /// Show one task with its ancestry, subtasks and notes.
     Show { id: String },
 
-    /// Mark as doing (records `started`).
+    /// Mark as doing (records `started`). `unblock` is an alias: the person
+    /// you were waiting on got back to you and it is ready to go.
+    #[command(alias = "unblock")]
     Start { id: String },
 
     /// Mark done. Refuses if open subtasks remain unless --cascade.

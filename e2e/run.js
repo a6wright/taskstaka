@@ -148,6 +148,27 @@ function check(cond, what) {
   await page.locator('#pane-toggle').click(); await settle();
   check(await page.locator('#app.pane-open').count() === 0, 'and closes the pane');
 
+  console.log('unblock a waiting task: straight to doing');
+  const askRow = page.locator('li.row', { hasText: 'Ask B about wildcard certs' }).first();
+  await askRow.hover();
+  await askRow.locator('button.rowbtn', { hasText: 'unblock' }).click(); await settle();
+  check((await page.locator('li.row', { hasText: 'Ask B about wildcard certs' }).first().locator('.chip.doing').count()) === 1, 'unblock marks it doing');
+  await page.locator('a[data-view="next"]').click(); await settle();
+  const firstNext = await page.locator('#main li.row .title').first().textContent();
+  check(firstNext.startsWith('Ask B about wildcard certs'), `and it is at the top of Next ("${firstNext}")`);
+  const wrapped = await page.locator('#main li.row').first().evaluate(li => li.getBoundingClientRect().height);
+  check(wrapped < 40, `next rows stay on one line (${Math.round(wrapped)}px)`);
+  await page.locator('a[data-view="outline"]').click(); await settle();
+
+  console.log('drag to reorder');
+  const before = await page.locator('li.row .title').allTextContents();
+  const src = page.locator('li.row', { hasText: 'Nested from the bottom' }).first().locator('.grip');
+  const dst = page.locator('li.row', { hasText: "Figure out what's possible" }).first();
+  await src.hover({ force: true });
+  await src.dragTo(dst, { targetPosition: { x: 200, y: 3 }, force: true }); await settle();
+  const after = await page.locator('li.row .title').allTextContents();
+  check(after.indexOf('Nested from the bottom') < after.indexOf("Figure out what's possible") && before.indexOf('Nested from the bottom') > before.indexOf("Figure out what's possible"), `dragged above its sibling (${after.join(' | ')})`);
+
   console.log('checkbox on a parent completes the subtree');
   await page.locator('li.row').nth(0).locator('.cb').check(); await settle();
   const checked = await page.locator('li.row .cb').evaluateAll(els => els.map(e => e.checked));

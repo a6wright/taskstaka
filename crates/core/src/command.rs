@@ -127,6 +127,9 @@ pub enum Command {
         /// Place it right after this sibling. Omit to append at the end.
         #[serde(default)]
         after: Option<TaskId>,
+        /// Place it right before this sibling (wins over `after`).
+        #[serde(default)]
+        before: Option<TaskId>,
     },
     Touch {
         id: TaskId,

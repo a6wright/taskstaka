@@ -47,7 +47,7 @@ async function load() {
   if (S.dirty) { S.pendingRefresh = true; return; }
   const [tree, next, waiting, nudges, all] = await Promise.all([
     api('GET', '/api/v1/tree' + q({ include_closed: 'true' })),
-    api('GET', '/api/v1/next' + q({ limit: '0' })),
+    api('GET', '/api/v1/next' + q()),
     api('GET', '/api/v1/waiting' + q()),
     api('GET', '/api/v1/nudges'),
     api('GET', '/api/v1/tasks' + q({ include_closed: 'true' })),

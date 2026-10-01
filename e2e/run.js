@@ -115,7 +115,9 @@ function check(cond, what) {
   await page.locator('a[data-view="waiting"]').click(); await settle();
   check(/B/.test(await page.locator('.person .who').first().textContent()), 'Waiting on groups by person');
   await page.locator('a[data-view="next"]').click(); await settle();
-  check(/Ask B|Write/.test(await page.locator('#main').textContent()), 'Next lists what is actionable');
+  const nextRows = await page.locator('#main li.row').count();
+  check(nextRows >= 1, `Next lists what is actionable as rows (${nextRows})`);
+  check(/Ask B about wildcard certs/.test(await page.locator('#main li.row .title').allTextContents().then(a => a.join('|'))), 'the due follow-up is one of them');
   await shot('04-next');
 
   console.log('checkbox on a parent completes the subtree');

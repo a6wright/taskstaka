@@ -194,3 +194,19 @@ async fn shutdown_releases_long_polls_immediately() {
         .unwrap();
     assert!(t0.elapsed() < Duration::from_secs(3));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn next_limit_zero_means_unlimited() {
+    let (_dir, client, handle) = start().await;
+    add(&client, "one", None);
+    add(&client, "two", None);
+    assert_eq!(
+        client.next(None, Some(0)).unwrap().items.len(),
+        2,
+        "0 is not a limit"
+    );
+    assert_eq!(client.next(None, Some(1)).unwrap().items.len(), 1);
+    assert_eq!(client.next(None, None).unwrap().items.len(), 2);
+    client.shutdown().unwrap();
+    handle.await.unwrap().unwrap();
+}

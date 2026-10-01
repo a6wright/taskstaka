@@ -114,7 +114,8 @@ async fn next(State(s): S, Query(q): Query<NextQuery>) -> R<NextResponse> {
         .map_err(|_| ApiError::internal("store mutex poisoned"))?;
     let now = Zoned::now();
     let mut items = needs_action(store.tree(), &now, q.context, &RankConfig::default());
-    if let Some(n) = q.limit {
+    // `limit=0` means "no limit", so a client can always pass the parameter.
+    if let Some(n) = q.limit.filter(|n| *n > 0) {
         items.truncate(n);
     }
     Ok(Json(NextResponse {

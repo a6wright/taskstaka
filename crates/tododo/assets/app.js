@@ -81,6 +81,23 @@ function go(opts) {
 }
 window.addEventListener('popstate', () => { routeFromUrl(); render(); });
 
+// ---------- sidebar collapse ----------
+function toggleSide(force) {
+  const app = $('#app');
+  const narrow = window.matchMedia('(max-width: 1000px)').matches;
+  if (narrow) { app.classList.toggle('side-open', force); }
+  else {
+    const collapsed = force === undefined ? !app.classList.contains('side-collapsed') : !!force;
+    app.classList.toggle('side-collapsed', collapsed);
+    try { localStorage.setItem('tododo.side', collapsed ? 'collapsed' : 'open'); } catch (_) {}
+  }
+  const t = $('#side-toggle');
+  const hidden = narrow ? !app.classList.contains('side-open') : app.classList.contains('side-collapsed');
+  t.textContent = hidden ? '›' : '‹';
+  t.title = (hidden ? 'show' : 'collapse') + ' sidebar (\\)';
+}
+try { if (localStorage.getItem('tododo.side') === 'collapsed') { $('#app').classList.add('side-collapsed'); $('#side-toggle').textContent = '›'; } } catch (_) {}
+
 // ---------- flash ----------
 function flash(msg, kind) {
   const el = $('#flash');
@@ -110,10 +127,23 @@ const recent = (iso) => iso && (Date.now() - Date.parse(iso)) < 86400e3;
 
 // ---------- render ----------
 function render() {
+  // Re-renders happen for many reasons (an action, a live update from
+  // another client); none of them may steal the caret.
+  if (!S.focus) S.focus = captureFocus();
   const app = $('#app');
   app.classList.toggle('pane-open', !!S.open);
   renderSide(); renderMain(); renderPane();
   if (S.focus) { placeFocus(S.focus); S.focus = null; }
+}
+function captureFocus() {
+  const ae = document.activeElement;
+  if (!ae || !ae.closest) return null;
+  if (ae.classList.contains('pane-title')) return { pane: true, offset: caretOffset(ae) };
+  const tl = ae.closest('.title'); if (!tl) return null;
+  const li = rowOf(tl);
+  if (li) return { id: li.dataset.id, offset: caretOffset(tl) };
+  if (tl.closest('.newline')) return { id: null, atEnd: true, text: tl.textContent };
+  return null;
 }
 
 function renderSide() {
@@ -149,7 +179,7 @@ function renderMain() {
   else if (S.view === 'someday') body = renderSomeday();
   else if (S.view === 'done') body = renderDone();
   $('#main').innerHTML = `
-    <div class="head"><button class="btn small menu" id="menu">☰</button><h1>${v.label}</h1><span class="sum">${line}</span><span class="sp"></span><span class="sum">${S.ctx || 'all'}</span></div>
+    <div class="head"><h1>${v.label}</h1><span class="sum">${line}</span><span class="sp"></span><span class="sum">${S.ctx || 'all'}</span></div>
     <div id="flash" class="flash" hidden></div>
     ${S.nudges.length && S.view !== 'waiting' ? `<div class="nudge">⚑ ${esc(S.nudges[0].message)}</div>` : ''}
     <div class="content">${body}</div>`;
@@ -172,7 +202,12 @@ function hoverMeta(t) {
   const bits = [];
   if (t.priority) bits.push(t.priority);
   bits.push(ago(t.created));
-  return `<span class="hover">${bits.map(b => `<span>${esc(b)}</span>`).join('')}<button class="openbtn" data-open="${t.id}">open</button></span>`;
+  // start/stop is the one status change that is not a checkbox, so it
+  // lives on the row too, not only in the pane.
+  const startStop = t.status === 'doing'
+    ? `<button class="rowbtn" data-status="todo" data-id="${t.id}" title="stop working on this">stop</button>`
+    : (t.status === 'todo' || t.status === 'someday') ? `<button class="rowbtn start" data-status="doing" data-id="${t.id}" title="start working on this (▶)">▶ start</button>` : '';
+  return `<span class="hover">${bits.map(b => `<span>${esc(b)}</span>`).join('')}${startStop}<button class="openbtn" data-open="${t.id}">open</button></span>`;
 }
 function rowHtml(t, d, depth, { editable = true, crumb = '' } = {}) {
   const closed = isClosed(t);
@@ -322,8 +357,10 @@ function placeCaret(el, atEnd, offset) {
   range.collapse(true); const s = window.getSelection(); s.removeAllRanges(); s.addRange(range);
 }
 function placeFocus(f) {
-  const el = f.id ? $(`#main li[data-id="${f.id}"] .title`) : $('#main .newline .title');
-  if (el) placeCaret(el, f.atEnd, f.offset);
+  const el = f.pane ? $('#pane .pane-title') : f.id ? $(`#main li[data-id="${f.id}"] .title`) : $('#main .newline .title');
+  if (!el) return;
+  if (f.text && !el.textContent) { el.textContent = f.text; S.dirty = true; }
+  placeCaret(el, f.atEnd || f.text !== undefined, f.offset);
 }
 const rowOf = (el) => el.closest('li.row');
 const titleEls = () => [...document.querySelectorAll('#main .title')];
@@ -361,7 +398,7 @@ document.addEventListener('click', async (e) => {
   const id = b.dataset.id || b.dataset.open || b.dataset.chase || b.dataset.reply || b.dataset.wait || b.dataset.addsub || b.dataset.delete;
   if (b.dataset.open) return go({ open: b.dataset.open });
   if (b.hasAttribute('data-close')) return go({ open: null });
-  if (b.id === 'menu') return $('#app').classList.toggle('side-open');
+  if (b.id === 'side-toggle') return toggleSide();
   if (b.dataset.status) return act(() => api('POST', `/api/v1/tasks/${id}/status`, { status: b.dataset.status, cascade: true }));
   if (b.dataset.chase) { const note = $('#chase-note') ? $('#chase-note').value : ''; return act(() => api('POST', `/api/v1/tasks/${id}/chase`, { note: note || null })); }
   if (b.dataset.reply) {
@@ -436,7 +473,14 @@ document.addEventListener('focusout', async (e) => {
 });
 
 document.addEventListener('keydown', async (e) => {
-  if (e.key === 'Escape' && S.open && !e.target.closest('[contenteditable], input, textarea, select')) return go({ open: null });
+  const typing = e.target.closest('[contenteditable], input, textarea, select');
+  if (e.key === 'Escape' && S.open && !typing) return go({ open: null });
+  if (e.key === '\\' && !typing) { e.preventDefault(); return toggleSide(); }
+  // ▶ with a row focused: start (or stop) it without opening the pane.
+  if ((e.ctrlKey || e.metaKey) && e.key === '.' ) {
+    const li = e.target.closest && e.target.closest('li.row');
+    if (li) { e.preventDefault(); const t = byId(li.dataset.id); if (t) return act(() => api('POST', `/api/v1/tasks/${t.id}/status`, { status: t.status === 'doing' ? 'todo' : 'doing' }), { id: t.id, atEnd: true }); }
+  }
   const el = e.target.closest('.title, .pane-title'); if (!el) return;
   if (el.classList.contains('pane-title')) { if (e.key === 'Enter') { e.preventDefault(); el.blur(); } return; }
   const li = rowOf(el); const id = li && li.dataset.id; const isDraft = el.classList.contains('draft');

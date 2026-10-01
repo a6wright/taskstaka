@@ -47,6 +47,7 @@ Run without installing (development):
 cargo run -p tododo -- next
 cargo run -p tododo -- serve   # foreground daemon; logs to stderr, RUST_LOG=debug for more
 cargo test                     # cargo clippy --all-targets before committing
+cd e2e && npm install && npx playwright install chromium && npm test   # browser scenario, screenshots in e2e/shots/
 ```
 
 Where things are:
@@ -138,8 +139,8 @@ tasks rotting untouched > 14 days, a parent resurfacing, follow-ups due, too muc
   in the middle, and a side pane for any task's details. Type a line, `Enter` for the
   next, `Tab` to make it a subtask, `Shift+Tab` to outdent, tick the box to finish (a
   parent's box finishes its subtree), end a line with `@Name` to wait on someone.
-  `open` on a row (or `Ctrl+Enter`) slides in the pane: properties, subtasks, notes,
-  activity, and the wait / chase / reply actions. `Esc` closes it.
+  Hover a row for `▶ start` and `open`; `Ctrl+.` starts/stops the focused row; `open` (or `Ctrl+Enter`) slides in the pane: properties, subtasks, notes,
+  activity, and the wait / chase / reply actions. `Esc` closes it; `\\` or the chevron on the sidebar's edge collapses the sidebar.
 - **MCP** (Claude Code, Claude Desktop): `claude mcp add tododo -- tododo mcp`. Then ask
   "what should I work on?" — the server's instructions teach the model the tree rules.
 - **Obsidian:** open `~/todo` as a vault. `index.md` is the tree; each note is a task.

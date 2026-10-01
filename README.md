@@ -133,9 +133,13 @@ tasks rotting untouched > 14 days, a parent resurfacing, follow-ups due, too muc
 
 ## Other clients
 
-- **Web:** `http://127.0.0.1:7407/` — an outliner: type a line, `Enter` for the next,
-  `Tab` to make it a subtask, `Shift+Tab` to outdent, tick the box to finish (a parent's
-  box finishes its subtree). `/next` is the ranked "what now?" panel.
+- **Web:** `http://127.0.0.1:7407/` — a Linear-style shell: sidebar (All · Work ·
+  Personal; Outline, Next, Waiting on, Someday, Done), a Notion-style nested checklist
+  in the middle, and a side pane for any task's details. Type a line, `Enter` for the
+  next, `Tab` to make it a subtask, `Shift+Tab` to outdent, tick the box to finish (a
+  parent's box finishes its subtree), end a line with `@Name` to wait on someone.
+  `open` on a row (or `Ctrl+Enter`) slides in the pane: properties, subtasks, notes,
+  activity, and the wait / chase / reply actions. `Esc` closes it.
 - **MCP** (Claude Code, Claude Desktop): `claude mcp add tododo -- tododo mcp`. Then ask
   "what should I work on?" — the server's instructions teach the model the tree rules.
 - **Obsidian:** open `~/todo` as a vault. `index.md` is the tree; each note is a task.

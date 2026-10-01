@@ -26,7 +26,9 @@ const ago = (iso) => {
   if (s < 86400) return Math.floor(s / 3600) + 'h'; if (s < 14 * 86400) return Math.floor(s / 86400) + 'd';
   return Math.floor(s / (7 * 86400)) + 'w';
 };
-const today = () => new Date().toISOString().slice(0, 10);
+// Local calendar date (the daemon ranks by its local day too); toISOString would be UTC.
+const localIso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const today = () => localIso(new Date());
 
 // ---------- api ----------
 async function api(method, path, body) {
@@ -380,7 +382,10 @@ async function createDraft(el, parent, after) {
   el.textContent = ''; S.dirty = false;
   let title = text, waiting_on = null, until = null;
   const m = text.match(/^(.*\S)\s+@(\S+)(?:\s+(\+\d+[dwm]|\d{4}-\d{2}-\d{2}|today|tomorrow))?\s*$/);
-  if (m) { title = m[1]; waiting_on = m[2]; until = m[3] || null; }
+  if (m) {
+    title = m[1]; waiting_on = m[2];
+    try { until = m[3] ? await resolveDate(m[3]) : null; } catch (err) { el.textContent = text; return flash(err.message, 'error'); }
+  }
   await act(() => api('POST', '/api/v1/tasks', { title, parent: parent || null, after: after || null, context: (!parent && S.ctx) ? S.ctx : null, waiting_on, until }), { id: null, atEnd: true });
 }
 
@@ -424,10 +429,10 @@ async function resolveDate(s) {
   s = s.trim(); if (!s) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   const d = new Date();
-  if (s === 'today') return d.toISOString().slice(0, 10);
-  if (s === 'tomorrow') { d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); }
+  if (s === 'today') return localIso(d);
+  if (s === 'tomorrow') { d.setDate(d.getDate() + 1); return localIso(d); }
   const m = s.match(/^\+(\d+)([dwm]?)$/);
-  if (m) { const n = +m[1]; if (m[2] === 'w') d.setDate(d.getDate() + 7 * n); else if (m[2] === 'm') d.setMonth(d.getMonth() + n); else d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
+  if (m) { const n = +m[1]; if (m[2] === 'w') d.setDate(d.getDate() + 7 * n); else if (m[2] === 'm') d.setMonth(d.getMonth() + n); else d.setDate(d.getDate() + n); return localIso(d); }
   throw new Error(`${s} is not a date; use YYYY-MM-DD, today, tomorrow or +3d`);
 }
 

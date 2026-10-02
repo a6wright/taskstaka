@@ -59,6 +59,22 @@ pub enum Cmd {
     /// Speak MCP on stdin/stdout for agents (Claude Code, Claude Desktop).
     Mcp,
 
+    /// Install the Claude Code integration: the taskstaka skill and the MCP server.
+    Setup {
+        /// What to set up (only `claude` for now).
+        target: String,
+        /// Install into this project (.claude/skills, MCP scope project) instead of your home.
+        #[arg(long)]
+        project: bool,
+        #[arg(long)]
+        skip_skill: bool,
+        #[arg(long)]
+        skip_mcp: bool,
+        /// Show what would be done without writing anything.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// The always-on panel: what needs action, live.
     Tui {
         /// Start filtered to this context (c cycles at runtime).

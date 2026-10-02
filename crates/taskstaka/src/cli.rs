@@ -82,6 +82,26 @@ pub fn main() -> Result<()> {
         }
         Cmd::Tui { context } => return crate::tui::run(&dir, cli.port, context),
         Cmd::Mcp => return crate::mcp::run(&dir, cli.port),
+        Cmd::Setup {
+            target,
+            project,
+            skip_skill,
+            skip_mcp,
+            dry_run,
+        } => {
+            if target != "claude" {
+                bail!("unknown setup target {target:?}; try `taskstaka setup claude`");
+            }
+            let opts = crate::setup::ClaudeSetup {
+                project,
+                skip_skill,
+                skip_mcp,
+                dry_run,
+            };
+            let report = crate::setup::claude(&opts)?;
+            print!("{}", crate::setup::describe(&report, &opts));
+            return Ok(());
+        }
         Cmd::Status => {
             return match Client::discover(&dir) {
                 Some(c) => {
@@ -173,7 +193,8 @@ pub fn run(b: &mut dyn Backend, cmd: Cmd, json: bool) -> Result<()> {
         | Cmd::Restart
         | Cmd::Status
         | Cmd::Tui { .. }
-        | Cmd::Mcp => {
+        | Cmd::Mcp
+        | Cmd::Setup { .. } => {
             unreachable!("handled in main")
         }
 

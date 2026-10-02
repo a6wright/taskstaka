@@ -37,7 +37,11 @@ date is set automatically. When they say the person replied, call `record_reply`
 declined, partial, or redirected to someone else). When they say they pinged the person \
 again, call `chase`. `waiting` lists everyone the user is waiting on; use due=true to find \
 follow-ups that are due. If you can read the user's messages, check whether those people \
-replied and record it — but never send messages on the user's behalf; draft them instead.";
+replied and record it — but never send messages on the user's behalf; draft them instead.\n\n\
+Plans: when a request becomes several steps, create one task per step under a story, in \
+order. Tag steps you will perform `agent` and close them as you go; leave the user's manual \
+steps (console work, emails, approvals) untagged with exact instructions in the body; create \
+steps that depend on someone else already waiting on that person.";
 
 #[derive(Clone)]
 pub struct TaskstakaMcp {

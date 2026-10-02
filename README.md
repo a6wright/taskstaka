@@ -141,8 +141,14 @@ tasks rotting untouched > 14 days, a parent resurfacing, follow-ups due, too muc
   parent's box finishes its subtree), end a line with `@Name` to wait on someone.
   Hover a row for `▶ start` and `open`; `Ctrl+.` starts/stops the focused row; `open` (or `Ctrl+Enter`) slides in the pane: properties, subtasks, notes,
   activity, and the wait / chase / reply actions. `Esc` closes it; `\\` or the chevron on the sidebar's edge collapses the sidebar.
-- **MCP** (Claude Code, Claude Desktop): `claude mcp add taskstaka -- taskstaka mcp`. Then ask
-  "what should I work on?" — the server's instructions teach the model the tree rules.
+- **Claude Code:** `taskstaka setup claude` installs two things and is safe to re-run after
+  every upgrade: the **MCP server** (registered as `taskstaka`, user scope, pointing at the
+  installed binary) and the **taskstaka skill** (`~/.claude/skills/taskstaka/SKILL.md`),
+  which teaches Claude to turn any multi-step plan into tasks — your manual steps with the
+  exact command or draft email in the notes, its own steps tagged `agent` and closed as it
+  goes, and anything that depends on a person already *waiting on* them. `--project` installs
+  into the current repo instead; `--dry-run` shows the commands. Then ask "what should I work
+  on?" or just start a piece of work.
 - **Obsidian:** open `~/todo` as a vault. `index.md` is the tree; each note is a task.
   Read-only in v1 — the daemon overwrites `index.md`, and notes it writes win.
 - **Hotkey:** bind a key to a one-line prompt that runs `taskstaka add`.

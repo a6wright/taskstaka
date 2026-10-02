@@ -108,6 +108,18 @@ _Avoid_: modified, last activity
 A rule-generated reminder ("story X is waiting on this", "nothing is actionable"). Best-effort as a desktop notification; reliable in the panel.
 _Avoid_: alert, alarm, reminder (fine informally)
 
+### Plans with an agent
+
+**Story**:
+(see above) — when Claude helps, the story is the request and each step is a subtask in the order it will happen.
+
+**Agent step**:
+A subtask Claude performs itself, tagged `agent`, marked doing/done as it goes. Visible so the human sees what was done for them.
+
+**Manual step**:
+A subtask only the user can do (console, command on their machine, approval, sending a message). Untagged; its notes carry exactly what to do so it stands alone tomorrow.
+_Avoid_: human task, todo for me
+
 ### Storage
 
 **Note**:

@@ -124,7 +124,7 @@ button { cursor: pointer; }
 .row .meta .hover { display: none; gap: 8px; align-items: center; }
 .row:hover .meta .hover, .row.selected .meta .hover { display: inline-flex; }
 .chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 999px; background: var(--bg-active); color: var(--fg-2); font-size: 12px; line-height: 18px; }
-.chip.wait { color: var(--wait); } .chip.doing { color: var(--warn); } .chip.back { color: var(--back); } .chip.overdue { color: var(--danger); } .chip.someday { color: var(--muted); } .chip.orphan { color: var(--warn); } .chip.tier { color: var(--muted); }
+.chip.wait { color: var(--wait); } .chip.agent { color: var(--back); } .chip.tag { color: var(--muted); } .chip.doing { color: var(--warn); } .chip.back { color: var(--back); } .chip.overdue { color: var(--danger); } .chip.someday { color: var(--muted); } .chip.orphan { color: var(--warn); } .chip.tier { color: var(--muted); }
 .openbtn { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 4px; padding: 1px 7px; font-size: 12px; }
 .openbtn:hover { color: var(--fg); border-color: var(--muted); }
 .newline { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: center; padding: 4px 6px 4px 2px; color: var(--muted); margin-top: 4px; }

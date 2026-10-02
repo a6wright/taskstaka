@@ -213,6 +213,7 @@ function chips(t, d, extra = '') {
   if (d && d.resurfaced_at) out.push(['back', '↩ back']);
   if (d && d.orphaned) out.push(['orphan', '⚠ parent finished']);
   if (t.due && !isClosed(t)) out.push([t.due < today() ? 'overdue' : '', (t.due < today() ? '⚠ overdue ' : '📅 ') + t.due]);
+  for (const tag of (t.tags || [])) out.push([tag === 'agent' ? 'agent' : 'tag', (tag === 'agent' ? '🤖 ' : '#') + esc(tag)]);
   return out.map(([c, s]) => `<span class="chip ${c}">${s}</span>`).join('') + extra;
 }
 function hoverMeta(t) {

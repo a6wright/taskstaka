@@ -9,6 +9,7 @@ pub mod dates;
 pub mod mcp;
 pub mod render;
 pub mod server;
+pub mod setup;
 pub mod tui;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

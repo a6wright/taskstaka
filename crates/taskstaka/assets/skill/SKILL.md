@@ -61,9 +61,16 @@ must hold in their head — which is why recording comes *first*, not after the 
      `todo` with the tag — it is hidden from their Next automatically and still blocks
      the story. If you could not finish, leave it open and say why in the notes.
    - Steps **the user** must do by hand (console clicks, commands on a machine you
-     cannot reach, approvals, sending an email): no tag. Put *exactly what to do* in
-     the `body` — the command, the URL, the draft message — so the task stands alone
-     when they come back to it tomorrow.
+     cannot reach, approvals, sending an email): no tag. Put *exactly how to do that
+     one step* in the `body` — the command, the URL, the draft message — so the task
+     stands alone when they come back to it tomorrow.
+   - **Granularity: one checkbox per thing they would tick.** The body is *how* to do
+     one step, never a list of further steps. If you catch yourself writing "install X,
+     then run Y, then Z" in a body, those are three subtasks (nest them under the step
+     if they only make sense together). A step that cannot be ticked in one sitting is
+     two steps. The user works from Next one row at a time; a paragraph of
+     instructions is a plan they have to re-read, a row of subtasks is progress they
+     can see.
    - Steps that **depend on another person**: create them `waiting_on` that person,
      with a `waiting_ref` if there is a thread link. The follow-up date defaults
      sensibly; set `until` only when you know better.
@@ -76,9 +83,10 @@ must hold in their head — which is why recording comes *first*, not after the 
    who they are waiting on. That is the handoff.
 
 Do not mark a user's manual step `done` unless they say they did it. Do not send
-messages on their behalf — draft them into the task's notes. Do not create subtasks for
-your own trivial sub-steps; a step is something that could be picked up tomorrow by
-someone else.
+messages on their behalf — draft them into the task's notes. For your *own* work, a step
+is something that could be picked up tomorrow by someone else — not every command you
+run — but the user's manual work gets a checkbox per action, because that is how they
+will do it.
 
 ## Example: the DNS story
 
@@ -99,6 +107,8 @@ whether "for taskstaka" means the daemon itself must be reachable from the VPC. 
 set_status <confirm…> done                      (notes: what you found)
 add_task  "Tell Claude: hostname only, or reachable from the VPC?"   parent  (user; the question in the body)
 add_task  "Ask Priya about wildcard certs on the zone"     parent, waiting_on="Priya"
+add_task  "Install the gcloud CLI"                          parent  (user; body: the install link)
+add_task  "Log in: gcloud auth login"                      parent  (user; body: the two commands)
 add_task  "Create the Cloud DNS record"                    parent  (user; body: the exact gcloud command)
 add_task  "Email platform-eng to approve the zone"         parent  (user; body: the draft email)
 add_task  "Verify the record resolves"                     parent, tags=[agent]

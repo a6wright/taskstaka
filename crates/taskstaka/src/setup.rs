@@ -17,12 +17,15 @@ pub struct ClaudeSetup {
     pub project: bool,
     pub skip_skill: bool,
     pub skip_mcp: bool,
+    /// Leave CLAUDE.md alone.
+    pub skip_claude_md: bool,
     /// Print what would be done without touching anything.
     pub dry_run: bool,
 }
 
 pub struct Report {
     pub skill_path: Option<PathBuf>,
+    pub claude_md_path: Option<PathBuf>,
     pub mcp_command: Option<Vec<String>>,
     pub mcp_registered: bool,
     pub notes: Vec<String>,
@@ -47,6 +50,7 @@ fn home_dir() -> Result<PathBuf> {
 pub fn claude(opts: &ClaudeSetup) -> Result<Report> {
     let mut report = Report {
         skill_path: None,
+        claude_md_path: None,
         mcp_command: None,
         mcp_registered: false,
         notes: Vec::new(),
@@ -61,6 +65,22 @@ pub fn claude(opts: &ClaudeSetup) -> Result<Report> {
                 .with_context(|| format!("writing {}", path.display()))?;
         }
         report.skill_path = Some(path);
+    }
+
+    if !opts.skip_claude_md {
+        // A skill description is advisory; a memory line is not. This is what
+        // makes the skill load *before* Claude starts investigating.
+        let path = if opts.project {
+            std::env::current_dir()
+                .context("current directory")?
+                .join("CLAUDE.md")
+        } else {
+            home_dir()?.join(".claude").join("CLAUDE.md")
+        };
+        if !opts.dry_run {
+            upsert_claude_md(&path)?;
+        }
+        report.claude_md_path = Some(path);
     }
 
     if !opts.skip_mcp {
@@ -131,6 +151,52 @@ pub fn claude(opts: &ClaudeSetup) -> Result<Report> {
     Ok(report)
 }
 
+pub const CLAUDE_MD_BEGIN: &str = "<!-- taskstaka:begin -->";
+pub const CLAUDE_MD_END: &str = "<!-- taskstaka:end -->";
+pub const CLAUDE_MD_BLOCK: &str = "\
+<!-- taskstaka:begin -->
+## taskstaka
+
+Before starting any piece of work with more than one step — and before investigating or
+asking clarifying questions about it — load the `taskstaka` skill and record the plan
+there: one subtask per step under a story, your own steps tagged `agent`, the user's
+manual steps with exact instructions in the notes, steps that depend on a person already
+waiting on them. Also use it when the user asks what to work on, what's next, or mentions
+waiting on someone. Do not change the status of tasks the user parked or ordered without
+asking.
+<!-- taskstaka:end -->
+";
+
+/// Add or replace the managed block in CLAUDE.md, leaving everything else as is.
+fn upsert_claude_md(path: &std::path::Path) -> Result<()> {
+    let existing = std::fs::read_to_string(path).unwrap_or_default();
+    let updated = match (existing.find(CLAUDE_MD_BEGIN), existing.find(CLAUDE_MD_END)) {
+        (Some(b), Some(e)) if e > b => {
+            let end = e + CLAUDE_MD_END.len();
+            let tail = existing[end..].trim_start_matches('\n');
+            format!("{}{}{}", &existing[..b], CLAUDE_MD_BLOCK, tail)
+        }
+        _ => {
+            let mut s = existing.clone();
+            if !s.is_empty() && !s.ends_with('\n') {
+                s.push('\n');
+            }
+            if !s.is_empty() {
+                s.push('\n');
+            }
+            s.push_str(CLAUDE_MD_BLOCK);
+            s
+        }
+    };
+    if updated != existing {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+        }
+        std::fs::write(path, updated).with_context(|| format!("writing {}", path.display()))?;
+    }
+    Ok(())
+}
+
 fn which(bin: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path)
@@ -148,6 +214,12 @@ pub fn describe(r: &Report, opts: &ClaudeSetup) -> String {
     };
     if let Some(p) = &r.skill_path {
         s.push_str(&format!("{verb} skill   {}\n", p.display()));
+    }
+    if let Some(p) = &r.claude_md_path {
+        s.push_str(&format!(
+            "{verb} memory  {}  (managed block; the rest of the file is untouched)\n",
+            p.display()
+        ));
     }
     if let Some(cmd) = &r.mcp_command {
         let status = if opts.dry_run {
@@ -213,19 +285,36 @@ mod tests {
             project: false,
             skip_skill: false,
             skip_mcp: true,
+            skip_claude_md: false,
             dry_run: false,
         })
         .unwrap();
         let p = r.skill_path.unwrap();
         assert_eq!(p, home.path().join(".claude/skills/taskstaka/SKILL.md"));
         assert_eq!(std::fs::read_to_string(&p).unwrap(), SKILL_MD);
-        // Idempotent.
+        // Idempotent, and CLAUDE.md gets exactly one managed block that is
+        // replaced in place while the user's own text survives.
+        let md = home.path().join(".claude/CLAUDE.md");
+        std::fs::write(&md, "# mine\n\nkeep this\n").unwrap();
         claude(&ClaudeSetup {
             project: false,
             skip_skill: false,
             skip_mcp: true,
+            skip_claude_md: false,
             dry_run: false,
         })
         .unwrap();
+        claude(&ClaudeSetup {
+            project: false,
+            skip_skill: false,
+            skip_mcp: true,
+            skip_claude_md: false,
+            dry_run: false,
+        })
+        .unwrap();
+        let text = std::fs::read_to_string(&md).unwrap();
+        assert!(text.starts_with("# mine\n\nkeep this\n"), "{text}");
+        assert_eq!(text.matches(CLAUDE_MD_BEGIN).count(), 1, "{text}");
+        assert!(text.contains("load the `taskstaka` skill"));
     }
 }

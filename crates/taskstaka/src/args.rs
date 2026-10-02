@@ -70,6 +70,9 @@ pub enum Cmd {
         skip_skill: bool,
         #[arg(long)]
         skip_mcp: bool,
+        /// Do not add the taskstaka section to ~/.claude/CLAUDE.md (or ./CLAUDE.md with --project).
+        #[arg(long)]
+        skip_claude_md: bool,
         /// Show what would be done without writing anything.
         #[arg(long)]
         dry_run: bool,

@@ -79,6 +79,13 @@ impl WaitingRef {
     }
 }
 
+/// The tag an agent puts on steps it will perform itself.
+pub const AGENT_TAG: &str = "agent";
+
+pub fn is_agent_step(task: &Task) -> bool {
+    task.tags.iter().any(|t| t.eq_ignore_ascii_case(AGENT_TAG))
+}
+
 pub fn derive(tree: &Tree, task: &Task, today: Date) -> Derived {
     let blocked_by = tree
         .children(&task.id)
@@ -102,9 +109,13 @@ pub fn derive(tree: &Tree, task: &Task, today: Date) -> Derived {
 
     let followup = task.status == Status::Waiting && task.until.is_some_and(|u| u <= today);
 
+    // A step tagged `agent` is Claude's to do, not the user's: it never ranks
+    // in Next, but it still blocks its parent until Claude closes it.
+    let agent = is_agent_step(task);
     let actionable = task.status.is_open()
         && deferred_by.is_none()
         && blocked_by == 0
+        && !agent
         && (matches!(task.status, Status::Todo | Status::Doing) || followup);
 
     let resurfaced_at = if actionable && tree.has_children(&task.id) {
@@ -759,5 +770,43 @@ mod waiting_tests {
         let fu: Vec<&NextItem> = items.iter().filter(|i| i.tier == Tier::FollowUp).collect();
         assert_eq!(fu.len(), 1);
         assert!(fu[0].reason.contains("chased 1×"), "{}", fu[0].reason);
+    }
+}
+
+#[cfg(test)]
+mod agent_step_tests {
+    use super::*;
+
+    #[test]
+    fn agent_steps_block_the_story_but_never_rank_for_the_user() {
+        let now: Zoned = "2026-09-29T15:00:00[UTC]".parse().unwrap();
+        let ts = now.timestamp();
+        let story = Task::new("stry00".parse().unwrap(), "Get DNS", Context::Work, ts);
+        let mut mine = Task::new(
+            "m1ne00".parse().unwrap(),
+            "Install gcloud",
+            Context::Work,
+            ts,
+        );
+        mine.parent = Some(story.id.clone());
+        let mut theirs = Task::new(
+            "agnt00".parse().unwrap(),
+            "Create the zone",
+            Context::Work,
+            ts,
+        );
+        theirs.parent = Some(story.id.clone());
+        theirs.tags = vec!["Agent".into()];
+        let tree = Tree::from_tasks([story.clone(), mine, theirs.clone()]);
+
+        let items = needs_action(&tree, &now, None, &RankConfig::default());
+        let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, ["m1ne00"], "only the user's step ranks");
+        assert!(!derive(&tree, &theirs, now.date()).actionable);
+        assert_eq!(
+            derive(&tree, &story, now.date()).blocked_by,
+            2,
+            "the agent step still blocks the story"
+        );
     }
 }

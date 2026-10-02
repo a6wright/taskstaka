@@ -87,6 +87,7 @@ pub fn main() -> Result<()> {
             project,
             skip_skill,
             skip_mcp,
+            skip_claude_md,
             dry_run,
         } => {
             if target != "claude" {
@@ -96,6 +97,7 @@ pub fn main() -> Result<()> {
                 project,
                 skip_skill,
                 skip_mcp,
+                skip_claude_md,
                 dry_run,
             };
             let report = crate::setup::claude(&opts)?;

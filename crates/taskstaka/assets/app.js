@@ -9,12 +9,13 @@ const S = {
   tree: [], next: null, waiting: [], nudges: [], all: [],
   rev: 0, dirty: false, pendingRefresh: false, focus: null,
   showDone: false,                           // outline: show completed tasks
+  showNotes: false,                          // outline: show each task's notes under it
   // The always-present capture box at the bottom of the outline keeps its
   // indentation across Enters, like Notion: Tab nests it under the row
   // above, and each created task becomes the `after` for the next.
   draft: { parent: null, after: null, depth: 0 },
 };
-try { S.showDone = localStorage.getItem('taskstaka.showDone') === '1'; } catch (_) {}
+try { S.showDone = localStorage.getItem('taskstaka.showDone') === '1'; S.showNotes = localStorage.getItem('taskstaka.showNotes') === '1'; } catch (_) {}
 const VIEW_HELP = {
   outline: '',
   next: 'Tasks you can act on now, best first. Anything blocked, parked or waiting on someone stays out of the way until it is ready.',
@@ -193,7 +194,7 @@ function renderMain() {
   else if (S.view === 'someday') body = renderSomeday();
   else if (S.view === 'done') body = renderDone();
   const doneToggle = S.view === 'outline'
-    ? `<button class="toggle ${S.showDone ? 'on' : ''}" id="toggle-done" title="show completed tasks">✓ completed</button>` : '';
+    ? `<button class="toggle ${S.showNotes ? 'on' : ''}" id="toggle-notes" title="show each task's notes beneath it">≡ notes</button><button class="toggle ${S.showDone ? 'on' : ''}" id="toggle-done" title="show completed tasks">✓ completed</button>` : '';
   $('#main').innerHTML = `
     <div class="head"><h1>${v.label}</h1><span class="sum">${line}</span><span class="sp"></span>${doneToggle}<span class="sum">${S.ctx || 'all'}</span></div>
     ${VIEW_HELP[S.view] ? `<p class="viewhelp">${esc(VIEW_HELP[S.view])}</p>` : ''}
@@ -236,7 +237,13 @@ function rowHtml(t, d, depth, { editable = true, crumb = '' } = {}) {
     <input type="checkbox" class="cb" ${closed ? 'checked' : ''} title="${closed ? 'reopen' : 'done'}">
     <span class="title" ${editable ? 'contenteditable="true" spellcheck="false"' : ''}>${esc(t.title)}${crumb}</span>
     <span class="meta">${chips(t, d)}${hoverMeta(t)}</span>
+    ${editable && S.showNotes ? noteHtml(t) : ''}
   </li>`;
+}
+const isJournalLine = (l) => /^- \d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(l);
+function noteHtml(t) {
+  const notes = (t.body || '').split('\n').filter(l => !isJournalLine(l)).join('\n').trim();
+  return notes ? `<div class="note">${esc(notes)}</div>` : '';
 }
 
 function renderOutline() {
@@ -449,6 +456,7 @@ document.addEventListener('click', async (e) => {
   if (b.hasAttribute('data-close') || b.id === 'pane-toggle') return go({ open: null });
   if (b.id === 'side-toggle') return toggleSide();
   if (b.id === 'toggle-done') { S.showDone = !S.showDone; try { localStorage.setItem('taskstaka.showDone', S.showDone ? '1' : '0'); } catch (_) {} return render(); }
+  if (b.id === 'toggle-notes') { S.showNotes = !S.showNotes; try { localStorage.setItem('taskstaka.showNotes', S.showNotes ? '1' : '0'); } catch (_) {} return render(); }
   if (b.dataset.status) return act(() => api('POST', `/api/v1/tasks/${id}/status`, { status: b.dataset.status, cascade: true }));
   if (b.dataset.chase) { const note = $('#chase-note') ? $('#chase-note').value : ''; return act(() => api('POST', `/api/v1/tasks/${id}/chase`, { note: note || null })); }
   if (b.dataset.reply) {

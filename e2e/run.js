@@ -141,6 +141,16 @@ function check(cond, what) {
   check((await page.evaluate(() => localStorage.getItem('taskstaka.showDone'))) === '1', 'and is remembered');
   await page.locator('#toggle-done').click(); await settle();
 
+  console.log('notes toggle');
+  const dnsId = await page.locator('li.row').nth(0).getAttribute('data-id');
+  await page.request.patch(base + '/api/v1/tasks/' + dnsId, { data: { body: 'Zone: corp.internal\nAsk about TTLs.\n- 2026-10-01 09:00 journal line stays in the pane' } });
+  await settle();
+  check((await page.locator('li.row .note').count()) === 0, 'notes are hidden by default');
+  await page.locator('#toggle-notes').click(); await settle();
+  const note = await page.locator('li.row').nth(0).locator('.note').textContent();
+  check(/Zone: corp\.internal/.test(note || '') && !/journal line/.test(note || ''), `notes show under the row, journal lines do not ("${(note || '').replace(/\n/g, ' / ')}")`);
+  await page.locator('#toggle-notes').click(); await settle();
+
   console.log('pane chevron on the boundary');
   const row0 = page.locator('li.row').nth(0);
   await row0.hover(); await row0.locator('button.openbtn').click(); await settle();

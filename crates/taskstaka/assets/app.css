@@ -104,6 +104,8 @@ button { cursor: pointer; }
 .row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 30px; padding: 2px 6px 2px 2px; border-radius: var(--radius); position: relative; }
 .row.compact .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .meta { flex-shrink: 0; }
+.row .note { grid-column: 2 / -1; white-space: pre-wrap; color: var(--fg-2); font-size: 13px; line-height: 1.45; padding: 0 4px 6px; max-width: 72ch; }
+.row.closed .note { color: var(--muted); }
 .chip.tier { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
 /* drag handle, revealed on hover; drop zones */
 .row .grip { position: absolute; left: -18px; top: 50%; transform: translateY(-50%); width: 16px; color: var(--muted); font-size: 13px; letter-spacing: -3px; line-height: 1; text-align: center; cursor: grab; opacity: 0; user-select: none; }

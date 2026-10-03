@@ -62,16 +62,12 @@ pub fn next_table(items: &[NextItem], explain: bool, show_context: bool) -> Stri
         .clamp(10, 48);
     for it in items {
         let badge = tier_badge(it.tier);
+        // The stack this leaf sits in, nearest first: finishing it unlocks these.
         let crumbs = if it.ancestry.is_empty() {
             String::new()
         } else {
-            let root = &it.ancestry[0].title;
-            let parent = it.ancestry.last().map(|c| c.title.as_str()).unwrap_or("");
-            if it.ancestry.len() == 1 {
-                format!("‹ {root}")
-            } else {
-                format!("‹ {root} › … › {parent}")
-            }
+            let chain: Vec<&str> = it.ancestry.iter().rev().map(|c| c.title.as_str()).collect();
+            format!("→ {}", chain.join(" → "))
         };
         let ctx = if show_context {
             format!(" {:<8}", it.context.as_str())

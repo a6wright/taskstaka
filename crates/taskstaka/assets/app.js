@@ -282,7 +282,9 @@ function renderNext() {
     parts.push(`<div class="group"><span>${label[tier] || tier}</span><span class="n">${list.length}</span></div><ul class="rows">`);
     for (const it of list) {
       const t = byId(it.id); if (!t) continue;
-      const crumb = it.ancestry.length ? `<span class="crumb">‹ ${esc(it.ancestry[0].title)}</span>` : '';
+      // The stack this leaf sits in, nearest first: what finishing it unlocks.
+      const chain = [...it.ancestry].reverse().map(c => esc(c.title)).join(' → ');
+      const crumb = chain ? `<span class="crumb" title="finishing this unlocks: ${chain}">→ ${chain}</span>` : '';
       parts.push(rowHtml(t, t.derived, 0, { editable: false, crumb }).replace('<span class="meta">', `<span class="meta"><span class="hover" style="display:none"></span><span class="chip tier" title="${esc(it.reason)}">${esc(it.reason)}</span>`));
     }
     parts.push('</ul>');

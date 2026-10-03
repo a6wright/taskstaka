@@ -19,10 +19,12 @@ lose is not the work; it is the thread back to it. A plan that lives only in thi
 gone the moment they switch windows. Every step you write down is one fewer thing they
 must hold in their head — which is why recording comes *first*, not after the analysis.
 
-## The model, in six lines
+## The model, in seven lines
 
 - A **task** has one stored status: `todo`, `doing`, `waiting` (on a person), `someday`, `done`, `dropped`.
-- A task with open subtasks is **blocked** — not theirs to do; the subtasks are. When its last subtask closes it **resurfaces** at the top of Next. You never manage this; it is computed.
+- **Nesting means "first this."** A subtask is a prerequisite: something that must finish before its parent can. *To bake an apple pie from scratch you must first invent the universe* — so "invent the universe" goes under "bake the pie". The tree is a stack of causes, knocked out from the bottom.
+- **Siblings mean "and also this."** Everything under one parent is independent and can be in flight at the same time; the parent finishes when all of them do. Siblings never depend on each other — if you want to write "after the sibling above", nest instead.
+- A task with open subtasks is **blocked** — not theirs to do; the deepest open leaves are. When its last subtask closes it **resurfaces** at the top of Next. You never manage this; it is computed.
 - A subtask tagged **`agent`** is yours. It never appears in the user's Next, but it still blocks the story until you close it. So tag honestly: it is how the user sees what is on you versus on them.
 - `waiting` always has a follow-up date (default two days). `chase` records a nudge; `record_reply` records what came back; "unblock" (status `doing`) means it is ready and they are on it.
 - Ids are six characters; any unique prefix works. Subtask order is the user's priority order — keep the order they would do things in.
@@ -55,7 +57,14 @@ must hold in their head — which is why recording comes *first*, not after the 
    things ("DNS for taskstaka" might mean a hostname for a demo, not exposing the daemon
    to a network), write the story at the level you are sure of, and make the ambiguity
    the first question-step rather than building a plan on a guess.
-4. **One subtask per step, in the order they will happen**, under the story. Say who does each:
+4. **Shape the plan as a stack, not a list.** For each step ask: *can this run at the
+   same time as the others?* Then it is a sibling. *Must something happen before it?*
+   Then that something goes **under** it. "Create the DNS record" needs "Log in", which
+   needs "Install the gcloud CLI" — so install nests under log in nests under create,
+   and the user's Next shows only *Install the CLI*; finishing it hands them *Log in*,
+   and finishing that hands the agent *Create the record*. A prerequisite that two
+   siblings both need becomes a sibling placed first (order carries "this one first");
+   never duplicate it and never nest one sibling under another. Say who does each:
    - Steps **you** will do: tag `agent`. Mark `doing` when you start, `done` when
      finished. If a step of yours cannot start until the user does theirs, leave it
      `todo` with the tag — it is hidden from their Next automatically and still blocks
@@ -95,31 +104,37 @@ get it set up." Before reading a single doc:
 
 ```
 add_task  "Get DNS address for taskstaka"                           → story
-add_task  "Confirm what's possible for an internal zone"   parent, tags=[agent]
+add_task  "Confirm what's possible for an internal zone"   parent=story, tags=[agent]
 set_status <confirm…> doing
 ```
 
-Then you investigate. You find an internal zone needs a platform engineer's approval and
-the Cloud DNS change must be run by someone with the right role, and you are not sure
-whether "for taskstaka" means the daemon itself must be reachable from the VPC. So:
+Then you investigate. You find the Cloud DNS change must be run with the right role, the
+zone needs a platform engineer's approval, and you are not sure whether "for taskstaka"
+means the daemon itself must be reachable from the VPC. The plan, as a stack:
 
 ```
-set_status <confirm…> done                      (notes: what you found)
-add_task  "Tell Claude: hostname only, or reachable from the VPC?"   parent  (user; the question in the body)
-add_task  "Ask Priya about wildcard certs on the zone"     parent, waiting_on="Priya"
-add_task  "Install the gcloud CLI"                          parent  (user; body: the install link)
-add_task  "Log in: gcloud auth login"                      parent  (user; body: the two commands)
-add_task  "Create the Cloud DNS record"                    parent  (user; body: the exact gcloud command)
-add_task  "Email platform-eng to approve the zone"         parent  (user; body: the draft email)
-add_task  "Verify the record resolves"                     parent, tags=[agent]
+Get DNS address for taskstaka
+├─ Tell Claude: hostname only, or reachable from the VPC?      user — the question in the body
+├─ Create the Cloud DNS zone and record                        agent — blocked until its stack is done
+│  └─ Log in: gcloud auth login                                user — the two commands in the body
+│     └─ Install the gcloud CLI                                user — the install link in the body
+├─ Email platform-eng to approve the zone                      user — draft email in the body
+├─ Ask Priya about wildcard certs on the zone                  waiting_on="Priya"
+└─ Verify the record resolves                                  agent
 ```
 
-You report: "Recorded under *Get DNS address*. First I need one answer from you (it's a
-task). Then your step is the gcloud command (in the task). We're waiting on Priya about
-wildcard certs — it'll show in your follow-ups in two days if she hasn't answered. My
-last step, verifying, waits on yours." Later: "Priya says talk to Bo" →
-`record_reply outcome=redirected to=Bo summary="Bo owns the zone"`. "I ran the command" →
-`set_status done` on that step. The story resurfaces when the last step closes.
+Build it with `add_task(..., parent=<create>)` for "Log in" and `parent=<log in>` for
+"Install". The user's Next then shows exactly what they can do now: answer the question,
+install the CLI, send the email. Finishing the install surfaces *Log in*; finishing that
+resurfaces *Create the zone* for you; the story resurfaces when everything under it is
+closed.
+
+You report: "Recorded under *Get DNS address*. Yours right now: one question (it's a
+task), install the gcloud CLI, and an email to platform-eng (drafted in the task). Log in
+and the zone come after the install, in order. We're waiting on Priya about wildcard
+certs — she'll show in your follow-ups in two days." Later: "Priya says talk to Bo" →
+`record_reply outcome=redirected to=Bo summary="Bo owns the zone"`. "Installed it" →
+`set_status done` on that step, and *Log in* appears in their Next.
 
 ## Session habits
 

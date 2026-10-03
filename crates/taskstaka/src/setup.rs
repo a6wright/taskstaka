@@ -159,10 +159,11 @@ pub const CLAUDE_MD_BLOCK: &str = "\
 
 Before starting any piece of work with more than one step — and before investigating or
 asking clarifying questions about it — load the `taskstaka` skill and record the plan
-there: one subtask per step under a story, your own steps tagged `agent`, the user's
-manual steps with exact instructions in the notes (one task per action — a note that
-says 'then do X, then Y' is two more tasks), steps that depend on a person already
-waiting on them. Also use it when the user asks what to work on, what's next, or mentions
+there as a stack: nesting means 'first this' (a prerequisite goes under the step it
+unblocks), siblings mean 'and also this' (independent, can run at the same time); your
+own steps tagged `agent`; the user's manual steps with exact instructions in the notes
+(one task per action — a note that says 'then do X, then Y' is two more tasks); steps
+that depend on a person already waiting on them. Also use it when the user asks what to work on, what's next, or mentions
 waiting on someone. Do not change the status of tasks the user parked or ordered without
 asking.
 <!-- taskstaka:end -->

@@ -11,8 +11,14 @@ One thing to do. Has a title, a context, a stored status, and optionally a paren
 _Avoid_: todo, item, ticket, card
 
 **Subtask**:
-A task with a parent. Nothing else distinguishes it; a subtask can have subtasks.
-_Avoid_: child (fine in code, not in UI), step
+A task with a parent — a prerequisite: something that must finish before its parent can. "To bake an apple pie from scratch you must first invent the universe": the universe nests under the pie. A subtask can have subtasks.
+_Avoid_: child (fine in code, not in UI), step, dependency
+
+**Siblings**:
+Tasks under the same parent. Independent by definition: they can all be in flight at once, and the parent finishes when all of them do. Siblings never depend on each other; order among them is priority, not sequence. A prerequisite two siblings share becomes a sibling placed first.
+
+**Stack**:
+The chain of open prerequisites from a leaf up to its story — what finishing the leaf unlocks. Next shows the deepest open leaves; the stack is why each one is there.
 
 **Story**:
 Informal name for a root task with subtasks. Not a type; just how people talk about the top of a tree.

@@ -369,13 +369,11 @@ pub fn plan_text(
     show_context: bool,
 ) -> String {
     let mut out = String::new();
-    let mut shown = 0usize;
-    for p in plans {
+    for (shown, p) in plans.iter().enumerate() {
         if shown >= limit {
             let _ = writeln!(out, "… and {} more stories (use -n)", plans.len() - shown);
             break;
         }
-        shown += 1;
         let mut head = Vec::new();
         if !p.now.is_empty() {
             head.push(format!("{} now", p.now.len()));

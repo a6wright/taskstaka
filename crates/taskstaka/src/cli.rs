@@ -4,7 +4,7 @@
 use anyhow::{Context as _, Result, bail};
 use clap::Parser;
 use jiff::Zoned;
-use taskstaka_core::action::{RankConfig, needs_action, summary};
+use taskstaka_core::action::{RankConfig, summary};
 use taskstaka_core::command::{AddTask, EditTask, Set};
 use taskstaka_core::{Command, Event, Outcome, Status, Store, Task, TaskId, Tree};
 

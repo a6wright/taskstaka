@@ -92,11 +92,14 @@ function check(cond, what) {
   const write = page.locator('li.row').nth(3);
   await write.hover();
   await write.locator('button.rowbtn.start').click(); await settle();
-  check((await page.locator('li.row').nth(3).locator('.chip.doing').count()) === 1, 'hover ▶ start marks it doing');
+  check((await page.locator('.plate.top .plate-title').textContent()) === 'Write the change request', 'hover ▶ start lands in the Stack view on that task');
+  await page.locator('a[data-view="outline"]').click(); await settle();
+  check((await page.locator('li.row').nth(3).locator('.chip.doing').count()) === 1, 'and the row is doing');
 
   console.log('side pane');
-  await write.hover();
-  await write.locator('button.openbtn').click(); await settle();
+  const write2 = page.locator('li.row').nth(3);
+  await write2.hover();
+  await write2.locator('button.openbtn').click(); await settle();
   check(await page.locator('#app.pane-open').count() === 1, 'open slides the pane in');
   check((await page.locator('.pane-title').textContent()) === 'Write the change request', 'pane shows the task');
   await shot('02-pane');
@@ -162,6 +165,8 @@ function check(cond, what) {
   const askRow = page.locator('li.row', { hasText: 'Ask B about wildcard certs' }).first();
   await askRow.hover();
   await askRow.locator('button.rowbtn', { hasText: 'unblock' }).click(); await settle();
+  check((await page.locator('.plate.top .plate-title').textContent()) === 'Ask B about wildcard certs', 'unblock lands in the Stack on that task');
+  await page.locator('a[data-view="outline"]').click(); await settle();
   check((await page.locator('li.row', { hasText: 'Ask B about wildcard certs' }).first().locator('.chip.doing').count()) === 1, 'unblock marks it doing');
   await page.locator('a[data-view="next"]').click(); await settle();
   const firstNext = await page.locator('#main li.row .title').first().textContent();
@@ -179,10 +184,38 @@ function check(cond, what) {
   const after = await page.locator('li.row .title').allTextContents();
   check(after.indexOf('Nested from the bottom') < after.indexOf("Figure out what's possible") && before.indexOf('Nested from the bottom') > before.indexOf("Figure out what's possible"), `dragged above its sibling (${after.join(' | ')})`);
 
+  console.log('chain capture: Goal > intermediate > first thing');
+  await page.locator('.newline .title').click();
+  await page.keyboard.type('Bake an apple pie > Make the filling > Buy apples'); await page.keyboard.press('Enter'); await settle();
+  const pie = page.locator('li.row', { hasText: 'Bake an apple pie' }).first();
+  const pieId = await pie.getAttribute('data-id');
+  const applesLi = page.locator('li.row', { hasText: 'Buy apples' }).first();
+  check((await applesLi.getAttribute('data-depth')) === '2', 'the last segment is the deepest leaf');
+  check((await page.locator('li.row', { hasText: 'Make the filling' }).first().getAttribute('data-parent')) === pieId, 'intermediate nests under the goal');
+
+  console.log('first I need to…');
+  await applesLi.hover(); await applesLi.locator('button.rowbtn', { hasText: 'first' }).click(); await settle();
+  await page.keyboard.type('Drive to the orchard'); await page.keyboard.press('Enter'); await settle();
+  check((await page.locator('li.row', { hasText: 'Drive to the orchard' }).first().getAttribute('data-depth')) === '3', '↳ first nests a prerequisite under the row');
+
+  console.log('stack view: start → plates → tick shifts up');
+  const orchard = page.locator('li.row', { hasText: 'Drive to the orchard' }).first();
+  await orchard.hover(); await orchard.locator('button.rowbtn.start').click(); await settle();
+  check(await page.locator('.plate.top .plate-title').textContent() === 'Drive to the orchard', 'the started task is the top plate');
+  const rels = await page.locator('.plate:not(.top) .rel').allTextContents();
+  check(rels.join(',') === 'then,then,so that', `plates beneath read then, then, so that (${rels})`);
+  await page.locator('.plate.top button[data-status="done"]').click(); await settle();
+  check(await page.locator('.plate.top .plate-title').textContent() === 'Buy apples', 'ticking shifts the stack up to the parent');
+  await page.locator('a[data-view="outline"]').click(); await settle();
+
   console.log('checkbox on a parent completes the subtree');
-  await page.locator('li.row').nth(0).locator('.cb').check(); await settle();
+  const roots = await page.locator('li.row[data-depth="0"]').count();
+  for (let i = 0; i < roots; i++) {
+    const cb = page.locator('li.row[data-depth="0"]').nth(i).locator('.cb');
+    if (!(await cb.isChecked())) { await cb.check(); await settle(); }
+  }
   const checked = await page.locator('li.row .cb').evaluateAll(els => els.map(e => e.checked));
-  check(checked.every(Boolean), `all rows ticked (${checked})`);
+  check(checked.every(Boolean), `ticking each story ticks everything under it (${checked})`);
 
   check(errors.length === 0, 'no page errors' + (errors.length ? ':\n    ' + errors.join('\n    ') : ''));
   await browser.close();

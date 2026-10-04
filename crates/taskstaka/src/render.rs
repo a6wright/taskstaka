@@ -293,3 +293,69 @@ pub fn waiting_text(groups: &[taskstaka_core::action::PersonGroup], now: &Zoned)
     }
     out
 }
+
+/// `taskstaka stack`: the plate in hand on top, then what it unlocks.
+pub fn stack(tree: &Tree, t: &Task, now: &Zoned) -> String {
+    let mut out = String::new();
+    let d = derive(tree, t, now.date());
+    let ts = now.timestamp();
+    let state = if t.status.is_closed() {
+        "done".to_string()
+    } else if t.status == Status::Waiting {
+        format!("waiting on {}", t.waiting_on.as_deref().unwrap_or("?"))
+    } else if d.blocked_by > 0 {
+        "blocked — finish what is under it".to_string()
+    } else {
+        "now".to_string()
+    };
+    let _ = writeln!(
+        out,
+        "▶ {}  {}   [{state} · {}]",
+        t.id,
+        t.title,
+        humanize::since(t.updated, ts)
+    );
+    let body: Vec<&str> = t
+        .body
+        .lines()
+        .filter(|l| !l.starts_with("- 20"))
+        .filter(|l| !l.trim().is_empty())
+        .collect();
+    for l in body.iter().take(6) {
+        let _ = writeln!(out, "    {l}");
+    }
+    let under: Vec<&Task> = tree
+        .children(&t.id)
+        .filter(|k| k.status.is_open())
+        .collect();
+    if !under.is_empty() {
+        let _ = writeln!(out, "  first:");
+        for k in under {
+            let _ = writeln!(out, "    · {}  {}", k.id, k.title);
+        }
+    }
+    let chain = tree.ancestors(&t.id);
+    let n = chain.len();
+    let mut prev_id = &t.id;
+    for (i, c) in chain.iter().enumerate() {
+        let rel = if i + 1 == n { "so that" } else { "then" };
+        let also: Vec<String> = tree
+            .children(&c.id)
+            .filter(|k| k.status.is_open() && k.id != *prev_id)
+            .map(|k| k.title.clone())
+            .collect();
+        let also = if also.is_empty() {
+            String::new()
+        } else {
+            format!("   (also needs: {})", also.join(", "))
+        };
+        let agent = if c.tags.iter().any(|x| x.eq_ignore_ascii_case("agent")) {
+            " 🤖"
+        } else {
+            ""
+        };
+        let _ = writeln!(out, "  {rel:>7}: {}  {}{agent}{also}", c.id, c.title);
+        prev_id = &c.id;
+    }
+    out
+}

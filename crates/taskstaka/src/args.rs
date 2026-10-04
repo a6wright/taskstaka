@@ -91,6 +91,10 @@ pub enum Cmd {
     /// What needs action next, ranked.
     Next(NextArgs),
 
+    /// The stack you are on: the task in hand and what finishing it unlocks.
+    /// Defaults to the task most recently started.
+    Stack { id: Option<String> },
+
     /// Show the open tree.
     Ls {
         /// Include closed tasks.

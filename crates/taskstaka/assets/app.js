@@ -6,6 +6,7 @@
 // ---------- state ----------
 const S = {
   view: 'outline', ctx: '', open: null,     // route
+  stackId: null,                             // the leaf the Stack view is on
   tree: [], next: null, waiting: [], nudges: [], all: [],
   rev: 0, dirty: false, pendingRefresh: false, focus: null,
   showDone: false,                           // outline: show completed tasks
@@ -19,6 +20,7 @@ try { S.showDone = localStorage.getItem('taskstaka.showDone') === '1'; S.showNot
 const VIEW_HELP = {
   outline: '',
   next: 'Tasks you can act on now, best first. Anything blocked, parked or waiting on someone stays out of the way until it is ready.',
+  stack: 'One thing at a time: the task you are on, and what finishing it unlocks. Tick it and the next plate slides up.',
   waiting: 'People you are waiting on, and for what. Chase when you nudge them; unblock when they get back to you.',
   someday: 'Parked ideas. They do not block anything and stay out of Next until you revive them.',
   done: 'Finished in the last two weeks.',
@@ -26,6 +28,7 @@ const VIEW_HELP = {
 const VIEWS = {
   outline: { ico: '☰', label: 'Outline' },
   next:    { ico: '▸', label: 'Next' },
+  stack:   { ico: '▲', label: 'Stack' },
   waiting: { ico: '⌛', label: 'Waiting on' },
   someday: { ico: '💤', label: 'Someday' },
   done:    { ico: '✓', label: 'Done' },
@@ -82,11 +85,13 @@ function routeFromUrl() {
   S.view = path === '/' ? 'outline' : path.slice(1);
   if (!VIEWS[S.view]) S.view = 'outline';
   S.open = sp.get('open');
+  if (sp.get('task')) S.stackId = sp.get('task');
 }
-function urlFor({ view = S.view, ctx = S.ctx, open = S.open } = {}) {
+function urlFor({ view = S.view, ctx = S.ctx, open = S.open, stackId = S.stackId } = {}) {
   const sp = new URLSearchParams();
   if (ctx) sp.set('context', ctx);
   if (open) sp.set('open', open);
+  if (view === 'stack' && stackId) sp.set('task', stackId);
   const qs = sp.toString();
   return (view === 'outline' ? '/' : '/' + view) + (qs ? '?' + qs : '');
 }
@@ -131,7 +136,7 @@ function announce(out) {
   if (out.warnings && out.warnings.length) flash(out.warnings[0], '');
 }
 async function act(fn, keep) {
-  try { const out = await fn(); if (out && out.events) announce(out); if (keep) S.focus = keep; await load(); return out; }
+  try { const out = await fn(); if (out && out.events) announce(out); if (keep) S.focus = keep; await load(); shiftStack(out); if (S.view === 'stack') render(); return out; }
   catch (e) { flash(e.message, 'error'); await load(); return null; }
 }
 
@@ -166,7 +171,8 @@ function renderSide() {
   const sum = S.next ? S.next.summary : {};
   const someday = S.all.filter(t => t.status === 'someday' && inCtx(t)).length;
   const done = S.all.filter(t => isClosed(t) && inCtx(t) && t.completed && (Date.now() - Date.parse(t.completed)) < 14 * 86400e3).length;
-  const counts = { outline: '', next: sum.actionable ?? '', waiting: S.waiting.reduce((n, g) => n + g.items.length, 0) || '', someday: someday || '', done: done || '' };
+  const doing = S.all.filter(t => t.status === 'doing' && inCtx(t)).length;
+  const counts = { outline: '', stack: doing || '', next: sum.actionable ?? '', waiting: S.waiting.reduce((n, g) => n + g.items.length, 0) || '', someday: someday || '', done: done || '' };
   $('#side').innerHTML = `
     <div class="brand"><span><span class="dot"></span>taskstaka</span></div>
     <div class="ctxs">${['', 'work', 'personal'].map(c => `<a href="${urlFor({ ctx: c })}" data-ctx="${c}" class="${S.ctx === c ? 'active' : ''}">${c || 'all'}</a>`).join('')}</div>
@@ -190,6 +196,7 @@ function renderMain() {
   let body = '';
   if (S.view === 'outline') body = renderOutline();
   else if (S.view === 'next') body = renderNext();
+  else if (S.view === 'stack') body = renderStack();
   else if (S.view === 'waiting') body = renderWaiting();
   else if (S.view === 'someday') body = renderSomeday();
   else if (S.view === 'done') body = renderDone();
@@ -227,7 +234,8 @@ function hoverMeta(t) {
     ? `<button class="rowbtn" data-status="todo" data-id="${t.id}" title="stop working on this">stop</button>`
     : t.status === 'waiting' ? `<button class="rowbtn start" data-status="doing" data-id="${t.id}" title="they got back to you — start on it">unblock</button>`
     : (t.status === 'todo' || t.status === 'someday') ? `<button class="rowbtn start" data-status="doing" data-id="${t.id}" title="start working on this (▶)">▶ start</button>` : '';
-  return `<span class="hover">${bits.map(b => `<span>${esc(b)}</span>`).join('')}${startStop}<button class="openbtn" data-open="${t.id}">open</button></span>`;
+  const first = isClosed(t) ? '' : `<button class="rowbtn" data-first="draft" data-id="${t.id}" title="add something that must happen before this">↳ first</button>`;
+  return `<span class="hover">${bits.map(b => `<span>${esc(b)}</span>`).join('')}${first}${startStop}<button class="openbtn" data-open="${t.id}">open</button></span>`;
 }
 function rowHtml(t, d, depth, { editable = true, crumb = '' } = {}) {
   const closed = isClosed(t);
@@ -369,9 +377,9 @@ function renderPane() {
       ${st === 'waiting' ? `
       <div class="inline-form"><input id="chase-note" placeholder="chased them again — note (optional)"><button class="btn" data-chase="${t.id}">chase</button></div>` : `
       <div class="inline-form"><input id="wait-who" placeholder="waiting on…"><input id="wait-until" placeholder="until (+3d)" style="max-width:110px"><button class="btn" data-wait="${t.id}">wait</button></div>`}
-      <h3>subtasks</h3>
+      <h3>first I need to…</h3>
       <ul class="rows subs">${kids.map(k => rowHtml(k, k.derived, 0, { editable: false })).join('')}</ul>
-      <div class="inline-form"><input id="sub-title" placeholder="add a subtask"><button class="btn" data-addsub="${t.id}">add</button></div>
+      <div class="inline-form"><input id="sub-title" placeholder="something that must happen before this"><button class="btn" data-addsub="${t.id}">add</button></div>
       <h3>notes</h3>
       <textarea class="notes" data-notes="${t.id}" placeholder="markdown notes">${esc(notes)}</textarea>
       ${journal.length ? `<h3>activity</h3><ul class="journal">${journal.map(l => {
@@ -419,6 +427,25 @@ async function createDraft(el, parent, after) {
     try { until = m[3] ? await resolveDate(m[3]) : null; } catch (err) { el.textContent = text; return flash(err.message, 'error'); }
   }
   const fromBottom = !!el.closest('.newline');
+  // "Goal > intermediate > first thing": the planning direction, left to right.
+  // Each segment nests under the one before; @Name applies to the last.
+  const chain = title.split(/\s+>\s+/).map(s => s.trim()).filter(Boolean);
+  if (chain.length > 1) {
+    S.dirty = false;
+    try {
+      let p = parent || null, created = null;
+      for (let i = 0; i < chain.length; i++) {
+        const last = i === chain.length - 1;
+        const out = await api('POST', '/api/v1/tasks', { title: chain[i], parent: p, after: (i === 0 ? (after || null) : null), context: (!p && S.ctx) ? S.ctx : null, waiting_on: last ? waiting_on : null, until: last ? until : null });
+        p = out.primary; created = created || out.primary;
+      }
+      if (fromBottom) { S.draft.after = created; }
+      S.focus = { id: null, atEnd: true };
+      flash(`stacked ${chain.length} tasks: ${chain[chain.length - 1]} first`, 'ok');
+      await load();
+    } catch (e) { flash(e.message, 'error'); await load(); }
+    return;
+  }
   const out = await act(() => api('POST', '/api/v1/tasks', { title, parent: parent || null, after: after || null, context: (!parent && S.ctx) ? S.ctx : null, waiting_on, until }), { id: null, atEnd: true });
   // Rapid capture: the next line from the bottom box goes right after this one.
   if (fromBottom && out && out.primary) { S.draft.after = out.primary; const box = $('#main .newline .title'); if (box) box.dataset.after = out.primary; }
@@ -459,7 +486,17 @@ document.addEventListener('click', async (e) => {
   if (b.id === 'side-toggle') return toggleSide();
   if (b.id === 'toggle-done') { S.showDone = !S.showDone; try { localStorage.setItem('taskstaka.showDone', S.showDone ? '1' : '0'); } catch (_) {} return render(); }
   if (b.id === 'toggle-notes') { S.showNotes = !S.showNotes; try { localStorage.setItem('taskstaka.showNotes', S.showNotes ? '1' : '0'); } catch (_) {} return render(); }
-  if (b.dataset.status) return act(() => api('POST', `/api/v1/tasks/${id}/status`, { status: b.dataset.status, cascade: true }));
+  if (b.dataset.status) {
+    const toStack = b.dataset.status === 'doing';
+    return act(() => api('POST', `/api/v1/tasks/${id}/status`, { status: b.dataset.status, cascade: true }))
+      .then(() => { if (toStack) go({ view: 'stack', stackId: id, open: null }); });
+  }
+  if (b.dataset.first) {
+    // "first I need to…": a prerequisite under this row (or stack plate).
+    const title = (b.dataset.first === 'prompt') ? ($('#first-title') ? $('#first-title').value.trim() : '') : '';
+    if (b.dataset.first === 'prompt') { if (!title) return; return act(() => api('POST', '/api/v1/tasks', { title, parent: id })); }
+    return insertDraftUnder(id);
+  }
   if (b.dataset.chase) { const note = $('#chase-note') ? $('#chase-note').value : ''; return act(() => api('POST', `/api/v1/tasks/${id}/chase`, { note: note || null })); }
   if (b.dataset.reply) {
     const outcome = $('#reply-outcome').value, to = $('#reply-to').value.trim(), summary = $('#reply-summary').value.trim();
@@ -513,10 +550,10 @@ document.addEventListener('change', async (e) => {
 });
 
 document.addEventListener('focusin', (e) => {
-  const el = e.target.closest('.title, .pane-title'); if (!el) return;
+  const el = e.target.closest('.title, .pane-title, .plate-title'); if (!el) return;
   if (!el.classList.contains('draft')) el.dataset.original = el.textContent;
 });
-document.addEventListener('input', (e) => { if (e.target.closest('.title, .pane-title, .notes')) S.dirty = true; });
+document.addEventListener('input', (e) => { if (e.target.closest('.title, .pane-title, .plate-title, .notes')) S.dirty = true; });
 document.addEventListener('focusout', async (e) => {
   const el = e.target;
   if (el.classList && el.classList.contains('notes')) {
@@ -527,7 +564,7 @@ document.addEventListener('focusout', async (e) => {
     if (body.trim() !== (t.body || '').trim()) await act(() => api('PATCH', '/api/v1/tasks/' + t.id, { body }));
     return;
   }
-  const tl = el.closest && el.closest('.title, .pane-title'); if (!tl) return;
+  const tl = el.closest && el.closest('.title, .pane-title, .plate-title'); if (!tl) return;
   if (tl.classList.contains('draft')) { if (tl.textContent.trim()) createDraft(tl, tl.dataset.parent, tl.dataset.after); else S.dirty = false; }
   else commitTitle(tl);
 });
@@ -541,8 +578,8 @@ document.addEventListener('keydown', async (e) => {
     const li = e.target.closest && e.target.closest('li.row');
     if (li) { e.preventDefault(); const t = byId(li.dataset.id); if (t) return act(() => api('POST', `/api/v1/tasks/${t.id}/status`, { status: t.status === 'doing' ? 'todo' : 'doing' }), { id: t.id, atEnd: true }); }
   }
-  const el = e.target.closest('.title, .pane-title'); if (!el) return;
-  if (el.classList.contains('pane-title')) { if (e.key === 'Enter') { e.preventDefault(); el.blur(); } return; }
+  const el = e.target.closest('.title, .pane-title, .plate-title'); if (!el) return;
+  if (el.classList.contains('pane-title') || el.classList.contains('plate-title')) { if (e.key === 'Enter') { e.preventDefault(); el.blur(); } return; }
   const li = rowOf(el); const id = li && li.dataset.id; const isDraft = el.classList.contains('draft');
   if (S.view !== 'outline' && !isDraft) { if (e.key === 'Enter') { e.preventDefault(); el.blur(); } return; }
 
@@ -593,6 +630,88 @@ document.addEventListener('keydown', async (e) => {
   if (e.key === 'Escape') { el.blur(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && id) { e.preventDefault(); return go({ open: id }); }
 });
+
+// ---------- "first I need to…": a draft line nested under a row ----------
+function insertDraftUnder(id) {
+  if (S.view !== 'outline') { go({ view: 'outline', open: null }); }
+  const li = $(`#main li[data-id="${id}"]`); if (!li) return;
+  const draft = document.createElement('div');
+  draft.className = 'row draftrow'; draft.style.setProperty('--depth', +li.dataset.depth + 1);
+  draft.innerHTML = `<span></span><span class="title draft" contenteditable="true" spellcheck="false" data-placeholder="first I need to…"></span>`;
+  const t = draft.querySelector('.title'); t.dataset.parent = id; t.dataset.after = '';
+  const kids = li.nextElementSibling && li.nextElementSibling.classList.contains('kids') ? li.nextElementSibling : null;
+  if (kids) kids.querySelector('ul').prepend(draft); else li.after(draft);
+  t.focus();
+}
+
+// ---------- Stack: one chain, inverted, the leaf on top ----------
+function pickStackTask() {
+  if (S.stackId && byId(S.stackId)) return byId(S.stackId);
+  const doing = S.all.filter(t => t.status === 'doing' && inCtx(t)).sort((a, b) => Date.parse(b.started || b.created) - Date.parse(a.started || a.created));
+  return doing[0] || null;
+}
+function renderStack() {
+  const t = pickStackTask();
+  if (!t) return `<p class="empty">Nothing in hand. Start something from <a href="/next" data-view="next">Next</a> and it lands here.</p>`;
+  S.stackId = t.id;
+  const d = t.derived || {};
+  const notes = (t.body || '').split('\n').filter(l => !isJournalLine(l)).join('\n').trim();
+  const closed = isClosed(t);
+  // Actions for the top plate: only what moves this plate.
+  const acts = [];
+  if (t.status === 'waiting') { acts.push(['chase', `<button class="btn" data-chase="${t.id}">chase</button>`]); acts.push(['unblock', `<button class="btn primary" data-status="doing" data-id="${t.id}">unblock</button>`]); }
+  else if (!closed) {
+    if (t.status !== 'doing' && !d.blocked_by) acts.push(['start', `<button class="btn" data-status="doing" data-id="${t.id}">▶ start</button>`]);
+    if (!d.blocked_by) acts.push(['done', `<button class="btn primary" data-status="done" data-id="${t.id}" data-cascade="1">✓ done</button>`]);
+    if (t.status === 'doing') acts.push(['stop', `<button class="btn" data-status="todo" data-id="${t.id}">stop</button>`]);
+  } else acts.push(['reopen', `<button class="btn" data-status="todo" data-id="${t.id}">reopen</button>`]);
+  // Plates beneath: the chain, nearest first.
+  const chain = []; let p = t.parent && byId(t.parent); const seen = new Set();
+  while (p && !seen.has(p.id)) { seen.add(p.id); chain.push(p); p = p.parent && byId(p.parent); }
+  const plates = chain.map((c, i) => {
+    const kids = childrenOf(c.id).filter(k => !isClosed(k) && k.id !== (i === 0 ? t.id : chain[i - 1].id));
+    const also = kids.length ? `<div class="also">also needs: ${kids.map(k => `<a href="#" data-stack="${k.id}">${esc(k.title)}</a>`).join(', ')}</div>` : '';
+    const who = isAgent(c) ? ' <span class="chip agent">🤖 agent</span>' : '';
+    return `<div class="plate" style="--i:${i + 1}"><span class="rel">${i === chain.length - 1 ? 'so that' : 'then'}</span> <a href="#" data-stack="${c.id}">${esc(c.title)}</a>${who}${chips(c, c.derived)}${also}</div>`;
+  }).join('');
+  // Below the leaf: things that must happen first (the stack continues down).
+  const under = childrenOf(t.id).filter(k => !isClosed(k));
+  const underHtml = under.length
+    ? `<div class="under"><div class="rel">first</div><ul class="rows">${under.map(k => rowHtml(k, k.derived, 0, { editable: false })).join('')}</ul></div>` : '';
+  return `
+    <div class="stack">
+      <div class="plate top ${closed ? 'closed' : ''}">
+        <div class="rel">${closed ? 'done' : t.status === 'waiting' ? '⌛ waiting on ' + esc(t.waiting_on || '') : d.blocked_by ? '⏳ blocked — finish what is under it' : 'now'}</div>
+        <h2 class="plate-title" contenteditable="true" spellcheck="false" data-title="${t.id}">${esc(t.title)}</h2>
+        <div class="meta">${chips(t, d)}${isAgent(t) ? '<span class="chip agent">🤖 agent</span>' : ''}</div>
+        ${notes ? `<div class="note">${esc(notes)}</div>` : ''}
+        <div class="actions">${acts.map(a => a[1]).join('')}<button class="btn small" data-open="${t.id}">details</button></div>
+        <div class="inline-form"><input id="first-title" placeholder="first I need to…"><button class="btn" data-first="prompt" data-id="${t.id}">add</button></div>
+      </div>
+      ${underHtml}
+      ${plates}
+    </div>`;
+}
+const isAgent = (t) => (t.tags || []).some(x => x.toLowerCase() === 'agent');
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('a[data-stack]'); if (!a) return;
+  e.preventDefault(); go({ view: 'stack', stackId: a.dataset.stack, open: null });
+});
+// After a mutation in the Stack view, shift up when the top plate closed.
+function shiftStack(out) {
+  if (S.view !== 'stack' || !S.stackId) return;
+  const t = byId(S.stackId); if (!t || !isClosed(t)) return;
+  const parent = t.parent && byId(t.parent);
+  if (!parent) { flash('✓ ' + t.title + ' — story done', 'ok'); return; }
+  const left = childrenOf(parent.id).filter(k => !isClosed(k));
+  if (left.length === 0) {
+    S.stackId = parent.id;
+    flash(isAgent(parent) ? '✓ ' + t.title + ' — ' + parent.title + ' is Claude\'s; it is back on their plate' : '↑ ' + parent.title, 'ok');
+    history.replaceState(null, '', urlFor());
+  } else {
+    flash('✓ ' + t.title + ' — ' + parent.title + ' still needs: ' + left.map(k => k.title).join(', '), 'ok');
+  }
+}
 
 // ---------- drag to reorder / nest (outline) ----------
 let dragId = null;

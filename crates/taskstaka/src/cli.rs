@@ -277,6 +277,35 @@ pub fn run(b: &mut dyn Backend, cmd: Cmd, json: bool) -> Result<()> {
 
         Cmd::Next(n) => next(b, n, json, &now),
 
+        Cmd::Stack { id } => {
+            let tree = b.tree()?;
+            let target = match id {
+                Some(id) => Some(b.resolve(&id)?),
+                None => tree
+                    .iter()
+                    .filter(|t| t.status == Status::Doing)
+                    .max_by_key(|t| t.started.unwrap_or(t.created))
+                    .map(|t| t.id.clone()),
+            };
+            let Some(id) = target else {
+                println!("nothing in hand — start something from `taskstaka next`");
+                return Ok(());
+            };
+            let t = tree.get(&id).context("task vanished")?;
+            if json {
+                let chain: Vec<&Task> = tree.ancestors(&id);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(
+                        &serde_json::json!({ "task": t, "chain": chain })
+                    )?
+                );
+            } else {
+                print!("{}", render::stack(&tree, t, &now));
+            }
+            Ok(())
+        }
+
         Cmd::Ls { closed, context } => {
             let tree = b.tree()?;
             let roots: Vec<&Task> = tree

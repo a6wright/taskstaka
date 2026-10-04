@@ -336,6 +336,7 @@ impl Store {
                 cascade,
             } => {
                 outcome.primary = Some(id.clone());
+                let before = self.get(&id)?.clone();
                 self.plan_set_status(
                     &id,
                     status,
@@ -346,6 +347,17 @@ impl Store {
                     &mut writes,
                     &mut outcome,
                 )?;
+                // Reopening or reviving a prerequisite under a task you are
+                // on blocks it again, so it pauses — same as adding one.
+                if status.is_blocking() && !before.status.is_blocking() {
+                    self.pause_parent_if_doing(
+                        before.parent.as_ref(),
+                        &before.title,
+                        now,
+                        &mut writes,
+                        &mut outcome,
+                    );
+                }
             }
             Command::Edit(edit) => {
                 outcome.primary = Some(edit.id.clone());
@@ -1853,5 +1865,67 @@ mod in_hand_tests {
             from: Status::Doing,
             to: Status::Todo
         }));
+    }
+
+    /// The hand never climbs on its own: a reopened (or revived) prerequisite
+    /// pauses a doing parent exactly like a new one, so closing it again
+    /// leaves the parent `↑ ready`, not silently back in hand.
+    #[test]
+    fn reopening_a_prerequisite_under_a_doing_task_pauses_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::init(dir.path()).unwrap();
+        let add = |store: &mut Store, title: &str, parent: Option<&TaskId>, status| {
+            store
+                .apply(
+                    Command::Add(AddTask {
+                        title: title.into(),
+                        parent: parent.cloned(),
+                        status,
+                        ..Default::default()
+                    }),
+                    &now(),
+                )
+                .unwrap()
+                .primary
+                .unwrap()
+        };
+        let pie = add(&mut store, "Bake the pie", None, None);
+        let apples = add(&mut store, "Buy apples", Some(&pie), None);
+        let parked = add(
+            &mut store,
+            "Find a better recipe",
+            Some(&pie),
+            Some(Status::Someday),
+        );
+        let set = |store: &mut Store, id: &TaskId, status| {
+            store
+                .apply(
+                    Command::SetStatus {
+                        id: id.clone(),
+                        status,
+                        waiting_on: None,
+                        until: None,
+                        cascade: false,
+                    },
+                    &now(),
+                )
+                .unwrap()
+        };
+        set(&mut store, &apples, Status::Done);
+        set(&mut store, &pie, Status::Doing);
+        assert_eq!(store.tree().get(&pie).unwrap().status, Status::Doing);
+
+        // Reopen the done prerequisite: the pie pauses.
+        set(&mut store, &apples, Status::Todo);
+        let p = store.tree().get(&pie).unwrap();
+        assert_eq!(p.status, Status::Todo, "doing + blocked is incoherent");
+        assert!(p.body.contains("paused: first Buy apples"));
+
+        // Revive a parked one under a doing parent: same.
+        set(&mut store, &apples, Status::Done);
+        set(&mut store, &pie, Status::Doing);
+        set(&mut store, &parked, Status::Doing);
+        assert_eq!(store.tree().get(&pie).unwrap().status, Status::Todo);
+        assert_eq!(store.tree().get(&parked).unwrap().status, Status::Doing);
     }
 }

@@ -88,6 +88,13 @@ pub fn now_rows(
                 format!("{badge} · 🤖")
             };
         }
+        if it.reason.contains("parent is already finished") {
+            badge = if badge.is_empty() {
+                "⚠ orphaned".into()
+            } else {
+                format!("{badge} · ⚠")
+            };
+        }
         let ctx = if show_context {
             format!(" {:<8}", it.context.as_str())
         } else {

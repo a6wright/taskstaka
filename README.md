@@ -74,8 +74,8 @@ If a command says the directory is locked, a daemon is running: drop `--direct`,
 ```
 taskstaka next                                  # what do I have to do now? (below)
 taskstaka add "Get DNS address" -c work
-taskstaka add "Create the zone" -p <id>          # a prerequisite: the story is blocked until it closes
-taskstaka add "Log in first" -p <id> --start     # push: a prerequisite that goes straight in hand
+taskstaka add "Create the zone" -p <id>          # a prerequisite: the story is blocked until it closes (and pauses if it was doing)
+taskstaka add "Log in first" -p <id> --start     # push: the prerequisite goes straight in hand
 taskstaka start <id> · done <id> · drop <id>
 taskstaka put-back <id>                         # out of your hand without finishing it
 taskstaka wait <id> Sam                         # waiting on someone; follow-up defaults to +2d
@@ -101,10 +101,10 @@ the TUI and the web:
            done e3xv3s · reopen e3xv3s (put back) · add -p e3xv3s --start "first I need to…" · wait e3xv3s WHO
 
 Get DNS address   3 now · 4 later (2 🤖) · ✉ Priya
-qk8y9y  ☐ Tell Claude: hostname only, or reachable from the VPC?   ↑ ready       1h
+qk8y9y  ☐ Tell Claude: hostname only, or reachable from the VPC?                 1h
 e3xv3s  ☐ Email platform-eng to approve the zone                   ▶ in hand     1h
-96qed1  ☐ Log in: gcloud auth login ‹ Create the Cloud DNS zone    ↑ ready       1h
-        … 4 later: Ask Priya about wildcard certs (✉ Priya · 1h), Create the zone (🤖 · after Log in), +2   (--later)
+96qed1  ☐ Log in: gcloud auth login ‹ Create the zone              ↑ ready       1h
+        … 4 later: Ask Priya about wildcard certs (✉ Priya · 1h), Create the zone (🤖 Claude · after Log in: gcloud auth login), +2   (--later)
 ```
 
 The plate on top is the task in hand. Under it, each story is a stack: the rows you can
@@ -112,8 +112,9 @@ do right now (independent streams, in the order you wrote them), then `… N lat
 everything still required and *why not yet*. `--later` expands it; `--explain` gives the
 reason under each row.
 
-The panel (`taskstaka tui`) has the same five pages as the web (`1`–`5`, or `v` to
-cycle): **Next** shows the plate boxed at the top — `d` done, `p` put back, `i` *first I
+The panel (`taskstaka tui`) has five pages (`1`–`5`, or `v` to cycle) that match the
+web's views — the web adds a **Done** page; in the panel, `h` shows completed tasks
+in the outline instead: **Next** shows the plate boxed at the top — `d` done, `p` put back, `i` *first I
 need to…*, `w` wait on someone — then each story as a stack (`l` unfolds the later list).
 **Outline** is the tree (`⇧` + arrows rearrange, `A` adds under, `h` shows completed),
 **Waiting on** groups by person (`f` chase, `u` unblock when they reply), **Someday** is
@@ -142,26 +143,27 @@ two siblings share becomes a sibling placed first.
 |---|---|
 | `todo` / `doing` | not started / started (`doing` is weak — many tasks can be doing) |
 | `waiting` | on a person, always with a follow-up date |
-| `someday` | parked: doesn't block its parent, doesn't rank |
+| `someday` | parked: doesn't block its parent and doesn't rank, but the parent can't be closed until it is done or dropped |
 | `done` / `dropped` | closed |
 
 | Derived fact | shown as | means |
 |---|---|---|
 | blocked | `▽` | has open prerequisites below it — look down |
 | waiting on a person | `✉ Priya · 3d · 2×` | the leaf (or, for a blocked parent, the leaf it depends on) is waiting on someone |
-| actionable | `☐` | open, unblocked, not parked, not waiting — yours to do |
+| actionable | `☐` | open, unblocked, not parked, and either not waiting or waiting with its follow-up due — yours to do |
 | resurfaced | `↑ ready` | its last prerequisite just closed and you haven't touched it since — *the moment every flat list loses* |
 | follow-up | `✉ follow up` | a wait whose date has arrived; the action is to chase |
 | in hand | `▶ in hand` | the most recently started task that is open and unblocked — the one thing to go do |
 | agent step | `🤖` | Claude's to perform; still listed for you, because you prompt it and check it |
-| orphaned | `⚠` | reopened or added under a parent that was already finished |
+| orphaned | `⚠` | reopened or added under a parent that was already finished; still yours to do |
 
 **The hand.** `start` takes a task in hand; it becomes the top plate with its notes.
 `done` and `put-back` empty the hand (the next most-recently-started task moves up, or
-nothing). *First I need to…* (`add -p <in-hand> --start`) **pushes** a prerequisite: the new
-task goes in hand and the one above **pauses** back to `todo`, because a task cannot be
-both doing and blocked. The hand never climbs on its own — when you finish a leaf, the
-parent shows `↑ ready`, and you decide.
+nothing). Any prerequisite landing under a `doing` task — added, moved there, or reopened
+— **pauses** it back to `todo` with a note, because a task cannot be both doing and
+blocked. *First I need to…* (`add -p <in-hand> --start`) is the **push**: the new task
+goes in hand and the one above pauses. The hand never climbs on its own — when you finish
+a leaf, the parent shows `↑ ready`, and you decide.
 
 **Waiting is a person, not a status.** A wait always has a follow-up date; `chase` records
 that you poked them and shortens the next one; `reply` records what came back

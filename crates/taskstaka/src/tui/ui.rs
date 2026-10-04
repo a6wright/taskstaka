@@ -85,20 +85,13 @@ fn detail_height(app: &App, area: Rect) -> u16 {
     (area.height / 3).clamp(4, 10)
 }
 
-/// Journal lines are `- date time [source] text`; strip the stamp so the
-/// plate reads like notes, newest last, at most three.
+/// Notes without the journal stamps, newest last, at most three.
 fn note_lines(body: &str) -> Vec<String> {
     let lines: Vec<String> = body
         .lines()
-        .map(str::trim)
+        .map(humanize::strip_journal_stamp)
         .filter(|l| !l.is_empty())
-        .map(|l| {
-            let l = l.trim_start_matches("- ");
-            match l.find("] ") {
-                Some(i) if l.starts_with(char::is_numeric) => l[i + 2..].to_string(),
-                _ => l.to_string(),
-            }
-        })
+        .map(str::to_string)
         .collect();
     let n = lines.len();
     lines.into_iter().skip(n.saturating_sub(3)).collect()
@@ -121,7 +114,7 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     }
     for (i, v) in View::ALL.iter().enumerate() {
         let count = match v {
-            View::Waiting => app.summary.waiting,
+            View::Waiting => app.summary.waiting_total,
             View::Someday => app.summary.someday,
             View::Nudges => app.nudges.len(),
             View::Next | View::Outline => 0,

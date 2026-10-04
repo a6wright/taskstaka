@@ -106,6 +106,45 @@ async fn resurface_flow_over_http() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn tasks_context_filter_follows_the_root() {
+    let (_dir, client, handle) = start().await;
+    let personal = client
+        .apply(&Command::Add(AddTask {
+            title: "Bake a pie".into(),
+            context: Some(taskstaka_core::Context::Personal),
+            ..Default::default()
+        }))
+        .unwrap()
+        .primary
+        .unwrap();
+    let apples = add(&client, "Buy apples", Some(personal.as_str()));
+    let work = add(&client, "Ship the release", None);
+    // Dragged under a work story: it is work now, like `plan` and `next` say.
+    client
+        .apply(&Command::Move {
+            id: apples.parse().unwrap(),
+            parent: Some(work.parse().unwrap()),
+            after: None,
+            before: None,
+        })
+        .unwrap();
+    let ids = |ctx| -> Vec<String> {
+        client
+            .tasks_filtered(None, Some(ctx), false)
+            .unwrap()
+            .into_iter()
+            .map(|v| v.task.id.to_string())
+            .collect()
+    };
+    assert!(
+        ids(taskstaka_core::Context::Work).contains(&apples),
+        "follows its new root"
+    );
+    assert!(!ids(taskstaka_core::Context::Personal).contains(&apples));
+    handle.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn long_poll_wakes_on_mutation() {
     let (_dir, client, handle) = start().await;
     let rev = client.health().unwrap().rev;

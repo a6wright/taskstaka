@@ -119,7 +119,14 @@ impl Client {
     pub fn discover(dir: &Path) -> Option<Client> {
         let info = DaemonInfo::read(dir)?;
         let c = Client::at(&format!("127.0.0.1:{}", info.port));
-        c.health().ok().filter(|h| h.todo_dir == dir).map(|_| c)
+        let same = |a: &Path, b: &Path| {
+            let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+            canon(a) == canon(b)
+        };
+        c.health()
+            .ok()
+            .filter(|h| same(&h.todo_dir, dir))
+            .map(|_| c)
     }
 
     /// Discover or auto-start the daemon for `dir`.
@@ -137,6 +144,13 @@ impl Client {
             }
         });
         spawn_daemon(dir, port)?;
+        Self::wait_for(dir)
+    }
+
+    /// Wait (≤4s) for a daemon we just spawned to answer. Polling `discover`
+    /// rather than calling `connect` again is what keeps a second daemon
+    /// from being spawned while the first is still binding.
+    pub fn wait_for(dir: &Path) -> Result<Client> {
         let deadline = Instant::now() + Duration::from_secs(4);
         while Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(50));

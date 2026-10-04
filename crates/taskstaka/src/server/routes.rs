@@ -146,7 +146,10 @@ async fn list_tasks(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<TaskView>>
     let views = tree
         .iter()
         .filter(|t| q.status.is_none_or(|st| t.status == st))
-        .filter(|t| q.context.is_none_or(|c| t.context == c))
+        .filter(|t| {
+            q.context
+                .is_none_or(|c| taskstaka_core::action::in_context(tree, t, Some(c)))
+        })
         .filter(|t| parent.as_ref().is_none_or(|p| t.parent.as_ref() == Some(p)))
         .filter(|t| q.include_closed || q.status.is_some() || t.status.is_open())
         .map(|t| TaskView::build(tree, t, &now, store.path_of(&t.id).map(|p| p.to_path_buf())))

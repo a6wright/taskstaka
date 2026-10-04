@@ -1,7 +1,7 @@
 ---
 name: taskstaka
 description: Load this FIRST — before investigating, planning or asking clarifying questions — whenever a request has more than one step, whenever some steps are the user's to do by hand (run something in a console or on their machine, email or message someone, approve, wait for a reply) and some are yours, and whenever they say "what should I work on", "what's next", "I'm waiting on", "add that to my list", "remind me", or mention a story, task, todo or follow-up. The user keeps all their work in taskstaka (a task tree reached through the taskstaka MCP server); a plan that only exists in the chat is lost to them tomorrow. Use it at the start of a session to see what is in flight and at the end to leave the next steps where they will see them, even when nobody says "taskstaka".
-allowed-tools: mcp__taskstaka__next, mcp__taskstaka__waiting, mcp__taskstaka__list_tasks, mcp__taskstaka__tree, mcp__taskstaka__get_task, mcp__taskstaka__add_task, mcp__taskstaka__set_status, mcp__taskstaka__update_task, mcp__taskstaka__move_task, mcp__taskstaka__touch, mcp__taskstaka__chase, mcp__taskstaka__record_reply, mcp__taskstaka__nudges
+allowed-tools: mcp__taskstaka__plan, mcp__taskstaka__next, mcp__taskstaka__waiting, mcp__taskstaka__list_tasks, mcp__taskstaka__tree, mcp__taskstaka__get_task, mcp__taskstaka__add_task, mcp__taskstaka__set_status, mcp__taskstaka__update_task, mcp__taskstaka__move_task, mcp__taskstaka__touch, mcp__taskstaka__chase, mcp__taskstaka__record_reply, mcp__taskstaka__nudges
 ---
 
 # taskstaka

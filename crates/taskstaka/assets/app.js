@@ -81,7 +81,8 @@ async function load() {
 function routeFromUrl() {
   const path = location.pathname.replace(/\/+$/, '') || '/';
   const sp = new URLSearchParams(location.search);
-  S.ctx = sp.get('context') || '';
+  const ctx = sp.get('context');
+  S.ctx = (ctx === 'work' || ctx === 'personal') ? ctx : '';
   const m = path.match(/^\/t\/([0-9a-z]+)$/);
   if (m) { S.view = sp.get('view') || 'outline'; S.open = m[1]; return; }
   S.view = path === '/' ? 'outline' : path.slice(1);
@@ -222,14 +223,14 @@ function hoverMeta(t) {
   const first = isClosed(t) ? '' : `<button class="rowbtn" data-first="draft" data-id="${t.id}" title="add something that must happen before this">↳ first</button>`;
   return `<span class="hover">${bits.map(b => `<span>${esc(b)}</span>`).join('')}${first}${startStop}<button class="openbtn" data-open="${t.id}">open</button></span>`;
 }
-function rowHtml(t, d, depth, { editable = true, crumb = '' } = {}) {
+function rowHtml(t, d, depth, { editable = true, crumb = '', extra = '' } = {}) {
   const closed = isClosed(t);
   const cls = ['row', editable ? '' : 'compact', closed ? 'closed' : '', t.status === 'someday' ? 'someday' : '', d && d.blocked_by > 0 ? 'blocked' : '', d && d.deferred_by && d.deferred_by !== t.id ? 'deferred' : '', S.open === t.id ? 'selected' : ''].join(' ');
   return `<li class="${cls}" data-id="${t.id}" data-parent="${t.parent || ''}" data-depth="${depth}">
     ${editable ? `<span class="grip" draggable="true" title="drag to reorder or nest">⋮⋮</span>` : ''}
     <input type="checkbox" class="cb" ${closed ? 'checked' : ''} title="${closed ? 'reopen' : 'done'}">
     <span class="title" ${editable ? 'contenteditable="true" spellcheck="false"' : ''}>${esc(t.title)}${crumb}</span>
-    <span class="meta">${chips(t, d)}${hoverMeta(t)}</span>
+    <span class="meta">${chips(t, d)}${hoverMeta(t)}${extra}</span>
     ${editable && S.showNotes ? noteHtml(t) : ''}
   </li>`;
 }
@@ -324,7 +325,7 @@ function renderWaiting() {
       const t = byId(i.task_id); if (!t) return '';
       const crumb = i.root_title ? `<span class="crumb">‹ ${esc(i.root_title)}</span>` : '';
       const extra = `<button class="btn small" data-chase="${t.id}" title="I pinged them again">chase</button>${i.waiting_ref ? `<a class="chip" href="${esc(i.waiting_ref)}" target="_blank" rel="noopener">thread ↗</a>` : ''}`;
-      return rowHtml(t, t.derived, 0, { editable: false, crumb }).replace('</span>\n  </li>', extra + '</span>\n  </li>');
+      return rowHtml(t, t.derived, 0, { editable: false, crumb, extra });
     }).join('')}</ul></div>`).join('');
 }
 
@@ -417,7 +418,7 @@ function renderPane() {
       </div>
       ${st === 'waiting' ? `
       <div class="inline-form"><input id="chase-note" placeholder="chased them again — note (optional)"><button class="btn" data-chase="${t.id}">chase</button></div>` : `
-      <div class="inline-form"><input id="wait-who" placeholder="waiting on…"><input id="wait-until" placeholder="until (+3d)" style="max-width:110px"><button class="btn" data-wait="${t.id}">wait</button></div>`}
+      <div class="inline-form"><input class="wait-who" placeholder="waiting on…"><input class="wait-until" placeholder="until (+3d)" style="max-width:110px"><button class="btn" data-wait="${t.id}">wait</button></div>`}
       <h3>first I need to…</h3>
       <ul class="rows subs">${kids.map(k => rowHtml(k, k.derived, 0, { editable: false })).join('')}</ul>
       <div class="inline-form"><input id="sub-title" placeholder="something that must happen before this"><button class="btn" data-addsub="${t.id}">add</button></div>
@@ -535,7 +536,8 @@ document.addEventListener('click', async (e) => {
   }
   if (b.dataset.first) {
     // "first I need to…": a prerequisite under this row (or stack plate).
-    const title = (b.dataset.first === 'prompt') ? ($('#first-title') ? $('#first-title').value.trim() : '') : '';
+    const form = b.closest('.inline-form');
+    const title = (b.dataset.first === 'prompt') ? ((form && form.querySelector('.first-title')) ? form.querySelector('.first-title').value.trim() : '') : '';
     if (b.dataset.first === 'prompt') {
       if (!title) return;
       // From the plate: the new prerequisite is what you do now, so it starts
@@ -554,7 +556,8 @@ document.addEventListener('click', async (e) => {
     return act(() => api('POST', `/api/v1/tasks/${id}/reply`, body));
   }
   if (b.dataset.wait) {
-    const who = $('#wait-who').value.trim(), until = $('#wait-until').value.trim();
+    const form = b.closest('.inline-form') || document;
+    const who = form.querySelector('.wait-who').value.trim(), until = form.querySelector('.wait-until').value.trim();
     if (!who) return flash('waiting on whom?', 'error');
     let untilIso = null;
     try { untilIso = until ? await resolveDate(until) : null; } catch (err) { return flash(err.message, 'error'); }
@@ -702,10 +705,11 @@ function insertDraftUnder(id) {
 // In hand = the task you most recently started that is still open and not
 // blocked. Nothing else is ever in hand: put it back, wait on someone, or
 // push a prerequisite under it, and the plate moves on.
+// Same rule as core::action::in_hand: doing, actionable (unblocked and not
+// under a waiting/parked ancestor), most recently started. Never pinned, so
+// every client agrees on what is in hand.
 function pickStackTask() {
-  const eligible = (t) => t && t.status === 'doing' && !(t.derived && t.derived.blocked_by) && inCtx(t);
-  const pinned = S.stackId && byId(S.stackId);
-  if (eligible(pinned)) return pinned;
+  const eligible = (t) => t && t.status === 'doing' && !!(t.derived && t.derived.actionable) && inCtx(t);
   const doing = S.all.filter(eligible).sort((a, b) => Date.parse(b.started || b.created) - Date.parse(a.started || a.created));
   S.stackId = doing[0] ? doing[0].id : null;
   return doing[0] || null;
@@ -730,8 +734,8 @@ function renderPlate(t) {
       <div class="meta">${chips(t, d)}${isAgent(t) ? '<span class="chip agent">🤖 agent</span>' : ''}</div>
       <textarea class="notes plate-notes" data-notes="${t.id}" rows="${Math.min(12, Math.max(3, notes.split('\n').length + 1))}" placeholder="what exactly to do — the command, the link, the draft message">${esc(notes)}</textarea>
       <div class="actions">${acts.join('')}<button class="btn small" data-open="${t.id}">details</button></div>
-      <div class="inline-form"><input id="first-title" placeholder="first I need to… (becomes in hand; this one pauses)"><button class="btn" data-first="prompt" data-id="${t.id}">push</button></div>
-      <div class="inline-form"><input id="wait-who" placeholder="blocked on someone — who?"><input id="wait-until" placeholder="until (+2d)" style="max-width:110px"><button class="btn" data-wait="${t.id}">wait</button></div>
+      <div class="inline-form"><input class="first-title" placeholder="first I need to… (becomes in hand; this one pauses)"><button class="btn" data-first="prompt" data-id="${t.id}">push</button></div>
+      <div class="inline-form"><input class="wait-who" placeholder="blocked on someone — who?"><input class="wait-until" placeholder="until (+2d)" style="max-width:110px"><button class="btn" data-wait="${t.id}">wait</button></div>
     </div>`;
 }
 const isAgent = (t) => (t.tags || []).some(x => x.toLowerCase() === 'agent');
@@ -809,5 +813,5 @@ document.addEventListener('dragend', () => { dragId = null; clearDrop(); documen
 })();
 
 routeFromUrl();
-load();
+load().catch(err => { flash('could not load: ' + err.message, 'error'); $('#main').innerHTML = '<p class="empty">Could not reach the daemon. Is it running? <code>taskstaka status</code></p>'; });
 })();

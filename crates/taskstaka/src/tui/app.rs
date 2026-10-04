@@ -1006,6 +1006,18 @@ pub(crate) mod tests {
         );
         assert!(k.contains(&"later:Ask Priya about wildcard certs".to_string()));
         assert_eq!(app.selected_id().unwrap().as_str(), "ema110");
+        // A later row is a real task: Enter opens it, d closes it.
+        app.selected = k
+            .iter()
+            .position(|x| x == "later:Log in: gcloud auth login")
+            .unwrap();
+        assert!(
+            matches!(app.handle_key(enter()), Action::OpenEditor(id) if id.as_str() == "10g1n0")
+        );
+        assert!(matches!(
+            app.handle_key(key('d')),
+            Action::Apply(Command::SetStatus { id, status: Status::Done, .. }) if id.as_str() == "10g1n0"
+        ));
         // Enter on the toggle row folds it again.
         app.selected = k
             .iter()
@@ -1013,6 +1025,31 @@ pub(crate) mod tests {
             .unwrap();
         app.handle_key(enter());
         assert_eq!(kinds(&app).len(), 5);
+    }
+
+    #[test]
+    fn shift_move_refuses_the_edges() {
+        let (tree, now) = fixture();
+        let mut app = App::new(tree, None, now);
+        app.handle_key(key('2'));
+        app.handle_key(key('g'));
+        let shift = |code| KeyEvent::new(code, KeyModifiers::SHIFT);
+        // A root cannot step out.
+        assert_eq!(app.selected_id().unwrap().as_str(), "dns000");
+        assert!(matches!(app.handle_key(shift(KeyCode::Left)), Action::None));
+        // The first subtask cannot go up or nest under a row above it.
+        app.handle_key(key('j'));
+        assert_eq!(app.selected_id().unwrap().as_str(), "vrfy00");
+        assert!(matches!(app.handle_key(shift(KeyCode::Up)), Action::None));
+        assert!(matches!(
+            app.handle_key(shift(KeyCode::Right)),
+            Action::None
+        ));
+        // But it can step out to become a root right after its story.
+        assert!(matches!(
+            app.handle_key(shift(KeyCode::Left)),
+            Action::Apply(Command::Move { parent: None, after: Some(a), .. }) if a.as_str() == "dns000"
+        ));
     }
 
     #[test]

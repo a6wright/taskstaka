@@ -254,6 +254,33 @@ impl Store {
 
     /// If the file behind `id` changed since we loaded it, re-read it so the
     /// command applies on top of the external edit instead of clobbering it.
+    /// Every task a command might write: see `apply`, step 1.
+    fn touched_by(&self, cmd: &Command) -> Vec<TaskId> {
+        let mut ids = Vec::new();
+        let parent_of = |id: &TaskId| self.tree.get(id).and_then(|t| t.parent.clone());
+        match cmd {
+            Command::Add(a) => ids.extend(a.parent.clone()),
+            Command::Move { id, parent, .. } => {
+                ids.push(id.clone());
+                ids.extend(parent.clone());
+            }
+            Command::SetStatus {
+                id,
+                status,
+                cascade,
+                ..
+            } => {
+                ids.push(id.clone());
+                ids.extend(parent_of(id));
+                if status.is_closed() && *cascade {
+                    ids.extend(self.tree.descendants(id).into_iter().map(|d| d.id.clone()));
+                }
+            }
+            other => ids.extend(cmd_target(other)),
+        }
+        ids
+    }
+
     fn refresh_if_changed(&mut self, id: &TaskId, outcome: &mut Outcome) -> Result<()> {
         let Some(stamp) = self.stamps.get(id) else {
             return Ok(());
@@ -301,8 +328,11 @@ impl Store {
             .round(jiff::Unit::Second)
             .unwrap_or_else(|_| now.timestamp());
 
-        // Step 1: external-edit guard for the target.
-        if let Some(id) = cmd_target(&cmd) {
+        // Step 1: external-edit guard for every note this command may
+        // rewrite — the target, a parent that may pause, descendants a
+        // cascade may close. Otherwise an Obsidian edit to one of them
+        // would be clobbered by the in-memory copy.
+        for id in self.touched_by(&cmd) {
             self.refresh_if_changed(&id, &mut outcome)?;
         }
 
@@ -768,8 +798,7 @@ impl Store {
                     d.status = to;
                     d.completed = Some(ts);
                     d.updated = ts;
-                    d.waiting_on = None;
-                    d.until = None;
+                    d.clear_waiting();
                     outcome.events.push(Event::CascadeClosed {
                         id: d.id.clone(),
                         status: to,
@@ -782,8 +811,22 @@ impl Store {
             t.completed = None;
         }
 
-        if to == Status::Doing && t.started.is_none() {
+        // `started` is *this* start: the hand is the most recently started
+        // task, so re-starting a put-back task must make it the newest.
+        if to == Status::Doing && from != Status::Doing {
             t.started = Some(ts);
+        }
+        if to == Status::Doing {
+            let blocking = self
+                .tree
+                .children(id)
+                .filter(|c| c.status.is_blocking())
+                .count();
+            if blocking > 0 {
+                outcome.warnings.push(format!(
+                    "{id} has {blocking} open prerequisite(s): it cannot be in hand until they close — start one of them instead"
+                ));
+            }
         }
 
         // Reopening under a closed parent does NOT reopen the parent: the

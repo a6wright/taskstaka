@@ -119,8 +119,10 @@ rank. `next` defaults to the configured context; `--all` shows both.
 **Invariants enforced in `Store::apply`:**
 - I1 parent exists and is open on `add`/`mv`; I2 no cycles.
 - I3 closing a task with open descendants (incl. `someday`) is refused unless `--cascade`
-  (marks them `dropped`). A forgotten someday child surfaces instead of orphaning.
-- I4 reopening a child of a closed parent auto-reopens ancestors → `todo`.
+  (closes them with the same status — ADR 0006). A forgotten someday child surfaces instead of orphaning.
+- I4 reopening a child of a closed parent does **not** reopen the parent: the child is
+  *orphaned* (derived, shown with ⚠) and stays actionable — ADR 0006. A reopened or revived
+  prerequisite under a `doing` parent pauses it (ADR 0009).
 - I5 `updated` bumps only on user-visible edits and `touch` — never on derived changes or
   reparent — so "untouched for 14d" stays honest.
 

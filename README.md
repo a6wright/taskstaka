@@ -12,7 +12,7 @@ the whole product.
 ```
 $ taskstaka done z9v416
 
-↩  Ship auth story  (12atqg) is back: all its subtasks are done. It needs action.
+↑  Ship auth story  (12atqg) is ready: all its prerequisites are done. It needs action.
 z9v416  Write migration: todo → done
 ```
 

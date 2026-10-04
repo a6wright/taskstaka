@@ -116,7 +116,7 @@ pub enum Cmd {
     /// Mark done. Refuses if open subtasks remain unless --cascade.
     Done {
         id: String,
-        /// Also drop every open subtask.
+        /// Also close every open subtask, with the same status.
         #[arg(long)]
         cascade: bool,
     },
@@ -128,7 +128,8 @@ pub enum Cmd {
         cascade: bool,
     },
 
-    /// Back to todo from any status (reopens closed ancestors). `put-back`
+    /// Back to todo from any status (a closed parent stays closed; the task
+    /// is then shown as orphaned). `put-back`
     /// is an alias: take the task in hand out of your hand without finishing it.
     #[command(alias = "put-back")]
     Reopen { id: String },

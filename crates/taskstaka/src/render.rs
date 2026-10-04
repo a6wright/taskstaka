@@ -325,15 +325,8 @@ pub fn waiting_text(groups: &[taskstaka_core::action::PersonGroup], now: &Zoned)
 fn note_lines(body: &str, n: usize) -> Vec<&str> {
     let lines: Vec<&str> = body
         .lines()
-        .map(str::trim)
+        .map(humanize::strip_journal_stamp)
         .filter(|l| !l.is_empty())
-        .map(|l| {
-            let l = l.trim_start_matches("- ");
-            match l.find("] ") {
-                Some(i) if l.starts_with(char::is_numeric) => &l[i + 2..],
-                _ => l,
-            }
-        })
         .collect();
     let skip = lines.len().saturating_sub(n);
     lines.into_iter().skip(skip).collect()

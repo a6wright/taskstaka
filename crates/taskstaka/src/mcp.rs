@@ -132,7 +132,7 @@ pub struct SetStatusArgs {
     pub waiting_on: Option<String>,
     /// For waiting: when to follow up (YYYY-MM-DD, today, tomorrow, +Nd).
     pub until: Option<String>,
-    /// When closing: also drop every open subtask.
+    /// When closing: also close every open subtask with the same status.
     pub cascade: Option<bool>,
 }
 

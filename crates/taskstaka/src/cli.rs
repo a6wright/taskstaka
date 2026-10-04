@@ -15,7 +15,10 @@ use crate::{render, server};
 
 pub fn main() -> Result<()> {
     let cli = Cli::parse();
+    // Canonical, so `./todo`, a trailing slash or a symlink all name the
+    // same store as the daemon's `todo_dir`.
     let dir = cli.dir.clone().unwrap_or_else(default_dir);
+    let dir = std::fs::canonicalize(&dir).unwrap_or(dir);
     let json = cli.json;
 
     match cli.cmd {
@@ -40,7 +43,7 @@ pub fn main() -> Result<()> {
             let port = cli.port.unwrap_or(crate::DEFAULT_PORT);
             if detach {
                 crate::client::spawn_daemon(&dir, port)?;
-                let c = Client::connect(&dir, Some(port))?;
+                let c = Client::wait_for(&dir)?;
                 println!("daemon running at {}", c.base());
                 return Ok(());
             }
@@ -69,7 +72,7 @@ pub fn main() -> Result<()> {
             let was_running = Client::stop_and_wait(&dir)?;
             let port = cli.port.unwrap_or(crate::DEFAULT_PORT);
             crate::client::spawn_daemon(&dir, port)?;
-            let c = Client::connect(&dir, Some(port))?;
+            let c = Client::wait_for(&dir)?;
             let h = c.health()?;
             println!(
                 "{} daemon at {}  pid {}  v{}",

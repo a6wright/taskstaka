@@ -291,12 +291,17 @@ pub struct Summary {
     pub open: usize,
     pub actionable: usize,
     pub blocked: usize,
+    /// Waits whose follow-up is not yet due (the ones that are due count as actionable).
     pub waiting: usize,
+    /// Every open wait, due or not.
+    pub waiting_total: usize,
     pub doing: usize,
     pub someday: usize,
 }
 
-fn in_context(tree: &Tree, task: &Task, ctx: Option<Context>) -> bool {
+/// A task belongs to its root's context (CONTEXT: Context), so a subtask
+/// moved under a story of the other context follows the story.
+pub fn in_context(tree: &Tree, task: &Task, ctx: Option<Context>) -> bool {
     match ctx {
         None => true,
         Some(c) => {
@@ -312,9 +317,11 @@ fn in_context(tree: &Tree, task: &Task, ctx: Option<Context>) -> bool {
 /// is open and unblocked, or nothing. One rule, shared by every client.
 pub fn in_hand<'a>(tree: &'a Tree, now: &Zoned, ctx: Option<Context>) -> Option<&'a Task> {
     let today = now.date();
+    // Actionable covers both "unblocked" and "not under a waiting/parked
+    // ancestor": a doing task you cannot see on Next is not in hand.
     tree.iter()
         .filter(|t| t.status == Status::Doing && in_context(tree, t, ctx))
-        .filter(|t| derive(tree, t, today).blocked_by == 0)
+        .filter(|t| derive(tree, t, today).actionable)
         .max_by_key(|t| t.started.unwrap_or(t.created))
 }
 
@@ -330,7 +337,12 @@ pub fn summary(tree: &Tree, now: &Zoned, ctx: Option<Context>) -> Summary {
         match t.status {
             Status::Doing => s.doing += 1,
             Status::Someday => s.someday += 1,
-            Status::Waiting if !d.followup => s.waiting += 1,
+            Status::Waiting => {
+                s.waiting_total += 1;
+                if !d.followup {
+                    s.waiting += 1;
+                }
+            }
             _ => {}
         }
         if d.actionable {
@@ -1093,5 +1105,123 @@ mod plan_tests {
         assert!(passport.now.is_empty());
         assert_eq!(passport.stuck.as_deref(), Some("waiting on Dave"));
         assert_eq!(passport.later[0].title, "Get a guarantor signature");
+    }
+
+    #[test]
+    fn plan_skips_parked_stories_and_handles_an_empty_tree() {
+        let now: Zoned = "2026-09-29T15:00:00[UTC]".parse().unwrap();
+        assert!(plan(&Tree::new(), &now, None, &RankConfig::default()).is_empty());
+        let mk = |id: &str, title: &str, parent: Option<&str>, status: Status| {
+            let mut t = Task::new(
+                id.parse::<TaskId>().unwrap(),
+                title,
+                Context::Work,
+                now.timestamp(),
+            );
+            t.parent = parent.map(|p| p.parse().unwrap());
+            t.status = status;
+            t
+        };
+        let tree = Tree::from_tasks([
+            mk("z1g000", "Learn Zig", None, Status::Someday),
+            mk("ch4p00", "Read chapter one", Some("z1g000"), Status::Todo),
+            mk("d0ne00", "Finished story", None, Status::Done),
+            mk("1nb0x0", "Clear the inbox", None, Status::Todo),
+        ]);
+        let plans = plan(&tree, &now, None, &RankConfig::default());
+        let titles: Vec<&str> = plans.iter().map(|p| p.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            ["Clear the inbox"],
+            "parked subtrees and closed stories are not plans"
+        );
+        assert!(plans[0].later.is_empty(), "a lone leaf has nothing later");
+    }
+}
+
+#[cfg(test)]
+mod in_hand_tests {
+    use super::*;
+    use jiff::{Timestamp, ToSpan};
+
+    fn fixture() -> (Vec<Task>, Zoned) {
+        let now: Zoned = "2026-09-29T15:00:00[UTC]".parse().unwrap();
+        let at = |h: i64| -> Timestamp { now.timestamp() - (h * 3600).seconds() };
+        let mk = |id: &str, title: &str, parent: Option<&str>, ctx: Context| {
+            let mut t = Task::new(id.parse::<TaskId>().unwrap(), title, ctx, at(100));
+            t.parent = parent.map(|p| p.parse().unwrap());
+            t
+        };
+        let mut a = mk("aaa000", "A", None, Context::Work);
+        a.status = Status::Doing;
+        a.started = Some(at(5));
+        let mut b = mk("bbb000", "B", None, Context::Personal);
+        b.status = Status::Doing;
+        b.started = Some(at(2));
+        (vec![a, b], now)
+    }
+
+    #[test]
+    fn most_recently_started_wins_and_restarting_makes_it_newest() {
+        let (mut tasks, now) = fixture();
+        let tree = Tree::from_tasks(tasks.clone());
+        assert_eq!(in_hand(&tree, &now, None).unwrap().id.as_str(), "bbb000");
+        // A is put back and started again: its `started` is *this* start.
+        tasks[0].started = Some(now.timestamp());
+        let tree = Tree::from_tasks(tasks);
+        assert_eq!(in_hand(&tree, &now, None).unwrap().id.as_str(), "aaa000");
+    }
+
+    #[test]
+    fn context_filters_and_nothing_is_nothing() {
+        let (tasks, now) = fixture();
+        let tree = Tree::from_tasks(tasks);
+        assert_eq!(
+            in_hand(&tree, &now, Some(Context::Work))
+                .unwrap()
+                .id
+                .as_str(),
+            "aaa000"
+        );
+        assert_eq!(
+            in_hand(&tree, &now, Some(Context::Personal))
+                .unwrap()
+                .id
+                .as_str(),
+            "bbb000"
+        );
+        assert!(in_hand(&Tree::new(), &now, None).is_none());
+    }
+
+    #[test]
+    fn blocked_or_deferred_doing_tasks_are_not_in_hand() {
+        let (mut tasks, now) = fixture();
+        // B gets an open prerequisite: blocked, so A (older) is in hand.
+        let mut kid = Task::new(
+            "k1d000".parse().unwrap(),
+            "first this",
+            Context::Personal,
+            now.timestamp(),
+        );
+        kid.parent = Some("bbb000".parse().unwrap());
+        tasks.push(kid);
+        let tree = Tree::from_tasks(tasks.clone());
+        assert_eq!(in_hand(&tree, &now, None).unwrap().id.as_str(), "aaa000");
+        // A doing task under a waiting parent is deferred: not on Next, so
+        // not in hand either.
+        tasks.pop();
+        let mut parent = Task::new(
+            "par000".parse().unwrap(),
+            "Parent",
+            Context::Work,
+            now.timestamp(),
+        );
+        parent.status = Status::Waiting;
+        parent.waiting_on = Some("Bo".into());
+        tasks[0].parent = Some(parent.id.clone());
+        tasks.push(parent);
+        let tree = Tree::from_tasks(tasks);
+        assert_eq!(in_hand(&tree, &now, None).unwrap().id.as_str(), "bbb000");
+        assert!(in_hand(&tree, &now, Some(Context::Work)).is_none());
     }
 }

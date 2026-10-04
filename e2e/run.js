@@ -209,7 +209,7 @@ function check(cond, what) {
   const laterTitles = await page.locator('.story', { hasText: 'Bake an apple pie' }).first().locator('.rows.later .title').allTextContents();
   check(laterTitles.some(x => /Buy apples/.test(x)) && laterTitles.some(x => /Bake an apple pie/.test(x)), `expanding shows everything still required (${laterTitles.map(x => x.split('\n')[0]).join(' | ')})`);
   // Push a prerequisite from the plate: it becomes in hand, the parent pauses.
-  await page.locator('.plate.top #first-title').fill('Find the car keys');
+  await page.locator('.plate.top .first-title').fill('Find the car keys');
   await page.locator('.plate.top button[data-first="prompt"]').click(); await settle();
   check((await page.locator('.plate.top .plate-title').textContent()) === 'Find the car keys', 'pushing a prerequisite makes it the task in hand');
   await page.locator('a[data-view="outline"]').click(); await settle();

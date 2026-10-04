@@ -67,9 +67,12 @@ must hold in their head — which is why recording comes *first*, not after the 
    siblings both need becomes a sibling placed first (order carries "this one first");
    never duplicate it and never nest one sibling under another. Say who does each:
    - Steps **you** will do: tag `agent`. Mark `doing` when you start, `done` when
-     finished. If a step of yours cannot start until the user does theirs, leave it
-     `todo` with the tag — it is hidden from their Next automatically and still blocks
-     the story. If you could not finish, leave it open and say why in the notes.
+     finished — and before closing it, put *what you found or did* in its `body` (the
+     two options, the command you ran, the link), not only in the chat. Next week the
+     story has to explain itself without this conversation. If a step of yours cannot
+     start until the user does theirs, leave it `todo` with the tag — it is hidden from
+     their Next automatically and still blocks the story. If you could not finish,
+     leave it open and say why in the notes.
    - Steps **the user** must do by hand (console clicks, commands on a machine you
      cannot reach, approvals, sending an email): no tag. Put *exactly how to do that
      one step* in the `body` — the command, the URL, the draft message — so the task

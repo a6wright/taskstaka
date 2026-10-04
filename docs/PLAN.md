@@ -260,17 +260,35 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 
 ## Resume here
 
-**v1 is complete** (all six phases, 2026-09-30). 53 automated tests; `cargo fmt`,
-`clippy --all-targets` and `cargo test` are clean at the commit that landed P6.
+**P1–P14 complete** (2026-10-04). 86 automated tests + 48 Playwright checks; `cargo fmt`,
+`clippy --all-targets`, `cargo test` and `cd e2e && npm test` are clean at head. CLI, TUI
+and web all show the same thing: the task in hand, then each story as a stack. A code
+review pass (2026-10-04) fixed sixteen findings — the notable ones: `started` is *this*
+start so the hand's recency is right after a put-back; in hand requires *actionable* (not
+under a waiting/parked ancestor); reopening a prerequisite pauses a doing parent; the
+mtime guard covers every note a command rewrites, not just the target; `/tasks?context=`
+follows the root like everything else; `serve --detach`/`restart` no longer race a second
+daemon; the web Waiting page has its chase button back.
 
-Candidate next steps, roughly in order of how much they would change daily use:
+**Next, in the user's words:** "getting osx tested and then getting it on brew." Recorded
+in the store as *Get taskstaka on Homebrew* with *Test taskstaka on macOS* nested under it.
+What that needs:
 
-1. **Live with it for a week** before adding features; tune tier order via `next --explain`.
-2. **Snooze** (`snoozed_until` hides a todo/doing task until a date) — plan already sketches it as `¬snoozed(t)` in `actionable`.
-3. **Obsidian two-way**: file watching (`notify` crate) so edits in the vault show up without `taskstaka reload`. The `(mtime, len)` guard already prevents clobbering; this is about latency.
-4. **`--bind` + auth token** so the web UI works from a phone on the LAN.
-5. **Recurring tasks**, **streamable-HTTP `/mcp`** mounted in the daemon, **R6 WIP limit tuning**.
-6. TUI niceties: tree view mode, search, multi-select.
+1. **macOS pass** — `cargo install`, `init`, `tui`, web, notifications (`osascript` path in
+   `server/nudge.rs`), the launchd plist in the README, `File::try_lock` behaviour on APFS,
+   `process_group(0)` for the detached daemon. Expect small fixes, not design changes.
+2. **Release artefacts** — tagged release with prebuilt tarballs (`cargo-dist` or a GitHub
+   Actions matrix for `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`).
+3. **Tap** — `homebrew-taskstaka` with a formula pointing at the tarball + sha256, a
+   `brew services` plist (`service do run [opt_bin/"taskstaka", "serve"]`), and `taskstaka
+   setup claude` mentioned in the caveats.
+
+Candidate features after that, roughly by how much they change daily use:
+
+- **Hot-key add → agent breakdown**: a one-line capture that hands the story to Claude to
+  shape as a stack (skill first, then UI).
+- **Snooze** (`snoozed_until`), **Obsidian two-way** (file watching), **`--bind` + auth
+  token** for the phone, **recurring tasks**, streamable-HTTP `/mcp`.
 
 When picking one up: update the phase table above (add a row), record deviations as
 they happen, and add an ADR if the decision is hard to reverse and would surprise a

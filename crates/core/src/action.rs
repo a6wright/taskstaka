@@ -874,11 +874,22 @@ pub fn plan(tree: &Tree, now: &Zoned, ctx: Option<Context>, cfg: &RankConfig) ->
         }
     }
 
+    // Outline position for every task, so `now` reads top-down like the tree:
+    // siblings are parallel streams, nothing among them says "this one first".
+    let mut pos: std::collections::HashMap<TaskId, usize> = Default::default();
+    for r in tree.roots() {
+        pos.insert(r.id.clone(), pos.len());
+        for d in tree.descendants(&r.id) {
+            pos.insert(d.id.clone(), pos.len());
+        }
+    }
+
     order
         .into_iter()
         .filter_map(|root_id| {
             let root = tree.get(&root_id)?;
-            let now_rows = now_by_root.remove(&root_id).unwrap_or_default();
+            let mut now_rows = now_by_root.remove(&root_id).unwrap_or_default();
+            now_rows.sort_by_key(|i| pos.get(&i.id).copied().unwrap_or(usize::MAX));
             let in_now: std::collections::HashSet<&TaskId> =
                 now_rows.iter().map(|i| &i.id).collect();
             let mut later: Vec<LaterItem> = std::iter::once(root)

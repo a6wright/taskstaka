@@ -20,7 +20,7 @@ const S = {
 try { S.showDone = localStorage.getItem('taskstaka.showDone') === '1'; S.showNotes = localStorage.getItem('taskstaka.showNotes') === '1'; } catch (_) {}
 const VIEW_HELP = {
   outline: '',
-  next: 'What do I have to do now? Each story shows the steps you can do right now and, folded away, everything still required to finish it. The task in hand sits on top.',
+  next: 'What do I have to do now? The task in hand sits on top — the one you most recently started. Below, each story: every stream you could work on right now (they are parallel; pick any), and folded away, everything still required to finish it.',
   waiting: 'People you are waiting on, and for what. Chase when you nudge them; unblock when they get back to you.',
   someday: 'Parked ideas. They do not block anything and stay out of Next until you revive them.',
   done: 'Finished in the last two weeks.',
@@ -304,7 +304,7 @@ function renderNext() {
         const t = byId(it.id); if (!t) continue;
         const chain = [...it.ancestry].reverse().slice(0, -1).map(c => esc(c.title)).join(' → ');
         const crumb = chain ? `<span class="crumb" title="finishing this unlocks: ${chain}">→ ${chain}</span>` : '';
-        parts.push(rowHtml(t, t.derived, 0, { editable: false, crumb }).replace('<span class="meta">', `<span class="meta"><span class="hover" style="display:none"></span><span class="chip tier" title="${esc(it.reason)}">${esc(it.reason)}</span>`));
+        parts.push(rowHtml(t, t.derived, 0, { editable: false, crumb }).replace('<li class="row', `<li title="${esc(it.reason)}" class="row`));
       }
       parts.push('</ul></div>');
       level++;
@@ -525,7 +525,14 @@ document.addEventListener('click', async (e) => {
   if (b.dataset.first) {
     // "first I need to…": a prerequisite under this row (or stack plate).
     const title = (b.dataset.first === 'prompt') ? ($('#first-title') ? $('#first-title').value.trim() : '') : '';
-    if (b.dataset.first === 'prompt') { if (!title) return; return act(() => api('POST', '/api/v1/tasks', { title, parent: id })); }
+    if (b.dataset.first === 'prompt') {
+      if (!title) return;
+      // From the plate: the new prerequisite is what you do now, so it starts
+      // in hand and the daemon pauses the task above it.
+      const fromPlate = !!b.closest('.plate.top');
+      return act(() => api('POST', '/api/v1/tasks', { title, parent: id, status: fromPlate ? 'doing' : null }))
+        .then(out => { if (fromPlate && out && out.primary) { S.stackId = out.primary; render(); } });
+    }
     return insertDraftUnder(id);
   }
   if (b.dataset.chase) { const note = $('#chase-note') ? $('#chase-note').value : ''; return act(() => api('POST', `/api/v1/tasks/${id}/chase`, { note: note || null })); }
@@ -676,9 +683,15 @@ function insertDraftUnder(id) {
 }
 
 // ---------- Stack: one chain, inverted, the leaf on top ----------
+// In hand = the task you most recently started that is still open and not
+// blocked. Nothing else is ever in hand: put it back, wait on someone, or
+// push a prerequisite under it, and the plate moves on.
 function pickStackTask() {
-  if (S.stackId && byId(S.stackId)) return byId(S.stackId);
-  const doing = S.all.filter(t => t.status === 'doing' && inCtx(t)).sort((a, b) => Date.parse(b.started || b.created) - Date.parse(a.started || a.created));
+  const eligible = (t) => t && t.status === 'doing' && !(t.derived && t.derived.blocked_by) && inCtx(t);
+  const pinned = S.stackId && byId(S.stackId);
+  if (eligible(pinned)) return pinned;
+  const doing = S.all.filter(eligible).sort((a, b) => Date.parse(b.started || b.created) - Date.parse(a.started || a.created));
+  S.stackId = doing[0] ? doing[0].id : null;
   return doing[0] || null;
 }
 function renderPlate(t) {
@@ -686,10 +699,9 @@ function renderPlate(t) {
   const notes = (t.body || '').split('\n').filter(l => !isJournalLine(l)).join('\n').trim();
   const closed = isClosed(t);
   const acts = [];
-  if (t.status === 'waiting') { acts.push(`<button class="btn" data-chase="${t.id}">chase</button>`); acts.push(`<button class="btn primary" data-status="doing" data-id="${t.id}">unblock</button>`); }
-  else if (!closed) {
-    if (!d.blocked_by) acts.push(`<button class="btn primary" data-status="done" data-id="${t.id}" data-cascade="1">✓ done</button>`);
-    if (t.status === 'doing') acts.push(`<button class="btn" data-status="todo" data-id="${t.id}">stop</button>`);
+  if (!closed) {
+    acts.push(`<button class="btn primary" data-status="done" data-id="${t.id}" data-cascade="1">✓ done</button>`);
+    acts.push(`<button class="btn" data-status="todo" data-id="${t.id}" title="not now — back into the deck">put back</button>`);
   }
   const chain = []; let p = t.parent && byId(t.parent); const seen = new Set();
   while (p && !seen.has(p.id)) { seen.add(p.id); chain.push(p); p = p.parent && byId(p.parent); }
@@ -700,9 +712,10 @@ function renderPlate(t) {
       <h2 class="plate-title" contenteditable="true" spellcheck="false" data-title="${t.id}">${esc(t.title)}</h2>
       ${unlocks}
       <div class="meta">${chips(t, d)}${isAgent(t) ? '<span class="chip agent">🤖 agent</span>' : ''}</div>
-      ${notes ? `<div class="note">${esc(notes)}</div>` : ''}
+      <textarea class="notes plate-notes" data-notes="${t.id}" rows="${Math.min(12, Math.max(3, notes.split('\n').length + 1))}" placeholder="what exactly to do — the command, the link, the draft message">${esc(notes)}</textarea>
       <div class="actions">${acts.join('')}<button class="btn small" data-open="${t.id}">details</button></div>
-      <div class="inline-form"><input id="first-title" placeholder="first I need to…"><button class="btn" data-first="prompt" data-id="${t.id}">add</button></div>
+      <div class="inline-form"><input id="first-title" placeholder="first I need to… (becomes in hand; this one pauses)"><button class="btn" data-first="prompt" data-id="${t.id}">push</button></div>
+      <div class="inline-form"><input id="wait-who" placeholder="blocked on someone — who?"><input id="wait-until" placeholder="until (+2d)" style="max-width:110px"><button class="btn" data-wait="${t.id}">wait</button></div>
     </div>`;
 }
 const isAgent = (t) => (t.tags || []).some(x => x.toLowerCase() === 'agent');
@@ -718,8 +731,10 @@ function shiftStack(out) {
   if (!parent) { flash('✓ ' + t.title + ' — story done', 'ok'); return; }
   const left = childrenOf(parent.id).filter(k => !isClosed(k));
   if (left.length === 0) {
-    S.stackId = parent.id;
-    flash(isAgent(parent) ? '✓ ' + t.title + ' — ' + parent.title + ' is Claude\'s; it is back on their plate' : '↑ ' + parent.title, 'ok');
+    // The parent is unblocked. It is not in hand until you start it — Next
+    // shows it as a now row, resurfaced — unless it is Claude's.
+    S.stackId = null;
+    flash(isAgent(parent) ? '✓ ' + t.title + ' — ' + parent.title + ' is Claude\'s; it is back on their plate' : '✓ ' + t.title + ' — ' + parent.title + ' is unblocked', 'ok');
     history.replaceState(null, '', urlFor());
   } else {
     flash('✓ ' + t.title + ' — ' + parent.title + ' still needs: ' + left.map(k => k.title).join(', '), 'ok');

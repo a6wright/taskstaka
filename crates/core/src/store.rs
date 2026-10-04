@@ -317,6 +317,15 @@ impl Store {
                 outcome.events.push(Event::Created {
                     id: task.id.clone(),
                 });
+                if task.status.is_blocking() {
+                    self.pause_parent_if_doing(
+                        task.parent.as_ref(),
+                        &task.title,
+                        now,
+                        &mut writes,
+                        &mut outcome,
+                    );
+                }
                 writes.push(task);
             }
             Command::SetStatus {
@@ -349,7 +358,19 @@ impl Store {
                 before,
             } => {
                 outcome.primary = Some(id.clone());
-                writes.push(self.plan_move(&id, parent, after, before)?);
+                let moved = self.plan_move(&id, parent, after, before)?;
+                if moved.status.is_blocking() {
+                    let title = moved.title.clone();
+                    let parent = moved.parent.clone();
+                    self.pause_parent_if_doing(
+                        parent.as_ref(),
+                        &title,
+                        now,
+                        &mut writes,
+                        &mut outcome,
+                    );
+                }
+                writes.push(moved);
             }
             Command::Touch { id, note } => {
                 outcome.primary = Some(id.clone());
@@ -783,6 +804,34 @@ impl Store {
         t.updated = ts;
         writes.push(t);
         Ok(())
+    }
+
+    /// "Doing" and "blocked" cannot both be true: when a prerequisite lands
+    /// under a task you are on, the task is paused back to `todo` with a note,
+    /// and the new prerequisite is what is in hand.
+    fn pause_parent_if_doing(
+        &self,
+        parent: Option<&TaskId>,
+        child_title: &str,
+        now: &Zoned,
+        writes: &mut Vec<Task>,
+        outcome: &mut Outcome,
+    ) {
+        let Some(pid) = parent else { return };
+        let Some(p) = self.tree.get(pid) else { return };
+        if p.status != Status::Doing || writes.iter().any(|w| w.id == *pid) {
+            return;
+        }
+        let mut p = p.clone();
+        p.status = Status::Todo;
+        let line = format!("paused: first {child_title}");
+        journal(&mut p, now, None, &line);
+        outcome.events.push(Event::StatusChanged {
+            id: p.id.clone(),
+            from: Status::Doing,
+            to: Status::Todo,
+        });
+        writes.push(p);
     }
 
     /// `today + follow_up_days`, the standard follow-up horizon.
@@ -1751,5 +1800,58 @@ mod rename_migration_tests {
             Store::init(dir.path()),
             Err(StoreError::AlreadyInitialized(_))
         ));
+    }
+}
+
+#[cfg(test)]
+mod in_hand_tests {
+    use super::*;
+    use crate::command::AddTask;
+
+    fn now() -> Zoned {
+        "2026-09-29T15:00:00[UTC]".parse().unwrap()
+    }
+
+    #[test]
+    fn a_prerequisite_under_a_doing_task_pauses_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::init(dir.path()).unwrap();
+        let butter = store
+            .apply(
+                Command::Add(AddTask {
+                    title: "Buy butter and flour".into(),
+                    status: Some(Status::Doing),
+                    ..Default::default()
+                }),
+                &now(),
+            )
+            .unwrap()
+            .primary
+            .unwrap();
+        let out = store
+            .apply(
+                Command::Add(AddTask {
+                    title: "Go to the store".into(),
+                    parent: Some(butter.clone()),
+                    status: Some(Status::Doing),
+                    ..Default::default()
+                }),
+                &now(),
+            )
+            .unwrap();
+        let child = store.tree().get(out.primary.as_ref().unwrap()).unwrap();
+        assert_eq!(
+            child.status,
+            Status::Doing,
+            "the new prerequisite is in hand"
+        );
+        let parent = store.tree().get(&butter).unwrap();
+        assert_eq!(parent.status, Status::Todo, "the parent is paused");
+        assert!(parent.body.contains("paused: first Go to the store"));
+        assert!(out.events.contains(&Event::StatusChanged {
+            id: butter.clone(),
+            from: Status::Doing,
+            to: Status::Todo
+        }));
     }
 }

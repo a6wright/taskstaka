@@ -137,6 +137,9 @@ fn node(out: &mut String, tree: &Tree, t: &Task, now: &Zoned, depth: usize, incl
     if let Some(p) = t.priority {
         extra.push(p.to_string());
     }
+    if t.tags.iter().any(|x| x.eq_ignore_ascii_case("agent")) {
+        extra.push("🤖 Claude".to_string());
+    }
     let extra = if extra.is_empty() {
         String::new()
     } else {

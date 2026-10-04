@@ -210,8 +210,25 @@ function check(cond, what) {
   await pieStory.locator('.later-toggle').click(); await settle();
   const laterTitles = await page.locator('.story', { hasText: 'Bake an apple pie' }).first().locator('.rows.later .title').allTextContents();
   check(laterTitles.some(x => /Buy apples/.test(x)) && laterTitles.some(x => /Bake an apple pie/.test(x)), `expanding shows everything still required (${laterTitles.map(x => x.split('\n')[0]).join(' | ')})`);
+  // Push a prerequisite from the plate: it becomes in hand, the parent pauses.
+  await page.locator('.plate.top #first-title').fill('Find the car keys');
+  await page.locator('.plate.top button[data-first="prompt"]').click(); await settle();
+  check((await page.locator('.plate.top .plate-title').textContent()) === 'Find the car keys', 'pushing a prerequisite makes it the task in hand');
+  await page.locator('a[data-view="outline"]').click(); await settle();
+  const orchardRow = page.locator('li.row', { hasText: 'Drive to the orchard' }).first();
+  check((await orchardRow.locator('.chip.doing').count()) === 0, 'the task above it is paused (no longer doing)');
+  await page.locator('a[data-view="next"]').click(); await settle();
   await page.locator('.plate.top button[data-status="done"]').click(); await settle();
-  check(await page.locator('.plate.top .plate-title').textContent() === 'Buy apples', 'ticking shifts the stack up to the parent');
+  const handAfterDone = await page.locator('.plate.top .plate-title').textContent().catch(() => '');
+  check(handAfterDone !== 'Find the car keys' && handAfterDone !== 'Drive to the orchard', `ticking leaves the hand to the next started task, not the parent ("${handAfterDone || 'empty'}")`);
+  const nowTitles = await page.locator('.plate.now .rows .title').allTextContents();
+  check(nowTitles.some(x => x.startsWith('Drive to the orchard')), `the unblocked parent is back among the now rows (${nowTitles.map(x => x.split('→')[0].trim()).join(' | ')})`);
+  const driveRow = page.locator('.plate.now li.row', { hasText: 'Drive to the orchard' }).first();
+  await driveRow.hover(); await driveRow.locator('button.rowbtn.start').click(); await settle();
+  check((await page.locator('.plate.top .plate-title').textContent()) === 'Drive to the orchard', 'start puts it in hand');
+  await page.locator('.plate.top button[data-status="todo"]').click(); await settle();
+  const handAfterPutBack = await page.locator('.plate.top .plate-title').textContent().catch(() => '');
+  check(handAfterPutBack !== 'Drive to the orchard', `put back takes it out of the hand ("${handAfterPutBack || 'empty'}")`);
   await page.locator('a[data-view="outline"]').click(); await settle();
 
   console.log('checkbox on a parent completes the subtree');

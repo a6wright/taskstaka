@@ -64,11 +64,9 @@ fn story_is_hidden_while_blocked_and_comes_back_when_subtasks_close() {
         "blocked story must not be actionable:\n{next}"
     );
     assert!(next.contains(&jwt) && next.contains(&mig));
-    // Both children are due-soon/normal; the due one ranks first.
-    assert!(
-        next.find(&mig).unwrap() < next.find(&jwt).unwrap(),
-        "{next}"
-    );
+    // Siblings are parallel streams: both appear, in outline order, with
+    // their badges (due soon on the migration) but no ranking between them.
+    assert!(next.contains("due soon"), "{next}");
 
     env.cmd()
         .args(["start", &jwt])

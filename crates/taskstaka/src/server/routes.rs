@@ -30,6 +30,7 @@ pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/api/v1/next", get(next))
+        .route("/api/v1/plan", get(plan))
         .route("/api/v1/tasks", get(list_tasks).post(create_task))
         .route(
             "/api/v1/tasks/{id}",
@@ -509,4 +510,26 @@ async fn reply_task(State(s): S, Path(id): Path<String>, Json(b): Json<ReplyBody
         )
         .await?,
     ))
+}
+
+#[derive(Deserialize)]
+struct PlanQuery {
+    context: Option<Context>,
+}
+
+/// Next, grouped by story: what you can do now and what is still required.
+async fn plan(
+    State(s): S,
+    Query(q): Query<PlanQuery>,
+) -> R<Vec<taskstaka_core::action::StoryPlan>> {
+    let store = s
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal("store mutex poisoned"))?;
+    Ok(Json(taskstaka_core::action::plan(
+        store.tree(),
+        &Zoned::now(),
+        q.context,
+        &RankConfig::default(),
+    )))
 }

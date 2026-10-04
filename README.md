@@ -141,10 +141,12 @@ tasks rotting untouched > 14 days, a parent resurfacing, follow-ups due, too muc
   parent's box finishes its subtree), end a line with `@Name` to wait on someone.
   Hover a row for `▶ start` and `open`; `Ctrl+.` starts/stops the focused row; `open` (or `Ctrl+Enter`) slides in the pane: properties, subtasks, notes,
   activity, and the wait / chase / reply actions. `Esc` closes it; `\\` or the chevron on the sidebar's edge collapses the sidebar.
-  **Stack** is where you live while working: start a task and it becomes the top plate,
-  with what finishing it unlocks beneath; tick it and the next plate slides up. Capture a
-  whole stack in one line — `Bake an apple pie > Make the filling > Buy apples` — the last
-  segment is what you do first. `↳ first` on any row adds a prerequisite under it.
+  **Next** answers "what do I have to do now?": the task in hand on top (start one and it
+  lands there; tick it and the next one slides up), then each story with the steps you can
+  do right now and, folded behind `… 3 later`, everything still required to finish it and
+  why not yet — including Claude's steps. Capture a whole stack in one line —
+  `Bake an apple pie > Make the filling > Buy apples` — the last segment is what you do
+  first. `↳ first` on any row adds a prerequisite under it.
 - **Claude Code:** `taskstaka setup claude` installs two things and is safe to re-run after
   every upgrade: the **MCP server** (registered as `taskstaka`, user scope, pointing at the
   installed binary) and the **taskstaka skill** (`~/.claude/skills/taskstaka/SKILL.md`),

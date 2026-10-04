@@ -136,6 +136,16 @@ button { cursor: pointer; }
 .group { margin: 18px 0 6px; display: flex; align-items: center; gap: 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 .group .n { font-variant-numeric: tabular-nums; }
 .empty { color: var(--muted); padding: 20px 0; }
+.story { margin: 14px 0 6px; }
+.story-head { display: flex; align-items: baseline; gap: 10px; padding: 4px 2px; }
+.story-title { font-weight: 600; }
+.story-meta { color: var(--muted); font-size: 12px; }
+.story-meta .stuck { color: var(--warn); }
+.later-toggle { border: 0; background: transparent; color: var(--muted); font-size: 12px; padding: 4px 8px 4px 30px; cursor: pointer; text-align: left; width: 100%; }
+.later-toggle:hover { color: var(--fg); }
+.rows.later .later-row { grid-template-columns: 22px minmax(0, 1fr) auto; opacity: .75; }
+.rows.later .mark { text-align: center; font-size: 12px; }
+.plate .unlocks { color: var(--muted); font-size: 13px; margin: -4px 0 6px; }
 /* stack: plates, the one in hand on top */
 .stack { max-width: 720px; }
 .plate { border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; margin: 0 0 8px; background: var(--bg-side); opacity: calc(1 - var(--i, 0) * 0.14); transform: scale(calc(1 - var(--i, 0) * 0.02)); transform-origin: top center; font-size: 14px; }

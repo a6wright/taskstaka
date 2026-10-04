@@ -11,6 +11,7 @@ const S = {
   rev: 0, dirty: false, pendingRefresh: false, focus: null,
   showDone: false,                           // outline: show completed tasks
   showNotes: false,                          // outline: show each task's notes under it
+  plan: [], expanded: new Set(),             // next: stories, and which 'later' lists are open
   // The always-present capture box at the bottom of the outline keeps its
   // indentation across Enters, like Notion: Tab nests it under the row
   // above, and each created task becomes the `after` for the next.
@@ -19,8 +20,7 @@ const S = {
 try { S.showDone = localStorage.getItem('taskstaka.showDone') === '1'; S.showNotes = localStorage.getItem('taskstaka.showNotes') === '1'; } catch (_) {}
 const VIEW_HELP = {
   outline: '',
-  next: 'Tasks you can act on now, best first. Anything blocked, parked or waiting on someone stays out of the way until it is ready.',
-  stack: 'One thing at a time: the task you are on, and what finishing it unlocks. Tick it and the next plate slides up.',
+  next: 'What do I have to do now? Each story shows the steps you can do right now and, folded away, everything still required to finish it. The task in hand sits on top.',
   waiting: 'People you are waiting on, and for what. Chase when you nudge them; unblock when they get back to you.',
   someday: 'Parked ideas. They do not block anything and stay out of Next until you revive them.',
   done: 'Finished in the last two weeks.',
@@ -28,7 +28,6 @@ const VIEW_HELP = {
 const VIEWS = {
   outline: { ico: '☰', label: 'Outline' },
   next:    { ico: '▸', label: 'Next' },
-  stack:   { ico: '▲', label: 'Stack' },
   waiting: { ico: '⌛', label: 'Waiting on' },
   someday: { ico: '💤', label: 'Someday' },
   done:    { ico: '✓', label: 'Done' },
@@ -64,14 +63,15 @@ const q = (extra = {}) => {
 
 async function load() {
   if (S.dirty) { S.pendingRefresh = true; return; }
-  const [tree, next, waiting, nudges, all] = await Promise.all([
+  const [tree, next, plan, waiting, nudges, all] = await Promise.all([
     api('GET', '/api/v1/tree' + q({ include_closed: 'true' })),
     api('GET', '/api/v1/next' + q()),
+    api('GET', '/api/v1/plan' + q()),
     api('GET', '/api/v1/waiting' + q()),
     api('GET', '/api/v1/nudges'),
     api('GET', '/api/v1/tasks' + q({ include_closed: 'true' })),
   ]);
-  Object.assign(S, { tree, next, waiting, nudges, all, rev: next.rev });
+  Object.assign(S, { tree, next, plan, waiting, nudges, all, rev: next.rev });
   render();
 }
 
@@ -83,6 +83,7 @@ function routeFromUrl() {
   const m = path.match(/^\/t\/([0-9a-z]+)$/);
   if (m) { S.view = sp.get('view') || 'outline'; S.open = m[1]; return; }
   S.view = path === '/' ? 'outline' : path.slice(1);
+  if (S.view === 'stack') S.view = 'next';
   if (!VIEWS[S.view]) S.view = 'outline';
   S.open = sp.get('open');
   if (sp.get('task')) S.stackId = sp.get('task');
@@ -91,7 +92,7 @@ function urlFor({ view = S.view, ctx = S.ctx, open = S.open, stackId = S.stackId
   const sp = new URLSearchParams();
   if (ctx) sp.set('context', ctx);
   if (open) sp.set('open', open);
-  if (view === 'stack' && stackId) sp.set('task', stackId);
+  if (view === 'next' && stackId) sp.set('task', stackId);
   const qs = sp.toString();
   return (view === 'outline' ? '/' : '/' + view) + (qs ? '?' + qs : '');
 }
@@ -136,7 +137,7 @@ function announce(out) {
   if (out.warnings && out.warnings.length) flash(out.warnings[0], '');
 }
 async function act(fn, keep) {
-  try { const out = await fn(); if (out && out.events) announce(out); if (keep) S.focus = keep; await load(); shiftStack(out); if (S.view === 'stack') render(); return out; }
+  try { const out = await fn(); if (out && out.events) announce(out); if (keep) S.focus = keep; await load(); shiftStack(out); if (S.view === 'next') render(); return out; }
   catch (e) { flash(e.message, 'error'); await load(); return null; }
 }
 
@@ -171,8 +172,7 @@ function renderSide() {
   const sum = S.next ? S.next.summary : {};
   const someday = S.all.filter(t => t.status === 'someday' && inCtx(t)).length;
   const done = S.all.filter(t => isClosed(t) && inCtx(t) && t.completed && (Date.now() - Date.parse(t.completed)) < 14 * 86400e3).length;
-  const doing = S.all.filter(t => t.status === 'doing' && inCtx(t)).length;
-  const counts = { outline: '', stack: doing || '', next: sum.actionable ?? '', waiting: S.waiting.reduce((n, g) => n + g.items.length, 0) || '', someday: someday || '', done: done || '' };
+  const counts = { outline: '', next: sum.actionable ?? '', waiting: S.waiting.reduce((n, g) => n + g.items.length, 0) || '', someday: someday || '', done: done || '' };
   $('#side').innerHTML = `
     <div class="brand"><span><span class="dot"></span>taskstaka</span></div>
     <div class="ctxs">${['', 'work', 'personal'].map(c => `<a href="${urlFor({ ctx: c })}" data-ctx="${c}" class="${S.ctx === c ? 'active' : ''}">${c || 'all'}</a>`).join('')}</div>
@@ -196,7 +196,6 @@ function renderMain() {
   let body = '';
   if (S.view === 'outline') body = renderOutline();
   else if (S.view === 'next') body = renderNext();
-  else if (S.view === 'stack') body = renderStack();
   else if (S.view === 'waiting') body = renderWaiting();
   else if (S.view === 'someday') body = renderSomeday();
   else if (S.view === 'done') body = renderDone();
@@ -280,22 +279,46 @@ function renderOutline() {
 }
 
 function renderNext() {
-  const items = S.next ? S.next.items : [];
-  if (!items.length) return '<p class="empty">Nothing actionable. Check <a href="/waiting">Waiting on</a> — go unblock something.</p>';
-  const tiers = {};
-  for (const it of items) (tiers[it.tier] ||= []).push(it);
-  const label = { overdue: 'Overdue', resurfaced: 'Back on your plate', doing: 'Doing', follow_up: 'Follow up', due_soon: 'Due soon', high: 'High priority', normal: 'Up next', low: 'Low priority' };
+  const plans = S.plan || [];
+  const inHand = pickStackTask();
   const parts = [];
-  for (const [tier, list] of Object.entries(tiers)) {
-    parts.push(`<div class="group"><span>${label[tier] || tier}</span><span class="n">${list.length}</span></div><ul class="rows">`);
-    for (const it of list) {
-      const t = byId(it.id); if (!t) continue;
-      // The stack this leaf sits in, nearest first: what finishing it unlocks.
-      const chain = [...it.ancestry].reverse().map(c => esc(c.title)).join(' → ');
-      const crumb = chain ? `<span class="crumb" title="finishing this unlocks: ${chain}">→ ${chain}</span>` : '';
-      parts.push(rowHtml(t, t.derived, 0, { editable: false, crumb }).replace('<span class="meta">', `<span class="meta"><span class="hover" style="display:none"></span><span class="chip tier" title="${esc(it.reason)}">${esc(it.reason)}</span>`));
+  if (inHand && !isClosed(inHand)) parts.push(renderPlate(inHand));
+  if (!plans.length) {
+    parts.push(inHand ? '' : '<p class="empty">Nothing to do. Add something in the <a href="/" data-view="outline">Outline</a>, or check <a href="/waiting" data-view="waiting">Waiting on</a>.</p>');
+    return parts.join('');
+  }
+  for (const p of plans) {
+    const head = [];
+    if (p.now.length) head.push(`${p.now.length} now`);
+    if (p.later.length) head.push(p.later_agent ? `${p.later.length} later (${p.later_agent} for Claude)` : `${p.later.length} later`);
+    if (p.stuck) head.push(`<span class="stuck">${esc(p.stuck)}</span>`);
+    else if (p.waiting_on.length) head.push('waiting on ' + esc(p.waiting_on.join(', ')));
+    parts.push(`<div class="story"><div class="story-head"><a href="#" data-open="${p.id}" class="story-title">▲ ${esc(p.title)}</a><span class="story-meta">${head.join(' · ')}</span></div>`);
+    if (p.now.length) {
+      parts.push('<ul class="rows">');
+      for (const it of p.now) {
+        const t = byId(it.id); if (!t) continue;
+        const chain = [...it.ancestry].reverse().slice(0, -1).map(c => esc(c.title)).join(' → ');
+        const crumb = chain ? `<span class="crumb" title="finishing this unlocks: ${chain}">→ ${chain}</span>` : '';
+        parts.push(rowHtml(t, t.derived, 0, { editable: false, crumb }).replace('<span class="meta">', `<span class="meta"><span class="hover" style="display:none"></span><span class="chip tier" title="${esc(it.reason)}">${esc(it.reason)}</span>`));
+      }
+      parts.push('</ul>');
     }
-    parts.push('</ul>');
+    if (p.later.length) {
+      const open = S.expanded.has(p.id);
+      const peek = p.later.slice(0, 2).map(l => esc(l.title)).join(', ') + (p.later.length > 2 ? `, +${p.later.length - 2}` : '');
+      parts.push(`<button class="later-toggle" data-expand="${p.id}">${open ? '▾' : '…'} ${p.later.length} later${open ? '' : ': ' + peek}</button>`);
+      if (open) {
+        parts.push('<ul class="rows later">');
+        for (const l of p.later) {
+          const t = byId(l.id); if (!t) continue;
+          const mark = l.status === 'waiting' ? '⌛' : l.status === 'doing' ? '▶' : l.agent ? '🤖' : '⏳';
+          parts.push(`<li class="row compact later-row" data-id="${l.id}"><span class="mark">${mark}</span><span class="title"><a href="#" data-open="${l.id}">${esc(l.title)}</a><span class="crumb">${esc(l.why)}</span></span><span class="meta">${hoverMeta(t)}</span></li>`);
+        }
+        parts.push('</ul>');
+      }
+    }
+    parts.push('</div>');
   }
   return parts.join('');
 }
@@ -485,11 +508,12 @@ document.addEventListener('click', async (e) => {
   if (b.hasAttribute('data-close') || b.id === 'pane-toggle') return go({ open: null });
   if (b.id === 'side-toggle') return toggleSide();
   if (b.id === 'toggle-done') { S.showDone = !S.showDone; try { localStorage.setItem('taskstaka.showDone', S.showDone ? '1' : '0'); } catch (_) {} return render(); }
+  if (b.dataset.expand) { const id = b.dataset.expand; if (S.expanded.has(id)) S.expanded.delete(id); else S.expanded.add(id); return render(); }
   if (b.id === 'toggle-notes') { S.showNotes = !S.showNotes; try { localStorage.setItem('taskstaka.showNotes', S.showNotes ? '1' : '0'); } catch (_) {} return render(); }
   if (b.dataset.status) {
     const toStack = b.dataset.status === 'doing';
     return act(() => api('POST', `/api/v1/tasks/${id}/status`, { status: b.dataset.status, cascade: true }))
-      .then(() => { if (toStack) go({ view: 'stack', stackId: id, open: null }); });
+      .then(() => { if (toStack) go({ view: 'next', stackId: id, open: null }); });
   }
   if (b.dataset.first) {
     // "first I need to…": a prerequisite under this row (or stack plate).
@@ -650,56 +674,38 @@ function pickStackTask() {
   const doing = S.all.filter(t => t.status === 'doing' && inCtx(t)).sort((a, b) => Date.parse(b.started || b.created) - Date.parse(a.started || a.created));
   return doing[0] || null;
 }
-function renderStack() {
-  const t = pickStackTask();
-  if (!t) return `<p class="empty">Nothing in hand. Start something from <a href="/next" data-view="next">Next</a> and it lands here.</p>`;
-  S.stackId = t.id;
+function renderPlate(t) {
   const d = t.derived || {};
   const notes = (t.body || '').split('\n').filter(l => !isJournalLine(l)).join('\n').trim();
   const closed = isClosed(t);
-  // Actions for the top plate: only what moves this plate.
   const acts = [];
-  if (t.status === 'waiting') { acts.push(['chase', `<button class="btn" data-chase="${t.id}">chase</button>`]); acts.push(['unblock', `<button class="btn primary" data-status="doing" data-id="${t.id}">unblock</button>`]); }
+  if (t.status === 'waiting') { acts.push(`<button class="btn" data-chase="${t.id}">chase</button>`); acts.push(`<button class="btn primary" data-status="doing" data-id="${t.id}">unblock</button>`); }
   else if (!closed) {
-    if (t.status !== 'doing' && !d.blocked_by) acts.push(['start', `<button class="btn" data-status="doing" data-id="${t.id}">▶ start</button>`]);
-    if (!d.blocked_by) acts.push(['done', `<button class="btn primary" data-status="done" data-id="${t.id}" data-cascade="1">✓ done</button>`]);
-    if (t.status === 'doing') acts.push(['stop', `<button class="btn" data-status="todo" data-id="${t.id}">stop</button>`]);
-  } else acts.push(['reopen', `<button class="btn" data-status="todo" data-id="${t.id}">reopen</button>`]);
-  // Plates beneath: the chain, nearest first.
+    if (!d.blocked_by) acts.push(`<button class="btn primary" data-status="done" data-id="${t.id}" data-cascade="1">✓ done</button>`);
+    if (t.status === 'doing') acts.push(`<button class="btn" data-status="todo" data-id="${t.id}">stop</button>`);
+  }
   const chain = []; let p = t.parent && byId(t.parent); const seen = new Set();
   while (p && !seen.has(p.id)) { seen.add(p.id); chain.push(p); p = p.parent && byId(p.parent); }
-  const plates = chain.map((c, i) => {
-    const kids = childrenOf(c.id).filter(k => !isClosed(k) && k.id !== (i === 0 ? t.id : chain[i - 1].id));
-    const also = kids.length ? `<div class="also">also needs: ${kids.map(k => `<a href="#" data-stack="${k.id}">${esc(k.title)}</a>`).join(', ')}</div>` : '';
-    const who = isAgent(c) ? ' <span class="chip agent">🤖 agent</span>' : '';
-    return `<div class="plate" style="--i:${i + 1}"><span class="rel">${i === chain.length - 1 ? 'so that' : 'then'}</span> <a href="#" data-stack="${c.id}">${esc(c.title)}</a>${who}${chips(c, c.derived)}${also}</div>`;
-  }).join('');
-  // Below the leaf: things that must happen first (the stack continues down).
-  const under = childrenOf(t.id).filter(k => !isClosed(k));
-  const underHtml = under.length
-    ? `<div class="under"><div class="rel">first</div><ul class="rows">${under.map(k => rowHtml(k, k.derived, 0, { editable: false })).join('')}</ul></div>` : '';
+  const unlocks = chain.length ? `<div class="unlocks">→ ${chain.map(c => `<a href="#" data-open="${c.id}">${esc(c.title)}</a>${isAgent(c) ? ' 🤖' : ''}`).join(' → ')}</div>` : '';
   return `
-    <div class="stack">
-      <div class="plate top ${closed ? 'closed' : ''}">
-        <div class="rel">${closed ? 'done' : t.status === 'waiting' ? '⌛ waiting on ' + esc(t.waiting_on || '') : d.blocked_by ? '⏳ blocked — finish what is under it' : 'now'}</div>
-        <h2 class="plate-title" contenteditable="true" spellcheck="false" data-title="${t.id}">${esc(t.title)}</h2>
-        <div class="meta">${chips(t, d)}${isAgent(t) ? '<span class="chip agent">🤖 agent</span>' : ''}</div>
-        ${notes ? `<div class="note">${esc(notes)}</div>` : ''}
-        <div class="actions">${acts.map(a => a[1]).join('')}<button class="btn small" data-open="${t.id}">details</button></div>
-        <div class="inline-form"><input id="first-title" placeholder="first I need to…"><button class="btn" data-first="prompt" data-id="${t.id}">add</button></div>
-      </div>
-      ${underHtml}
-      ${plates}
+    <div class="plate top ${closed ? 'closed' : ''}">
+      <div class="rel">${closed ? 'done' : t.status === 'waiting' ? '⌛ waiting on ' + esc(t.waiting_on || '') : d.blocked_by ? '⏳ blocked — finish what is under it' : 'in hand'}</div>
+      <h2 class="plate-title" contenteditable="true" spellcheck="false" data-title="${t.id}">${esc(t.title)}</h2>
+      ${unlocks}
+      <div class="meta">${chips(t, d)}${isAgent(t) ? '<span class="chip agent">🤖 agent</span>' : ''}</div>
+      ${notes ? `<div class="note">${esc(notes)}</div>` : ''}
+      <div class="actions">${acts.join('')}<button class="btn small" data-open="${t.id}">details</button></div>
+      <div class="inline-form"><input id="first-title" placeholder="first I need to…"><button class="btn" data-first="prompt" data-id="${t.id}">add</button></div>
     </div>`;
 }
 const isAgent = (t) => (t.tags || []).some(x => x.toLowerCase() === 'agent');
 document.addEventListener('click', (e) => {
   const a = e.target.closest('a[data-stack]'); if (!a) return;
-  e.preventDefault(); go({ view: 'stack', stackId: a.dataset.stack, open: null });
+  e.preventDefault(); go({ view: 'next', stackId: a.dataset.stack, open: null });
 });
 // After a mutation in the Stack view, shift up when the top plate closed.
 function shiftStack(out) {
-  if (S.view !== 'stack' || !S.stackId) return;
+  if (S.view !== 'next' || !S.stackId) return;
   const t = byId(S.stackId); if (!t || !isClosed(t)) return;
   const parent = t.parent && byId(t.parent);
   if (!parent) { flash('✓ ' + t.title + ' — story done', 'ok'); return; }

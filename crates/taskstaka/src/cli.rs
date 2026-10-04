@@ -525,25 +525,22 @@ fn edit(b: &mut dyn Backend, e: EditArgs, json: bool, now: &Zoned) -> Result<()>
 fn next(b: &mut dyn Backend, n: NextArgs, json: bool, now: &Zoned) -> Result<()> {
     let ctx = if n.all { None } else { n.context };
     let tree = b.tree()?;
-    let items = needs_action(&tree, now, ctx, &RankConfig::default());
+    let plans = taskstaka_core::action::plan(&tree, now, ctx, &RankConfig::default());
     let s = summary(&tree, now, ctx);
     if json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&serde_json::json!({ "summary": s, "items": items }))?
+            serde_json::to_string_pretty(&serde_json::json!({ "summary": s, "stories": plans }))?
         );
         return Ok(());
     }
     println!("{}", render::summary_line(&s));
-    if !items.is_empty() {
+    if !plans.is_empty() {
         println!();
         print!(
             "{}",
-            render::next_table(&items[..items.len().min(n.limit)], n.explain, ctx.is_none())
+            render::plan_text(&plans, n.explain, n.later, n.limit, ctx.is_none())
         );
-        if items.len() > n.limit {
-            println!("… and {} more (use -n)", items.len() - n.limit);
-        }
     }
     Ok(())
 }

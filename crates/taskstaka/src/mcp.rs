@@ -371,6 +371,15 @@ impl TaskstakaMcp {
     }
 
     #[tool(
+        description = "Next, grouped by story: for each story the leaves the user can do now (ranked, with reasons) and everything still required to finish it with why it is not doable yet (after X, waiting on a person, Claude's step). The best single call to understand what is in flight."
+    )]
+    async fn plan(&self, Parameters(a): Parameters<WaitingArgs>) -> Result<String, ErrorData> {
+        let ctx = parse_context(a.context)?;
+        let v = self.blocking(move |c| c.plan(ctx)).await?;
+        pretty(&v)
+    }
+
+    #[tool(
         description = "Who the user is waiting on, grouped by person: for each item the task, the story it serves, how long, chase count, last chase, follow-up date (`until`), whether the follow-up is due now, and `waiting_ref` (a link to the conversation, if known). Use due=true for only the follow-ups that are due."
     )]
     async fn waiting(&self, Parameters(a): Parameters<WaitingArgs>) -> Result<String, ErrorData> {

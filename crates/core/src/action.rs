@@ -810,3 +810,263 @@ mod agent_step_tests {
         );
     }
 }
+
+// ---------- the plan: Next grouped by story, with what is left ----------
+
+/// One open task that is not doable yet, and why.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LaterItem {
+    pub id: TaskId,
+    pub title: String,
+    pub status: Status,
+    /// "after Install the gcloud CLI", "⌛ Dave · 3d · 1×", "💤 someday", …
+    pub why: String,
+    pub agent: bool,
+    /// How many open tasks still sit under it: 0 means it is next in line.
+    pub open_under: usize,
+}
+
+/// A story (root task) with what you can do now and what is still required.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StoryPlan {
+    pub id: TaskId,
+    pub title: String,
+    pub context: Context,
+    /// Actionable leaves, ranked (same tiers as `needs_action`).
+    pub now: Vec<NextItem>,
+    /// Everything else still open, nearest-to-doable first.
+    pub later: Vec<LaterItem>,
+    pub later_agent: usize,
+    /// People this story is waiting on (deduplicated).
+    pub waiting_on: Vec<String>,
+    /// When `now` is empty: the one-line reason the story is stuck.
+    pub stuck: Option<String>,
+}
+
+/// "What do I have to do now, and how much is left?" Stories are ordered by
+/// their best `now` row (the Next ranking, grouped); stuck stories follow.
+pub fn plan(tree: &Tree, now: &Zoned, ctx: Option<Context>, cfg: &RankConfig) -> Vec<StoryPlan> {
+    let today = now.date();
+    let ts = now.timestamp();
+    let items = needs_action(tree, now, ctx, cfg);
+
+    // Group actionable rows by story, in rank order of first appearance.
+    let mut order: Vec<TaskId> = Vec::new();
+    let mut now_by_root: std::collections::HashMap<TaskId, Vec<NextItem>> = Default::default();
+    for it in items {
+        let root = tree
+            .root_of(&it.id)
+            .map(|r| r.id.clone())
+            .unwrap_or(it.id.clone());
+        if !now_by_root.contains_key(&root) {
+            order.push(root.clone());
+        }
+        now_by_root.entry(root).or_default().push(it);
+    }
+    // Stories with open work but nothing actionable come after, in tree order.
+    for r in tree.roots() {
+        if r.status.is_open()
+            && r.status != Status::Someday
+            && in_context(tree, r, ctx)
+            && !order.contains(&r.id)
+        {
+            order.push(r.id.clone());
+        }
+    }
+
+    order
+        .into_iter()
+        .filter_map(|root_id| {
+            let root = tree.get(&root_id)?;
+            let now_rows = now_by_root.remove(&root_id).unwrap_or_default();
+            let in_now: std::collections::HashSet<&TaskId> =
+                now_rows.iter().map(|i| &i.id).collect();
+            let mut later: Vec<LaterItem> = std::iter::once(root)
+                .chain(tree.descendants(&root_id))
+                .filter(|t| t.status.is_open() && !in_now.contains(&t.id))
+                .filter(|t| {
+                    // Parked subtrees are not "required to finish".
+                    t.status != Status::Someday
+                        && !tree
+                            .ancestors(&t.id)
+                            .iter()
+                            .any(|a| a.status == Status::Someday)
+                })
+                .map(|t| {
+                    let d = derive(tree, t, today);
+                    let open_under = tree
+                        .descendants(&t.id)
+                        .iter()
+                        .filter(|x| x.status.is_open())
+                        .count();
+                    let why = later_reason(tree, t, &d, ts);
+                    LaterItem {
+                        id: t.id.clone(),
+                        title: t.title.clone(),
+                        status: t.status,
+                        why,
+                        agent: is_agent_step(t),
+                        open_under,
+                    }
+                })
+                .collect();
+            later.sort_by_key(|l| l.open_under);
+            let later_agent = later.iter().filter(|l| l.agent).count();
+            let mut waiting_on: Vec<String> = std::iter::once(root)
+                .chain(tree.descendants(&root_id))
+                .filter(|t| t.status == Status::Waiting)
+                .filter_map(|t| t.waiting_on.clone())
+                .collect();
+            waiting_on.sort();
+            waiting_on.dedup();
+            let stuck = if now_rows.is_empty() {
+                Some(if waiting_on.is_empty() {
+                    if later.iter().all(|l| l.agent) {
+                        "waiting on Claude".to_string()
+                    } else {
+                        "blocked".to_string()
+                    }
+                } else {
+                    format!("waiting on {}", waiting_on.join(", "))
+                })
+            } else {
+                None
+            };
+            if now_rows.is_empty() && later.is_empty() {
+                return None;
+            }
+            Some(StoryPlan {
+                id: root_id,
+                title: root.title.clone(),
+                context: root.context,
+                now: now_rows,
+                later,
+                later_agent,
+                waiting_on,
+                stuck,
+            })
+        })
+        .collect()
+}
+
+fn later_reason(tree: &Tree, t: &Task, d: &Derived, now: Timestamp) -> String {
+    let mut parts = Vec::new();
+    if is_agent_step(t) {
+        parts.push("🤖 Claude".to_string());
+    }
+    match t.status {
+        Status::Waiting => parts.push(format!(
+            "⌛ {} · {}{}",
+            t.waiting_on.as_deref().unwrap_or("?"),
+            crate::humanize::since(t.waiting_since.unwrap_or(t.updated), now),
+            match t.chases.len() {
+                0 => String::new(),
+                n => format!(" · {n}×"),
+            }
+        )),
+        Status::Doing => parts.push("▶ doing".to_string()),
+        _ => {}
+    }
+    if d.blocked_by > 0 {
+        let kids: Vec<String> = tree
+            .children(&t.id)
+            .filter(|c| c.status.is_blocking())
+            .map(|c| c.title.clone())
+            .collect();
+        let shown: Vec<&str> = kids.iter().take(2).map(String::as_str).collect();
+        let more = if kids.len() > 2 {
+            format!(" +{}", kids.len() - 2)
+        } else {
+            String::new()
+        };
+        parts.push(format!("after {}{more}", shown.join(", ")));
+    }
+    if let Some(by) = &d.deferred_by
+        && *by != t.id
+        && let Some(a) = tree.get(by)
+        && a.status == Status::Waiting
+    {
+        parts.push(format!("under '{}', which is waiting", a.title));
+    }
+    if parts.is_empty() {
+        parts.push("not yet".to_string());
+    }
+    parts.join(" · ")
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::*;
+    use jiff::{Timestamp, ToSpan};
+
+    #[test]
+    fn stories_group_now_and_later_with_reasons() {
+        let now: Zoned = "2026-09-29T15:00:00[UTC]".parse().unwrap();
+        let at = |h: i64| -> Timestamp { now.timestamp() - (h * 3600).seconds() };
+        let mk = |id: &str, title: &str, parent: Option<&str>, h: i64| {
+            let mut t = Task::new(id.parse::<TaskId>().unwrap(), title, Context::Work, at(h));
+            t.parent = parent.map(|p| p.parse().unwrap());
+            t
+        };
+        let mut create = mk("cr8000", "Create the zone", Some("dns000"), 50);
+        create.tags = vec!["agent".into()];
+        let mut ask = mk("askpr0", "Ask Priya", Some("dns000"), 40);
+        ask.status = Status::Waiting;
+        ask.waiting_on = Some("Priya".into());
+        ask.waiting_since = Some(at(72));
+        ask.until = Some(now.date().checked_add(2.days()).unwrap());
+        let tasks = vec![
+            mk("dns000", "Get DNS address", None, 100),
+            mk("dec000", "Decide where it runs", Some("dns000"), 60),
+            create,
+            mk("10g1n0", "Log in", Some("cr8000"), 45),
+            mk("1nst00", "Install the gcloud CLI", Some("10g1n0"), 44),
+            ask,
+            mk("pass00", "Renew passport", None, 30),
+            mk("s1gn00", "Get a guarantor signature", Some("pass00"), 20),
+        ];
+        let mut tasks = tasks;
+        tasks[7].status = Status::Waiting;
+        tasks[7].waiting_on = Some("Dave".into());
+        tasks[7].waiting_since = Some(at(20));
+        tasks[7].until = Some(now.date().checked_add(1.day()).unwrap());
+        let tree = Tree::from_tasks(tasks);
+
+        let plans = plan(&tree, &now, None, &RankConfig::default());
+        assert_eq!(plans.len(), 2);
+        let dns = &plans[0];
+        assert_eq!(dns.title, "Get DNS address");
+        let now_titles: Vec<&str> = dns.now.iter().map(|i| i.title.as_str()).collect();
+        assert_eq!(
+            now_titles,
+            ["Decide where it runs", "Install the gcloud CLI"],
+            "the leaves you can do"
+        );
+        let later: Vec<(&str, &str)> = dns
+            .later
+            .iter()
+            .map(|l| (l.title.as_str(), l.why.as_str()))
+            .collect();
+        assert_eq!(
+            later,
+            [
+                ("Ask Priya", "⌛ Priya · 3d"),
+                ("Log in", "after Install the gcloud CLI"),
+                ("Create the zone", "🤖 Claude · after Log in"),
+                (
+                    "Get DNS address",
+                    "after Decide where it runs, Create the zone +1"
+                ),
+            ],
+            "nearest to doable first, each with why"
+        );
+        assert_eq!(dns.later_agent, 1);
+        assert_eq!(dns.waiting_on, ["Priya"]);
+        assert!(dns.stuck.is_none());
+
+        let passport = &plans[1];
+        assert!(passport.now.is_empty());
+        assert_eq!(passport.stuck.as_deref(), Some("waiting on Dave"));
+        assert_eq!(passport.later[0].title, "Get a guarantor signature");
+    }
+}

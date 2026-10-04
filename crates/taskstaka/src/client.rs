@@ -245,6 +245,11 @@ impl Client {
         self.get("/api/v1/nudges")
     }
 
+    pub fn plan(&self, context: Option<Context>) -> Result<Vec<taskstaka_core::action::StoryPlan>> {
+        let q = context.map(|c| format!("?context={c}")).unwrap_or_default();
+        self.get(&format!("/api/v1/plan{q}"))
+    }
+
     pub fn waiting(
         &self,
         context: Option<Context>,

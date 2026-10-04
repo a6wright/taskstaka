@@ -258,6 +258,9 @@ pub struct NextArgs {
     /// Show the reason for each row's rank.
     #[arg(long)]
     pub explain: bool,
+    /// Expand each story's "later" list (what is still required, and why not yet).
+    #[arg(long)]
+    pub later: bool,
 }
 
 #[derive(Args, Debug)]

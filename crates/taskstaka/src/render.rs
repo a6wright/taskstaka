@@ -359,3 +359,69 @@ pub fn stack(tree: &Tree, t: &Task, now: &Zoned) -> String {
     }
     out
 }
+
+/// `taskstaka next`: each story, what you can do now, and how much is left.
+pub fn plan_text(
+    plans: &[taskstaka_core::action::StoryPlan],
+    explain: bool,
+    expand_later: bool,
+    limit: usize,
+    show_context: bool,
+) -> String {
+    let mut out = String::new();
+    let mut shown = 0usize;
+    for p in plans {
+        if shown >= limit {
+            let _ = writeln!(out, "… and {} more stories (use -n)", plans.len() - shown);
+            break;
+        }
+        shown += 1;
+        let mut head = Vec::new();
+        if !p.now.is_empty() {
+            head.push(format!("{} now", p.now.len()));
+        }
+        if !p.later.is_empty() {
+            head.push(match p.later_agent {
+                0 => format!("{} later", p.later.len()),
+                n => format!("{} later ({n} for Claude)", p.later.len()),
+            });
+        }
+        if let Some(stuck) = &p.stuck {
+            head.push(stuck.clone());
+        } else if !p.waiting_on.is_empty() {
+            head.push(format!("waiting on {}", p.waiting_on.join(", ")));
+        }
+        let _ = writeln!(out, "▲ {}   {}", p.title, head.join(" · "));
+        if !p.now.is_empty() {
+            out.push_str(&next_table(&p.now, explain, show_context));
+        }
+        if !p.later.is_empty() {
+            if expand_later {
+                for l in &p.later {
+                    let mark = match l.status {
+                        Status::Waiting => "⌛",
+                        Status::Doing => "▶",
+                        _ if l.agent => "🤖",
+                        _ => "⏳",
+                    };
+                    let _ = writeln!(out, "    {mark} {}  {}  — {}", l.id, l.title, l.why);
+                }
+            } else {
+                let peek: Vec<String> = p
+                    .later
+                    .iter()
+                    .take(2)
+                    .map(|l| format!("{} ({})", l.title, l.why))
+                    .collect();
+                let more = if p.later.len() > 2 {
+                    format!(", +{}", p.later.len() - 2)
+                } else {
+                    String::new()
+                };
+                let _ = writeln!(out, "    … {}{more}   (--later to expand)", peek.join(", "));
+            }
+        }
+        out.push('\n');
+    }
+    out
+}

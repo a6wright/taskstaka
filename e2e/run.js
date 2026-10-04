@@ -92,7 +92,7 @@ function check(cond, what) {
   const write = page.locator('li.row').nth(3);
   await write.hover();
   await write.locator('button.rowbtn.start').click(); await settle();
-  check((await page.locator('.plate.top .plate-title').textContent()) === 'Write the change request', 'hover ▶ start lands in the Stack view on that task');
+  check((await page.locator('.plate.top .plate-title').textContent()) === 'Write the change request', 'hover ▶ start lands on Next with that task in hand');
   await page.locator('a[data-view="outline"]').click(); await settle();
   check((await page.locator('li.row').nth(3).locator('.chip.doing').count()) === 1, 'and the row is doing');
 
@@ -165,7 +165,7 @@ function check(cond, what) {
   const askRow = page.locator('li.row', { hasText: 'Ask B about wildcard certs' }).first();
   await askRow.hover();
   await askRow.locator('button.rowbtn', { hasText: 'unblock' }).click(); await settle();
-  check((await page.locator('.plate.top .plate-title').textContent()) === 'Ask B about wildcard certs', 'unblock lands in the Stack on that task');
+  check((await page.locator('.plate.top .plate-title').textContent()) === 'Ask B about wildcard certs', 'unblock lands on Next with that task in hand');
   await page.locator('a[data-view="outline"]').click(); await settle();
   check((await page.locator('li.row', { hasText: 'Ask B about wildcard certs' }).first().locator('.chip.doing').count()) === 1, 'unblock marks it doing');
   await page.locator('a[data-view="next"]').click(); await settle();
@@ -198,12 +198,18 @@ function check(cond, what) {
   await page.keyboard.type('Drive to the orchard'); await page.keyboard.press('Enter'); await settle();
   check((await page.locator('li.row', { hasText: 'Drive to the orchard' }).first().getAttribute('data-depth')) === '3', '↳ first nests a prerequisite under the row');
 
-  console.log('stack view: start → plates → tick shifts up');
+  console.log('next: start → in hand → tick shifts up; stories fold their later list');
   const orchard = page.locator('li.row', { hasText: 'Drive to the orchard' }).first();
   await orchard.hover(); await orchard.locator('button.rowbtn.start').click(); await settle();
   check(await page.locator('.plate.top .plate-title').textContent() === 'Drive to the orchard', 'the started task is the top plate');
-  const rels = await page.locator('.plate:not(.top) .rel').allTextContents();
-  check(rels.join(',') === 'then,then,so that', `plates beneath read then, then, so that (${rels})`);
+  const unlocks = await page.locator('.plate.top .unlocks').textContent();
+  check(/Buy apples → Make the filling → Bake an apple pie/.test(unlocks || ''), `the plate says what it unlocks ("${unlocks}")`);
+  const pieStory = page.locator('.story', { hasText: 'Bake an apple pie' }).first();
+  check(/later/.test(await pieStory.locator('.story-meta').textContent()), 'the story header counts what is left');
+  check((await pieStory.locator('.rows.later').count()) === 0, 'later is folded by default');
+  await pieStory.locator('.later-toggle').click(); await settle();
+  const laterTitles = await page.locator('.story', { hasText: 'Bake an apple pie' }).first().locator('.rows.later .title').allTextContents();
+  check(laterTitles.some(x => /Buy apples/.test(x)) && laterTitles.some(x => /Bake an apple pie/.test(x)), `expanding shows everything still required (${laterTitles.map(x => x.split('\n')[0]).join(' | ')})`);
   await page.locator('.plate.top button[data-status="done"]').click(); await settle();
   check(await page.locator('.plate.top .plate-title').textContent() === 'Buy apples', 'ticking shifts the stack up to the parent');
   await page.locator('a[data-view="outline"]').click(); await settle();

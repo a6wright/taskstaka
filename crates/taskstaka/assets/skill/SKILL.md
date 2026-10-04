@@ -34,7 +34,8 @@ must hold in their head — which is why recording comes *first*, not after the 
 
 | Tool | Use it to |
 |---|---|
-| `next` | See what is theirs to do, ranked, with reasons. Start here. |
+| `plan` | Every story: what they can do now and what is still required (and why not yet). Start here. |
+| `next` | Just the actionable leaves, ranked. |
 | `waiting` | See who they are waiting on. `due=true` for follow-ups that are due. |
 | `list_tasks`, `tree`, `get_task` | Find existing work before creating duplicates; read notes and history. |
 | `add_task` | Create a task or subtask (`parent`), optionally already `waiting_on` someone, with `tags`, `due`, `body`. |
@@ -45,7 +46,7 @@ must hold in their head — which is why recording comes *first*, not after the 
 
 ## When a request becomes a plan
 
-1. **Record before you investigate.** Call `next` and `list_tasks`, then create the
+1. **Record before you investigate.** Call `plan` (and `list_tasks` if you need more), then create the
    story and the steps you can already see. Refine the tree as you learn more; do not
    wait until you understand everything. If you need to ask the user something before
    the plan can be right, that question *is* a step: create it as their task with the
@@ -138,6 +139,6 @@ certs — she'll show in your follow-ups in two days." Later: "Priya says talk t
 
 ## Session habits
 
-- **Start:** `next` once. Mention anything resurfaced or overdue in a sentence; don't lecture.
+- **Start:** `plan` once. Mention anything resurfaced or overdue in a sentence; don't lecture.
 - **During:** record as you go, not in a batch at the end — the point is that the tree is true while they are away from the conversation.
 - **End:** one line per open human step and one per person waited on. That is the whole summary; they will read it tomorrow.

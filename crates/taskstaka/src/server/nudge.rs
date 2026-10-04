@@ -98,8 +98,19 @@ impl Nudger {
             self.deliver(&due, &now);
             current
         };
-        if let Ok(mut slot) = state.nudges.lock() {
-            *slot = current;
+        let changed = state
+            .nudges
+            .lock()
+            .map(|mut slot| {
+                let changed = *slot != current;
+                *slot = current;
+                changed
+            })
+            .unwrap_or(false);
+        // A new nudge set is a visible change: wake the long-polls so the
+        // panel/banner update without waiting for the next mutation.
+        if changed {
+            state.bump();
         }
     }
 

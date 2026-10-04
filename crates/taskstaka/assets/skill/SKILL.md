@@ -119,19 +119,20 @@ means the daemon itself must be reachable from the VPC. The plan, as a stack:
 ```
 Get DNS address for taskstaka
 ├─ Tell Claude: hostname only, or reachable from the VPC?      user — the question in the body
-├─ Create the Cloud DNS zone and record                        agent — blocked until its stack is done
-│  └─ Log in: gcloud auth login                                user — the two commands in the body
-│     └─ Install the gcloud CLI                                user — the install link in the body
+├─ Verify the record resolves                                  agent — nothing to verify until it exists, so:
+│  └─ Create the Cloud DNS zone and record                     agent — blocked until its stack is done
+│     └─ Log in: gcloud auth login                             user — the two commands in the body
+│        └─ Install the gcloud CLI                             user — the install link in the body
 ├─ Email platform-eng to approve the zone                      user — draft email in the body
-├─ Ask Priya about wildcard certs on the zone                  waiting_on="Priya"
-└─ Verify the record resolves                                  agent
+└─ Ask Priya about wildcard certs on the zone                  waiting_on="Priya"
 ```
 
-Build it with `add_task(..., parent=<create>)` for "Log in" and `parent=<log in>` for
-"Install". The user's Next then shows exactly what they can do now: answer the question,
-install the CLI, send the email. Finishing the install surfaces *Log in*; finishing that
-resurfaces *Create the zone* for you; the story resurfaces when everything under it is
-closed.
+Build it with `add_task(..., parent=<verify>)` for "Create", `parent=<create>` for
+"Log in" and `parent=<log in>` for "Install". The user's Next then shows exactly what they
+can do now: answer the question, install the CLI, send the email. Finishing the install
+makes *Log in* ready; finishing that makes *Create the zone* ready for you; the story
+is ready when everything under it is closed. Ask yourself for every pair of siblings:
+"could both be in flight at once?" If one must wait for the other, nest it.
 
 You report: "Recorded under *Get DNS address*. Yours right now: one question (it's a
 task), install the gcloud CLI, and an email to platform-eng (drafted in the task). Log in

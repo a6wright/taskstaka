@@ -290,7 +290,7 @@ impl App {
                     } else if d.deferred_by.is_some() {
                         (NodeKind::Someday, "deferred".to_string())
                     } else if d.resurfaced_at.is_some() {
-                        (NodeKind::Free, "↩ back".to_string())
+                        (NodeKind::Free, "↑ ready".to_string())
                     } else {
                         (NodeKind::Free, String::new())
                     }

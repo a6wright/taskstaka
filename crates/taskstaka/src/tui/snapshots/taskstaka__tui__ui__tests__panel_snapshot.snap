@@ -5,7 +5,7 @@ expression: "render(&app, 100, 18)"
 " taskstaka · all · 3 actionable · 1 doing · 1 blocked · 1 waiting · 1 someday                       "
 " ⌛ waiting on Service Canada · Renew passport · 4d                                                 " Hidden by multi-width symbols: [(2, " ")]
 "› OVERDUE   Write migration ‹ Ship auth story · due 2026-09-20                            1d ·   1d "
-"  ↩ back    Renew domain                                                                  8d ·   8d "
+"  ↑ ready   Renew domain                                                                  8d ·   8d "
 "  ▶ doing   Fix JWT expiry ‹ Ship auth story                                              2d ·   2d "
 "                                                                                                    "
 "                                                                                                    "

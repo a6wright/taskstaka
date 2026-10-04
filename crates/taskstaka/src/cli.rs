@@ -572,7 +572,7 @@ fn report(b: &mut dyn Backend, out: &Outcome, json: bool, now: &Zoned) -> Result
             Event::Resurfaced { id } => {
                 println!();
                 println!(
-                    "↩  {}  ({id}) is back: all its subtasks are done. It needs action.",
+                    "↑  {}  ({id}) is ready: all its prerequisites are done. It needs action.",
                     title(id)
                 );
             }

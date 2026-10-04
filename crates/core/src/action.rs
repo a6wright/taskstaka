@@ -415,7 +415,7 @@ fn classify(t: &Task, d: &Derived, today: Date, soon: Date, now: Timestamp) -> (
     if let Some(at) = d.resurfaced_at {
         return (
             Tier::Resurfaced,
-            format!("resurfaced: all subtasks done {} ago", ago(at)),
+            format!("ready: all prerequisites done {} ago", ago(at)),
             at.as_second(),
         );
     }

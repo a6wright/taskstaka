@@ -87,7 +87,7 @@ fn story_is_hidden_while_blocked_and_comes_back_when_subtasks_close() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "is back: all its subtasks are done",
+            "is ready: all its prerequisites are done",
         ));
 
     let next = env.next();
@@ -96,10 +96,10 @@ fn story_is_hidden_while_blocked_and_comes_back_when_subtasks_close() {
         .find(|l| l.starts_with(&story))
         .expect("story listed");
     assert!(
-        first_line.contains("back"),
+        first_line.contains("ready"),
         "story should be in the resurfaced tier:\n{next}"
     );
-    assert!(next.contains("resurfaced: all subtasks done"));
+    assert!(next.contains("ready: all prerequisites done"));
     // It is the first row.
     let rows: Vec<&str> = next
         .lines()

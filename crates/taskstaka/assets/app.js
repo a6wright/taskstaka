@@ -129,7 +129,7 @@ function flash(msg, kind) {
 function announce(out) {
   const title = (id) => { const t = byId(id); return t ? t.title : id; };
   const back = out.events.find(e => e.kind === 'resurfaced');
-  if (back) return flash('↩ ' + title(back.id) + ' is back: all its subtasks are done', 'ok');
+  if (back) return flash('↑ ' + title(back.id) + ' is ready: all its prerequisites are done', 'ok');
   const rep = out.events.find(e => e.kind === 'reply_received');
   if (rep) return flash(rep.person + ' replied on ' + title(rep.id), 'ok');
   const ch = out.events.find(e => e.kind === 'chased');
@@ -217,7 +217,7 @@ function chips(t, d, extra = '') {
   else if (d && d.waiting_on_summary) out.push(['wait', '⌛ ' + esc(d.waiting_on_summary.person) + ' · ' + ago(d.waiting_on_summary.since)]);
   else if (d && d.blocked_by > 0) out.push(['', '⏳ blocked by ' + d.blocked_by]);
   if (t.status === 'someday') out.push(['someday', '💤 someday']);
-  if (d && d.resurfaced_at) out.push(['back', '↩ back']);
+  if (d && d.resurfaced_at) out.push(['back', '↑ ready']);
   if (d && d.orphaned) out.push(['orphan', '⚠ parent finished']);
   if (t.due && !isClosed(t)) out.push([t.due < today() ? 'overdue' : '', (t.due < today() ? '⚠ overdue ' : '📅 ') + t.due]);
   for (const tag of (t.tags || [])) out.push([tag === 'agent' ? 'agent' : 'tag', (tag === 'agent' ? '🤖 ' : '#') + esc(tag)]);

@@ -155,7 +155,7 @@ button { cursor: pointer; }
 .plate-notes { width: 100%; min-height: 72px; margin: 8px 0 10px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; resize: vertical; font-family: var(--font); font-size: 14px; line-height: 1.5; color: var(--fg); }
 .plate-notes:focus { border-color: var(--accent); outline: none; }
 /* stack: plates, the one in hand on top */
-.stack { max-width: 720px; }
+.stack { max-width: none; }
 .plate { border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; margin: 0 0 8px; background: var(--bg-side); opacity: calc(1 - var(--i, 0) * 0.14); transform: scale(calc(1 - var(--i, 0) * 0.02)); transform-origin: top center; font-size: 14px; }
 .plate.top { opacity: 1; transform: none; background: var(--bg-active); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); padding: 18px 20px; }
 .plate.top.closed { opacity: .6; }

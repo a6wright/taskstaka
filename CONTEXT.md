@@ -62,9 +62,9 @@ A task inside a subtree whose root-ward ancestor is someday or waiting. The whol
 Open, not deferred, not blocked, and either todo/doing or a waiting task whose follow-up date has arrived. The set of actionable tasks is the product.
 _Avoid_: available, ready, next (that is the command)
 
-**Resurfaced**:
-An actionable task whose last subtask has just closed and which the user has not touched since. The moment the old tools lost.
-_Avoid_: unblocked, reopened (that is a status transition)
+**Resurfaced** (shown as **↑ ready**):
+An actionable task whose last prerequisite has just closed and which the user has not touched since. The moment the old tools lost. The UI says "ready — prerequisites done" because "back" assumed you had been there before.
+_Avoid_: unblocked (that is for people), reopened (that is a status transition)
 
 **Orphaned**:
 An open task with a finished ancestor: its parent was ticked off and it was reopened or added afterwards. Still actionable; shown with a hint rather than hidden.
@@ -100,6 +100,25 @@ _Avoid_: score, priority (that is a stored field)
 
 **Needs action**:
 The ranked list of actionable tasks for a context. What `next` prints and the panel shows.
+
+### The hand
+
+**In hand**:
+The task you most recently started (`doing`) that is still open and unblocked. Nothing else is ever in hand; when there is no such task, the hand is empty. The in-hand task is the top plate on Next, with its notes: the one thing to go do.
+_Avoid_: current task, focus, active
+
+**Put back**:
+Taking the in-hand task out of your hand without finishing it (`doing` → `todo`). The hand moves to the next most-recently-started task, or empties.
+_Avoid_: stop, pause (see below), cancel
+
+**Push**:
+Adding a prerequisite under the in-hand task because you learned you need it first. The new task starts in hand; the task above it pauses.
+
+**Pause**:
+What happens to a `doing` task when a prerequisite lands under it: it goes back to `todo` with a journal line ("paused: first X"). A task cannot be both doing and blocked.
+
+**Plate**:
+One task on Next drawn as a card. The in-hand plate on top; per story, the *now* plate (every parallel stream you could work on, in outline order, unranked), the *later* plates (everything still required, nearest-to-doable first, each with why not yet), and the story at the base.
 
 ### Time
 

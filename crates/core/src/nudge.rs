@@ -323,7 +323,7 @@ pub fn resurfaced(tree: &Tree, id: &TaskId) -> Option<Nudge> {
         Rule::Resurfaced,
         Some(id),
         "Back on your plate",
-        format!("'{}' is back: all its subtasks are done.", t.title),
+        format!("'{}' is ready: all its prerequisites are done.", t.title),
     ))
 }
 

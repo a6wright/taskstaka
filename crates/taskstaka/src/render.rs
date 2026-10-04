@@ -10,7 +10,7 @@ use taskstaka_core::{NextItem, Status, Task, Tier, Tree};
 pub fn tier_badge(t: Tier) -> &'static str {
     match t {
         Tier::Overdue => "OVERDUE",
-        Tier::Resurfaced => "back",
+        Tier::Resurfaced => "ready",
         Tier::Doing => "doing",
         Tier::FollowUp => "follow-up",
         Tier::DueSoon => "due soon",
@@ -119,7 +119,7 @@ fn node(out: &mut String, tree: &Tree, t: &Task, now: &Zoned, depth: usize, incl
         extra.push(format!("blocked by {}", d.blocked_by));
     }
     if d.resurfaced_at.is_some() {
-        extra.push("resurfaced".to_string());
+        extra.push("↑ ready".to_string());
     }
     if let Some(w) = &t.waiting_on {
         extra.push(format!(

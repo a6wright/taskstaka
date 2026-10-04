@@ -149,7 +149,7 @@ fn announce(app: &mut App, out: &Outcome) {
         let t = title(&back);
         app.say(
             MessageKind::Success,
-            format!("↩ {t} is back: all its subtasks are done"),
+            format!("↑ {t} is ready: all its prerequisites are done"),
         );
         return;
     }

@@ -161,7 +161,7 @@ pub fn tier_style(t: Tier) -> Style {
 fn tier_badge(t: Tier) -> &'static str {
     match t {
         Tier::Overdue => "OVERDUE",
-        Tier::Resurfaced => "↩ back",
+        Tier::Resurfaced => "↑ ready",
         Tier::Doing => "▶ doing",
         Tier::FollowUp => "follow-up",
         Tier::DueSoon => "due soon",
@@ -460,7 +460,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         Line::from(" r                refresh     q       quit"),
         Line::from(""),
         Line::from(Span::styled(
-            " Rows are what needs action, best first. A ↩ back row is a task whose",
+            " Rows are what needs action, best first. A ↑ ready row is a task whose",
             Style::default().fg(Color::Gray),
         )),
         Line::from(Span::styled(

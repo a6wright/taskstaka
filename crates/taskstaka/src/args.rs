@@ -88,7 +88,8 @@ pub enum Cmd {
     /// Add a task. Words become the title; flags can go anywhere.
     Add(AddArgs),
 
-    /// What needs action next, ranked.
+    /// What do I have to do now? The task in hand, then each story as a
+    /// stack: what you can do now and what is still required.
     Next(NextArgs),
 
     /// The stack you are on: the task in hand and what finishing it unlocks.
@@ -127,7 +128,9 @@ pub enum Cmd {
         cascade: bool,
     },
 
-    /// Back to todo from any status (reopens closed ancestors).
+    /// Back to todo from any status (reopens closed ancestors). `put-back`
+    /// is an alias: take the task in hand out of your hand without finishing it.
+    #[command(alias = "put-back")]
     Reopen { id: String },
 
     /// Park it. Someday tasks don't block their parent and don't rank.

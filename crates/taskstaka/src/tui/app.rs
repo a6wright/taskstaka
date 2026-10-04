@@ -8,8 +8,8 @@ use jiff::Zoned;
 use jiff::civil::Date;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use taskstaka_core::action::{
-    LaterItem, NextItem, PersonGroup, RankConfig, Summary, WaitingItem, derive, is_agent_step,
-    plan, summary, waiting_on,
+    LaterItem, NextItem, PersonGroup, RankConfig, Summary, WaitingItem, derive, in_hand,
+    is_agent_step, plan, summary, waiting_on,
 };
 use taskstaka_core::nudge::Nudge;
 use taskstaka_core::{Command, Context, Status, Task, TaskId, Tree};
@@ -238,15 +238,8 @@ impl App {
         self.rebuild();
     }
 
-    /// In hand = the most recently started task that is open and unblocked
-    /// (CONTEXT: The hand). Nothing, if nothing qualifies.
     pub fn in_hand(&self) -> Option<&Task> {
-        let today = self.now.date();
-        self.tree
-            .iter()
-            .filter(|t| t.status == Status::Doing && self.in_ctx(t))
-            .filter(|t| derive(&self.tree, t, today).blocked_by == 0)
-            .max_by_key(|t| t.started.unwrap_or(t.created))
+        in_hand(&self.tree, &self.now, self.ctx)
     }
 
     /// Recompute rows for the current view, keeping the selection on the

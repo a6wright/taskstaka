@@ -131,8 +131,8 @@ fn someday_and_waiting_and_prefix_resolution() {
 
     let out = env.cmd().args(["next", "-c", "personal"]).output().unwrap();
     let text = String::from_utf8(out.stdout).unwrap();
-    assert!(text.contains("Nothing actionable"), "{text}");
-    assert!(text.contains("1 waiting"), "{text}");
+    assert!(text.contains("Nothing you can do right now"), "{text}");
+    assert!(text.contains("1 waiting on people"), "{text}");
 
     // Prefix resolution.
     env.cmd()

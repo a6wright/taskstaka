@@ -308,6 +308,16 @@ fn in_context(tree: &Tree, task: &Task, ctx: Option<Context>) -> bool {
     }
 }
 
+/// The task in hand (CONTEXT: The hand): the most recently started task that
+/// is open and unblocked, or nothing. One rule, shared by every client.
+pub fn in_hand<'a>(tree: &'a Tree, now: &Zoned, ctx: Option<Context>) -> Option<&'a Task> {
+    let today = now.date();
+    tree.iter()
+        .filter(|t| t.status == Status::Doing && in_context(tree, t, ctx))
+        .filter(|t| derive(tree, t, today).blocked_by == 0)
+        .max_by_key(|t| t.started.unwrap_or(t.created))
+}
+
 pub fn summary(tree: &Tree, now: &Zoned, ctx: Option<Context>) -> Summary {
     let today = now.date();
     let mut s = Summary::default();

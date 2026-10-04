@@ -3,16 +3,18 @@
 use std::fmt::Write;
 
 use jiff::Zoned;
-use taskstaka_core::action::{Summary, derive};
+use taskstaka_core::action::{StoryPlan, Summary, derive, is_agent_step};
 use taskstaka_core::humanize;
-use taskstaka_core::{NextItem, Status, Task, Tier, Tree};
+use taskstaka_core::{NextItem, Status, Task, TaskId, Tier, Tree};
 
+/// The same glyphs as the web and the TUI: ✉ a person, ▽ prerequisites
+/// below, ↑ ready, ▶ doing, 🤖 Claude's step, 💤 parked.
 pub fn tier_badge(t: Tier) -> &'static str {
     match t {
         Tier::Overdue => "OVERDUE",
-        Tier::Resurfaced => "ready",
-        Tier::Doing => "doing",
-        Tier::FollowUp => "follow-up",
+        Tier::Resurfaced => "↑ ready",
+        Tier::Doing => "▶ doing",
+        Tier::FollowUp => "✉ follow up",
         Tier::DueSoon => "due soon",
         Tier::High => "high",
         Tier::Normal => "",
@@ -26,7 +28,7 @@ pub fn summary_line(s: &Summary) -> String {
     }
     if s.actionable == 0 {
         return format!(
-            "Nothing actionable. {} blocked by subtasks, {} waiting on others{} — go unblock something.",
+            "Nothing you can do right now. {} blocked by prerequisites, {} waiting on people{} — chase someone or unblock something.",
             s.blocked,
             s.waiting,
             if s.someday > 0 {
@@ -36,7 +38,7 @@ pub fn summary_line(s: &Summary) -> String {
             }
         );
     }
-    let mut parts = vec![format!("{} actionable", s.actionable)];
+    let mut parts = vec![format!("{} you can do now", s.actionable)];
     if s.doing > 0 {
         parts.push(format!("{} doing", s.doing));
     }
@@ -44,7 +46,7 @@ pub fn summary_line(s: &Summary) -> String {
         parts.push(format!("{} blocked", s.blocked));
     }
     if s.waiting > 0 {
-        parts.push(format!("{} waiting", s.waiting));
+        parts.push(format!("{} waiting on people", s.waiting));
     }
     if s.someday > 0 {
         parts.push(format!("{} someday", s.someday));
@@ -52,23 +54,40 @@ pub fn summary_line(s: &Summary) -> String {
     parts.join(" · ")
 }
 
-pub fn next_table(items: &[NextItem], explain: bool, show_context: bool) -> String {
+/// The *now* rows of one story: `id  ☐ title ‹ step above   badge   age`.
+/// Rows start with the id at column 0 so scripts (and the tests) can find them.
+pub fn now_rows(
+    tree: &Tree,
+    items: &[NextItem],
+    in_hand: Option<&TaskId>,
+    explain: bool,
+    show_context: bool,
+) -> String {
     let mut out = String::new();
+    // The story is the heading; a row names only the step it unlocks.
+    let crumb = |it: &NextItem| match it.ancestry.last().filter(|_| it.ancestry.len() > 1) {
+        Some(c) => format!("{} ‹ {}", it.title, c.title),
+        None => it.title.clone(),
+    };
     let title_w = items
         .iter()
-        .map(|i| i.title.chars().count())
+        .map(|i| crumb(i).chars().count())
         .max()
         .unwrap_or(0)
-        .clamp(10, 48);
+        .clamp(10, 64);
     for it in items {
-        let badge = tier_badge(it.tier);
-        // The stack this leaf sits in, nearest first: finishing it unlocks these.
-        let crumbs = if it.ancestry.is_empty() {
-            String::new()
+        let mut badge = if in_hand == Some(&it.id) {
+            "▶ in hand".to_string()
         } else {
-            let chain: Vec<&str> = it.ancestry.iter().rev().map(|c| c.title.as_str()).collect();
-            format!("→ {}", chain.join(" → "))
+            tier_badge(it.tier).to_string()
         };
+        if tree.get(&it.id).is_some_and(is_agent_step) {
+            badge = if badge.is_empty() {
+                "🤖 Claude".into()
+            } else {
+                format!("{badge} · 🤖")
+            };
+        }
         let ctx = if show_context {
             format!(" {:<8}", it.context.as_str())
         } else {
@@ -76,14 +95,12 @@ pub fn next_table(items: &[NextItem], explain: bool, show_context: bool) -> Stri
         };
         let _ = writeln!(
             out,
-            "{}  {:<9}{} {:<title_w$}  {:<28} queued {:>4} · touched {:>4}",
+            "{}  ☐{} {:<title_w$}  {:<14} {:>4}",
             it.id,
-            badge,
             ctx,
-            truncate(&it.title, title_w),
-            truncate(&crumbs, 28),
+            truncate(&crumb(it), title_w),
+            badge,
             humanize::duration(it.queued_secs),
-            humanize::duration(it.untouched_secs),
         );
         if explain {
             let _ = writeln!(out, "{:8}└ {}", "", it.reason);
@@ -297,36 +314,79 @@ pub fn waiting_text(groups: &[taskstaka_core::action::PersonGroup], now: &Zoned)
     out
 }
 
-/// `taskstaka stack`: the plate in hand on top, then what it unlocks.
-pub fn stack(tree: &Tree, t: &Task, now: &Zoned) -> String {
+/// Notes without the journal stamps, newest last, at most `n`.
+fn note_lines(body: &str, n: usize) -> Vec<&str> {
+    let lines: Vec<&str> = body
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(|l| {
+            let l = l.trim_start_matches("- ");
+            match l.find("] ") {
+                Some(i) if l.starts_with(char::is_numeric) => &l[i + 2..],
+                _ => l,
+            }
+        })
+        .collect();
+    let skip = lines.len().saturating_sub(n);
+    lines.into_iter().skip(skip).collect()
+}
+
+/// The in-hand plate: the one thing to go do, with its notes and the four
+/// verbs that move it. Shared by `next` and `stack`.
+pub fn plate(tree: &Tree, t: &Task, now: &Zoned) -> String {
     let mut out = String::new();
-    let d = derive(tree, t, now.date());
     let ts = now.timestamp();
+    let d = derive(tree, t, now.date());
     let state = if t.status.is_closed() {
         "done".to_string()
     } else if t.status == Status::Waiting {
-        format!("waiting on {}", t.waiting_on.as_deref().unwrap_or("?"))
+        format!("✉ waiting on {}", t.waiting_on.as_deref().unwrap_or("?"))
     } else if d.blocked_by > 0 {
-        "blocked — finish what is under it".to_string()
+        format!("▽ blocked by {} — finish what is under it", d.blocked_by)
+    } else if t.status == Status::Doing {
+        format!(
+            "started {}",
+            humanize::since(t.started.unwrap_or(t.created), ts)
+        )
     } else {
-        "now".to_string()
+        "not started".to_string()
     };
+    let agent = if is_agent_step(t) {
+        "  🤖 Claude's step — prompt it, then check"
+    } else {
+        ""
+    };
+    let _ = writeln!(out, "▶ in hand  {}  {}   {state}{agent}", t.id, t.title);
+    let chain = tree.ancestors(&t.id);
+    if chain.is_empty() {
+        let _ = writeln!(out, "           a story of its own");
+    } else {
+        let path: Vec<&str> = chain.iter().rev().map(|c| c.title.as_str()).collect();
+        let _ = writeln!(out, "           so that › {}", path.join(" › "));
+    }
+    let notes = note_lines(&t.body, 6);
+    if notes.is_empty() {
+        let _ = writeln!(
+            out,
+            "           no notes yet · taskstaka touch {} NOTE",
+            t.id
+        );
+    }
+    for l in notes {
+        let _ = writeln!(out, "           ≡ {l}");
+    }
     let _ = writeln!(
         out,
-        "▶ {}  {}   [{state} · {}]",
-        t.id,
-        t.title,
-        humanize::since(t.updated, ts)
+        "           done {id} · reopen {id} (put back) · add -p {id} --start \"first I need to…\" · wait {id} WHO",
+        id = t.id
     );
-    let body: Vec<&str> = t
-        .body
-        .lines()
-        .filter(|l| !l.starts_with("- 20"))
-        .filter(|l| !l.trim().is_empty())
-        .collect();
-    for l in body.iter().take(6) {
-        let _ = writeln!(out, "    {l}");
-    }
+    out
+}
+
+/// `taskstaka stack`: the plate, then the chain it unlocks, bottom up.
+pub fn stack(tree: &Tree, t: &Task, now: &Zoned) -> String {
+    let mut out = plate(tree, t, now);
     let under: Vec<&Task> = tree
         .children(&t.id)
         .filter(|k| k.status.is_open())
@@ -334,7 +394,7 @@ pub fn stack(tree: &Tree, t: &Task, now: &Zoned) -> String {
     if !under.is_empty() {
         let _ = writeln!(out, "  first:");
         for k in under {
-            let _ = writeln!(out, "    · {}  {}", k.id, k.title);
+            let _ = writeln!(out, "    ▽ {}  {}", k.id, k.title);
         }
     }
     let chain = tree.ancestors(&t.id);
@@ -352,26 +412,47 @@ pub fn stack(tree: &Tree, t: &Task, now: &Zoned) -> String {
         } else {
             format!("   (also needs: {})", also.join(", "))
         };
-        let agent = if c.tags.iter().any(|x| x.eq_ignore_ascii_case("agent")) {
-            " 🤖"
-        } else {
-            ""
-        };
+        let agent = if is_agent_step(c) { " 🤖" } else { "" };
         let _ = writeln!(out, "  {rel:>7}: {}  {}{agent}{also}", c.id, c.title);
         prev_id = &c.id;
     }
     out
 }
 
-/// `taskstaka next`: each story, what you can do now, and how much is left.
+/// How `taskstaka next` prints.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PlanOpts {
+    /// The reason under each now row.
+    pub explain: bool,
+    /// Expand `… N later` into one line per task.
+    pub later: bool,
+    /// Stories to show; 0 means all.
+    pub limit: usize,
+    pub show_context: bool,
+}
+
+/// `taskstaka next`: the plate in hand, then each story as a stack — what
+/// you can do now, and `… N later` (what is still required, and why not yet).
 pub fn plan_text(
-    plans: &[taskstaka_core::action::StoryPlan],
-    explain: bool,
-    expand_later: bool,
-    limit: usize,
-    show_context: bool,
+    tree: &Tree,
+    plans: &[StoryPlan],
+    in_hand: Option<&Task>,
+    now: &Zoned,
+    opts: PlanOpts,
 ) -> String {
+    let PlanOpts {
+        explain,
+        later: expand_later,
+        limit,
+        show_context,
+    } = opts;
+    let limit = if limit == 0 { usize::MAX } else { limit };
     let mut out = String::new();
+    if let Some(t) = in_hand {
+        out.push_str(&plate(tree, t, now));
+        out.push('\n');
+    }
+    let hand_id = in_hand.map(|t| &t.id);
     for (shown, p) in plans.iter().enumerate() {
         if shown >= limit {
             let _ = writeln!(out, "… and {} more stories (use -n)", plans.len() - shown);
@@ -384,17 +465,17 @@ pub fn plan_text(
         if !p.later.is_empty() {
             head.push(match p.later_agent {
                 0 => format!("{} later", p.later.len()),
-                n => format!("{} later ({n} for Claude)", p.later.len()),
+                n => format!("{} later ({n} 🤖)", p.later.len()),
             });
         }
         if let Some(stuck) = &p.stuck {
             head.push(stuck.clone());
         } else if !p.waiting_on.is_empty() {
-            head.push(format!("waiting on {}", p.waiting_on.join(", ")));
+            head.push(format!("✉ {}", p.waiting_on.join(", ")));
         }
-        let _ = writeln!(out, "▲ {}   {}", p.title, head.join(" · "));
+        let _ = writeln!(out, "{}   {}", p.title, head.join(" · "));
         if !p.now.is_empty() {
-            out.push_str(&next_table(&p.now, explain, show_context));
+            out.push_str(&now_rows(tree, &p.now, hand_id, explain, show_context));
         }
         if !p.later.is_empty() {
             if expand_later {
@@ -402,10 +483,16 @@ pub fn plan_text(
                     let mark = match l.status {
                         Status::Waiting => "✉",
                         Status::Doing => "▶",
-                        _ if l.agent => "🤖",
-                        _ => "▽",
+                        Status::Someday => "💤",
+                        _ if l.open_under > 0 => "▽",
+                        _ => "·",
                     };
-                    let _ = writeln!(out, "    {mark} {}  {}  — {}", l.id, l.title, l.why);
+                    let robot = if l.agent { " 🤖" } else { "" };
+                    let _ = writeln!(
+                        out,
+                        "        {mark} {}  {}{robot}  — {}",
+                        l.id, l.title, l.why
+                    );
                 }
             } else {
                 let peek: Vec<String> = p
@@ -419,7 +506,12 @@ pub fn plan_text(
                 } else {
                     String::new()
                 };
-                let _ = writeln!(out, "    … {}{more}   (--later to expand)", peek.join(", "));
+                let _ = writeln!(
+                    out,
+                    "        … {} later: {}{more}   (--later)",
+                    p.later.len(),
+                    peek.join(", ")
+                );
             }
         }
         out.push('\n');

@@ -281,11 +281,7 @@ pub fn run(b: &mut dyn Backend, cmd: Cmd, json: bool) -> Result<()> {
             let tree = b.tree()?;
             let target = match id {
                 Some(id) => Some(b.resolve(&id)?),
-                None => tree
-                    .iter()
-                    .filter(|t| t.status == Status::Doing)
-                    .max_by_key(|t| t.started.unwrap_or(t.created))
-                    .map(|t| t.id.clone()),
+                None => taskstaka_core::action::in_hand(&tree, &now, None).map(|t| t.id.clone()),
             };
             let Some(id) = target else {
                 println!("nothing in hand — start something from `taskstaka next`");
@@ -535,11 +531,23 @@ fn next(b: &mut dyn Backend, n: NextArgs, json: bool, now: &Zoned) -> Result<()>
         return Ok(());
     }
     println!("{}", render::summary_line(&s));
-    if !plans.is_empty() {
+    let hand = taskstaka_core::action::in_hand(&tree, now, ctx);
+    if !plans.is_empty() || hand.is_some() {
         println!();
         print!(
             "{}",
-            render::plan_text(&plans, n.explain, n.later, n.limit, ctx.is_none())
+            render::plan_text(
+                &tree,
+                &plans,
+                hand,
+                now,
+                render::PlanOpts {
+                    explain: n.explain,
+                    later: n.later,
+                    limit: n.limit,
+                    show_context: ctx.is_none(),
+                },
+            )
         );
     }
     Ok(())

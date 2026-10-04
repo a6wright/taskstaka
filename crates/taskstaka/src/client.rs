@@ -127,7 +127,16 @@ impl Client {
         if let Some(c) = Self::discover(dir) {
             return Ok(c);
         }
-        spawn_daemon(dir, port_hint.unwrap_or(DEFAULT_PORT))?;
+        // Another store's daemon may own the default port (a scratch dir, a
+        // test, a second vault): take a free one and let daemon.json say which.
+        let port = port_hint.unwrap_or_else(|| {
+            if port_in_use(DEFAULT_PORT) {
+                0
+            } else {
+                DEFAULT_PORT
+            }
+        });
+        spawn_daemon(dir, port)?;
         let deadline = Instant::now() + Duration::from_secs(4);
         while Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(50));
@@ -351,6 +360,14 @@ impl Client {
         let r: ChangesResponse = Self::read(res)?;
         Ok(r.rev)
     }
+}
+
+fn port_in_use(port: u16) -> bool {
+    std::net::TcpStream::connect_timeout(
+        &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+        Duration::from_millis(200),
+    )
+    .is_ok()
 }
 
 /// Best-effort liveness check by pid. On non-Linux platforms we cannot tell

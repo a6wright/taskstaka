@@ -355,3 +355,38 @@ fn restart_swaps_the_daemon_process() {
         .success()
         .stdout(predicate::str::contains("before restart"));
 }
+
+/// Two stores at once, neither naming a port: the second must not fail
+/// because the first (or the user's real daemon) owns 7407.
+#[test]
+fn second_store_falls_back_to_a_free_port() {
+    let a = DaemonEnv::new();
+    let b = DaemonEnv::new();
+    let mut ca = a.cmd();
+    ca.env_remove("TASKSTAKA_PORT");
+    ca.args(["add", "in A"]).assert().success();
+    let mut cb = b.cmd();
+    cb.env_remove("TASKSTAKA_PORT");
+    cb.args(["add", "in B"]).assert().success();
+    let port = |env: &DaemonEnv| -> String {
+        let out = env.cmd().args(["status"]).output().unwrap();
+        let s = String::from_utf8(out.stdout).unwrap();
+        s.split_whitespace()
+            .nth(1)
+            .unwrap()
+            .rsplit(':')
+            .next()
+            .unwrap()
+            .to_string()
+    };
+    assert_ne!(
+        port(&a),
+        port(&b),
+        "each store has its own daemon on its own port"
+    );
+    b.cmd()
+        .args(["ls"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("in B"));
+}

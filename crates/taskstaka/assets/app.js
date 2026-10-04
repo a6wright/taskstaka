@@ -287,37 +287,44 @@ function renderNext() {
     parts.push(inHand ? '' : '<p class="empty">Nothing to do. Add something in the <a href="/" data-view="outline">Outline</a>, or check <a href="/waiting" data-view="waiting">Waiting on</a>.</p>');
     return parts.join('');
   }
+  // Each story is a stack of plates: what you can do now on top, what is
+  // still required fading beneath, the story itself at the base.
   for (const p of plans) {
-    const head = [];
-    if (p.now.length) head.push(`${p.now.length} now`);
-    if (p.later.length) head.push(p.later_agent ? `${p.later.length} later (${p.later_agent} for Claude)` : `${p.later.length} later`);
-    if (p.stuck) head.push(`<span class="stuck">${esc(p.stuck)}</span>`);
-    else if (p.waiting_on.length) head.push('waiting on ' + esc(p.waiting_on.join(', ')));
-    parts.push(`<div class="story"><div class="story-head"><a href="#" data-open="${p.id}" class="story-title">▲ ${esc(p.title)}</a><span class="story-meta">${head.join(' · ')}</span></div>`);
+    const open = S.expanded.has(p.id);
+    const meta = [];
+    if (p.now.length) meta.push(`${p.now.length} now`);
+    if (p.later.length) meta.push(p.later_agent ? `${p.later.length} later (${p.later_agent} for Claude)` : `${p.later.length} later`);
+    if (p.stuck) meta.push(`<span class="stuck">${esc(p.stuck)}</span>`);
+    else if (p.waiting_on.length) meta.push('waiting on ' + esc(p.waiting_on.join(', ')));
+    parts.push(`<div class="story stack">`);
+    let level = 0;
     if (p.now.length) {
-      parts.push('<ul class="rows">');
+      parts.push(`<div class="plate now" style="--i:${level}"><div class="rel">now</div><ul class="rows">`);
       for (const it of p.now) {
         const t = byId(it.id); if (!t) continue;
         const chain = [...it.ancestry].reverse().slice(0, -1).map(c => esc(c.title)).join(' → ');
         const crumb = chain ? `<span class="crumb" title="finishing this unlocks: ${chain}">→ ${chain}</span>` : '';
         parts.push(rowHtml(t, t.derived, 0, { editable: false, crumb }).replace('<span class="meta">', `<span class="meta"><span class="hover" style="display:none"></span><span class="chip tier" title="${esc(it.reason)}">${esc(it.reason)}</span>`));
       }
-      parts.push('</ul>');
+      parts.push('</ul></div>');
+      level++;
     }
     if (p.later.length) {
-      const open = S.expanded.has(p.id);
-      const peek = p.later.slice(0, 2).map(l => esc(l.title)).join(', ') + (p.later.length > 2 ? `, +${p.later.length - 2}` : '');
-      parts.push(`<button class="later-toggle" data-expand="${p.id}">${open ? '▾' : '…'} ${p.later.length} later${open ? '' : ': ' + peek}</button>`);
       if (open) {
-        parts.push('<ul class="rows later">');
+        parts.push(`<div class="plate later" style="--i:${level}"><div class="rel"><button class="later-toggle" data-expand="${p.id}">▾ ${p.later.length} later</button></div><ul class="rows later">`);
         for (const l of p.later) {
           const t = byId(l.id); if (!t) continue;
           const mark = l.status === 'waiting' ? '⌛' : l.status === 'doing' ? '▶' : l.agent ? '🤖' : '⏳';
           parts.push(`<li class="row compact later-row" data-id="${l.id}"><span class="mark">${mark}</span><span class="title"><a href="#" data-open="${l.id}">${esc(l.title)}</a><span class="crumb">${esc(l.why)}</span></span><span class="meta">${hoverMeta(t)}</span></li>`);
         }
-        parts.push('</ul>');
+        parts.push('</ul></div>');
+      } else {
+        const peek = p.later.slice(0, 2).map(l => esc(l.title)).join(', ') + (p.later.length > 2 ? `, +${p.later.length - 2}` : '');
+        parts.push(`<div class="plate later folded" style="--i:${level}"><button class="later-toggle" data-expand="${p.id}">… ${p.later.length} later: ${peek}</button></div>`);
       }
+      level++;
     }
+    parts.push(`<div class="plate base" style="--i:${level}"><div class="story-head"><span class="rel">so that</span><a href="#" data-open="${p.id}" class="story-title">${esc(p.title)}</a><span class="story-meta">${meta.join(' · ')}</span></div></div>`);
     parts.push('</div>');
   }
   return parts.join('');

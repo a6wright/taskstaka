@@ -106,10 +106,10 @@ fn node(out: &mut String, tree: &Tree, t: &Task, now: &Zoned, depth: usize, incl
     }
     let d = derive(tree, t, now.date());
     let mark = match t.status {
-        Status::Todo if d.blocked_by > 0 => "⏳",
+        Status::Todo if d.blocked_by > 0 => "▽",
         Status::Todo => "·",
         Status::Doing => "▶",
-        Status::Waiting => "⌛",
+        Status::Waiting => "✉",
         Status::Someday => "💤",
         Status::Done => "✓",
         Status::Dropped => "✗",
@@ -224,7 +224,7 @@ pub fn show(tree: &Tree, t: &Task, now: &Zoned) -> String {
                 Status::Done => "✓",
                 Status::Dropped => "✗",
                 Status::Doing => "▶",
-                Status::Waiting => "⌛",
+                Status::Waiting => "✉",
                 Status::Someday => "💤",
                 Status::Todo => "·",
             };
@@ -400,10 +400,10 @@ pub fn plan_text(
             if expand_later {
                 for l in &p.later {
                     let mark = match l.status {
-                        Status::Waiting => "⌛",
+                        Status::Waiting => "✉",
                         Status::Doing => "▶",
                         _ if l.agent => "🤖",
-                        _ => "⏳",
+                        _ => "▽",
                     };
                     let _ = writeln!(out, "    {mark} {}  {}  — {}", l.id, l.title, l.why);
                 }

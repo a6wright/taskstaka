@@ -24,13 +24,15 @@ const VIEW_HELP = {
   waiting: 'People you are waiting on, and for what. Chase when you nudge them; unblock when they get back to you.',
   someday: 'Parked ideas. They do not block anything and stay out of Next until you revive them.',
   done: 'Finished in the last two weeks.',
+  nudges: 'Reminders the rules are raising right now: things stuck in doing, follow-ups due, stories rotting untouched, too much in flight.',
 };
 const VIEWS = {
   outline: { ico: '☰', label: 'Outline' },
   next:    { ico: '▸', label: 'Next' },
-  waiting: { ico: '⌛', label: 'Waiting on' },
+  waiting: { ico: '✉', label: 'Waiting on' },
   someday: { ico: '💤', label: 'Someday' },
   done:    { ico: '✓', label: 'Done' },
+  nudges:  { ico: '⚑', label: 'Nudges' },
 };
 
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -103,23 +105,6 @@ function go(opts) {
 }
 window.addEventListener('popstate', () => { routeFromUrl(); render(); });
 
-// ---------- sidebar collapse ----------
-function toggleSide(force) {
-  const app = $('#app');
-  const narrow = window.matchMedia('(max-width: 1000px)').matches;
-  if (narrow) { app.classList.toggle('side-open', force); }
-  else {
-    const collapsed = force === undefined ? !app.classList.contains('side-collapsed') : !!force;
-    app.classList.toggle('side-collapsed', collapsed);
-    try { localStorage.setItem('taskstaka.side', collapsed ? 'collapsed' : 'open'); } catch (_) {}
-  }
-  const t = $('#side-toggle');
-  const hidden = narrow ? !app.classList.contains('side-open') : app.classList.contains('side-collapsed');
-  t.textContent = hidden ? '›' : '‹';
-  t.title = (hidden ? 'show' : 'collapse') + ' sidebar (\\)';
-}
-try { if (localStorage.getItem('taskstaka.side') === 'collapsed') { $('#app').classList.add('side-collapsed'); $('#side-toggle').textContent = '›'; } } catch (_) {}
-
 // ---------- flash ----------
 function flash(msg, kind) {
   const el = $('#flash');
@@ -172,12 +157,12 @@ function renderSide() {
   const sum = S.next ? S.next.summary : {};
   const someday = S.all.filter(t => t.status === 'someday' && inCtx(t)).length;
   const done = S.all.filter(t => isClosed(t) && inCtx(t) && t.completed && (Date.now() - Date.parse(t.completed)) < 14 * 86400e3).length;
-  const counts = { outline: '', next: sum.actionable ?? '', waiting: S.waiting.reduce((n, g) => n + g.items.length, 0) || '', someday: someday || '', done: done || '' };
+  const counts = { nudges: S.nudges.length || '', outline: '', next: sum.actionable ?? '', waiting: S.waiting.reduce((n, g) => n + g.items.length, 0) || '', someday: someday || '', done: done || '' };
   $('#side').innerHTML = `
     <div class="brand"><span><span class="dot"></span>taskstaka</span></div>
     <div class="ctxs">${['', 'work', 'personal'].map(c => `<a href="${urlFor({ ctx: c })}" data-ctx="${c}" class="${S.ctx === c ? 'active' : ''}">${c || 'all'}</a>`).join('')}</div>
     <nav class="nav">${Object.entries(VIEWS).map(([k, v]) => `<a href="${urlFor({ view: k })}" data-view="${k}" class="${S.view === k ? 'active' : ''}"><span class="ico">${v.ico}</span>${v.label}<span class="count">${counts[k]}</span></a>`).join('')}</nav>
-    ${S.nudges.length ? `<div class="nav"><a href="#" class="nudges" title="${esc(S.nudges.map(n => n.message).join('\n'))}"><span class="ico">⚑</span>nudges<span class="count">${S.nudges.length}</span></a></div>` : ''}`;
+`;
 }
 
 function inCtx(t) {
@@ -199,6 +184,7 @@ function renderMain() {
   else if (S.view === 'waiting') body = renderWaiting();
   else if (S.view === 'someday') body = renderSomeday();
   else if (S.view === 'done') body = renderDone();
+  else if (S.view === 'nudges') body = renderNudges();
   const doneToggle = S.view === 'outline'
     ? `<button class="toggle ${S.showNotes ? 'on' : ''}" id="toggle-notes" title="show each task's notes beneath it">≡ notes</button><button class="toggle ${S.showDone ? 'on' : ''}" id="toggle-done" title="show completed tasks">✓ completed</button>` : '';
   $('#main').innerHTML = `
@@ -213,9 +199,9 @@ function renderMain() {
 function chips(t, d, extra = '') {
   const out = [];
   if (t.status === 'doing') out.push(['doing', '▶ doing ' + ago(t.started || t.created)]);
-  if (t.status === 'waiting') out.push(['wait', '⌛ ' + esc(t.waiting_on || '') + ' · ' + ago(t.waiting_since || t.updated) + (t.chases && t.chases.length ? ' · ' + t.chases.length + '×' : '') + (t.until && t.until <= today() ? ' · follow up' : '')]);
-  else if (d && d.waiting_on_summary) out.push(['wait', '⌛ ' + esc(d.waiting_on_summary.person) + ' · ' + ago(d.waiting_on_summary.since)]);
-  else if (d && d.blocked_by > 0) out.push(['', '⏳ blocked by ' + d.blocked_by]);
+  if (t.status === 'waiting') out.push(['wait', '✉ ' + esc(t.waiting_on || '') + ' · ' + ago(t.waiting_since || t.updated) + (t.chases && t.chases.length ? ' · ' + t.chases.length + '×' : '') + (t.until && t.until <= today() ? ' · follow up' : '')]);
+  else if (d && d.waiting_on_summary) out.push(['wait', '✉ ' + esc(d.waiting_on_summary.person) + ' · ' + ago(d.waiting_on_summary.since)]);
+  else if (d && d.blocked_by > 0) out.push(['', '▽ blocked by ' + d.blocked_by]);
   if (t.status === 'someday') out.push(['someday', '💤 someday']);
   if (d && d.resurfaced_at) out.push(['back', '↑ ready']);
   if (d && d.orphaned) out.push(['orphan', '⚠ parent finished']);
@@ -314,7 +300,7 @@ function renderNext() {
         parts.push(`<div class="plate later" style="--i:${level}"><div class="rel"><button class="later-toggle" data-expand="${p.id}">▾ ${p.later.length} later</button></div><ul class="rows later">`);
         for (const l of p.later) {
           const t = byId(l.id); if (!t) continue;
-          const mark = l.status === 'waiting' ? '⌛' : l.status === 'doing' ? '▶' : l.agent ? '🤖' : '⏳';
+          const mark = l.status === 'waiting' ? '✉' : l.status === 'doing' ? '▶' : l.agent ? '🤖' : '▽';
           parts.push(`<li class="row compact later-row" data-id="${l.id}"><span class="mark">${mark}</span><span class="title"><a href="#" data-open="${l.id}">${esc(l.title)}</a><span class="crumb">${esc(l.why)}</span></span><span class="meta">${hoverMeta(t)}</span></li>`);
         }
         parts.push('</ul></div>');
@@ -343,13 +329,38 @@ function renderWaiting() {
 }
 
 function renderSomeday() {
-  const list = S.all.filter(t => t.status === 'someday' && inCtx(t));
-  if (!list.length) return '<p class="empty">The icebox is empty. Park a task with <kbd>someday</kbd> in its pane.</p>';
-  return `<ul class="rows">${list.map(t => {
-    const p = t.parent && byId(t.parent);
-    return rowHtml(t, t.derived, 0, { editable: false, crumb: p ? `<span class="crumb">‹ ${esc(p.title)}</span>` : '' })
-      .replace('<span class="meta">', `<span class="meta"><button class="btn small" data-status="todo" data-id="${t.id}">revive</button>`);
-  }).join('')}</ul>`;
+  // Parked stories are a real outline — refine the plan here, then revive it.
+  // Parked leaves under live parents are just listed.
+  const roots = (S.tree || []).filter(n => n.task.status === 'someday');
+  const leaves = S.all.filter(t => t.status === 'someday' && inCtx(t) && t.parent && byId(t.parent) && byId(t.parent).status !== 'someday');
+  const parts = [];
+  if (!roots.length && !leaves.length) parts.push('<p class="empty">The icebox is empty. Park a task with <kbd>someday</kbd> in its pane, or add one below.</p>');
+  const walk = (nodes, depth) => {
+    parts.push('<ul class="rows">');
+    for (const n of nodes) {
+      const t = n.task;
+      if (isClosed(t) && !S.showDone) continue;
+      let row = rowHtml(t, t.derived, depth);
+      if (depth === 0) row = row.replace('<span class="meta">', `<span class="meta"><button class="btn small" data-status="todo" data-id="${t.id}" data-cascade="0" title="back into play">revive</button>`);
+      parts.push(row);
+      if (n.children && n.children.length) { parts.push('<li class="kids">'); walk(n.children, depth + 1); parts.push('</li>'); }
+    }
+    parts.push('</ul>');
+  };
+  if (roots.length) { parts.push('<div class="group"><span>parked stories</span><span class="n">' + roots.length + '</span></div>'); walk(roots, 0); }
+  if (leaves.length) {
+    parts.push('<div class="group"><span>parked under live stories</span><span class="n">' + leaves.length + '</span></div><ul class="rows">');
+    for (const t of leaves) {
+      const p = byId(t.parent);
+      parts.push(rowHtml(t, t.derived, 0, { editable: false, crumb: `<span class="crumb">‹ ${esc(p.title)}</span>` })
+        .replace('<span class="meta">', `<span class="meta"><button class="btn small" data-status="todo" data-id="${t.id}">revive</button>`));
+    }
+    parts.push('</ul>');
+  }
+  if (S.draft.parent && !byId(S.draft.parent)) S.draft = { parent: null, after: null, depth: 0 };
+  const d = S.draft;
+  parts.push(`<div class="newline" style="--depth:${d.depth}"><span class="plus">＋</span><span class="title draft" contenteditable="true" spellcheck="false" data-parent="${d.parent || ''}" data-after="${d.after || ''}" data-placeholder="park an idea… (it stays out of Next until you revive it)"></span></div>`);
+  return parts.join('');
 }
 
 function renderDone() {
@@ -457,6 +468,7 @@ async function createDraft(el, parent, after) {
     try { until = m[3] ? await resolveDate(m[3]) : null; } catch (err) { el.textContent = text; return flash(err.message, 'error'); }
   }
   const fromBottom = !!el.closest('.newline');
+  const parked = S.view === 'someday' && !parent ? 'someday' : null;
   // "Goal > intermediate > first thing": the planning direction, left to right.
   // Each segment nests under the one before; @Name applies to the last.
   const chain = title.split(/\s+>\s+/).map(s => s.trim()).filter(Boolean);
@@ -466,7 +478,7 @@ async function createDraft(el, parent, after) {
       let p = parent || null, created = null;
       for (let i = 0; i < chain.length; i++) {
         const last = i === chain.length - 1;
-        const out = await api('POST', '/api/v1/tasks', { title: chain[i], parent: p, after: (i === 0 ? (after || null) : null), context: (!p && S.ctx) ? S.ctx : null, waiting_on: last ? waiting_on : null, until: last ? until : null });
+        const out = await api('POST', '/api/v1/tasks', { title: chain[i], parent: p, after: (i === 0 ? (after || null) : null), context: (!p && S.ctx) ? S.ctx : null, waiting_on: last ? waiting_on : null, until: last ? until : null, status: (i === 0 ? parked : null) });
         p = out.primary; created = created || out.primary;
       }
       if (fromBottom) { S.draft.after = created; }
@@ -476,7 +488,7 @@ async function createDraft(el, parent, after) {
     } catch (e) { flash(e.message, 'error'); await load(); }
     return;
   }
-  const out = await act(() => api('POST', '/api/v1/tasks', { title, parent: parent || null, after: after || null, context: (!parent && S.ctx) ? S.ctx : null, waiting_on, until }), { id: null, atEnd: true });
+  const out = await act(() => api('POST', '/api/v1/tasks', { title, parent: parent || null, after: after || null, context: (!parent && S.ctx) ? S.ctx : null, waiting_on, until, status: parked }), { id: null, atEnd: true });
   // Rapid capture: the next line from the bottom box goes right after this one.
   if (fromBottom && out && out.primary) { S.draft.after = out.primary; const box = $('#main .newline .title'); if (box) box.dataset.after = out.primary; }
 }
@@ -513,7 +525,6 @@ document.addEventListener('click', async (e) => {
   const id = b.dataset.id || b.dataset.open || b.dataset.chase || b.dataset.reply || b.dataset.wait || b.dataset.addsub || b.dataset.delete;
   if (b.dataset.open) return go({ open: b.dataset.open });
   if (b.hasAttribute('data-close') || b.id === 'pane-toggle') return go({ open: null });
-  if (b.id === 'side-toggle') return toggleSide();
   if (b.id === 'toggle-done') { S.showDone = !S.showDone; try { localStorage.setItem('taskstaka.showDone', S.showDone ? '1' : '0'); } catch (_) {} return render(); }
   if (b.dataset.expand) { const id = b.dataset.expand; if (S.expanded.has(id)) S.expanded.delete(id); else S.expanded.add(id); return render(); }
   if (b.id === 'toggle-notes') { S.showNotes = !S.showNotes; try { localStorage.setItem('taskstaka.showNotes', S.showNotes ? '1' : '0'); } catch (_) {} return render(); }
@@ -608,9 +619,14 @@ document.addEventListener('focusout', async (e) => {
 });
 
 document.addEventListener('keydown', async (e) => {
+  // Enter in any inline box (wait on…, first I need to…, add subtask, chase)
+  // presses its button; nobody should have to reach for the mouse mid-flow.
+  if (e.key === 'Enter' && e.target.matches && e.target.matches('.inline-form input')) {
+    const btn = e.target.closest('.inline-form').querySelector('button');
+    if (btn) { e.preventDefault(); btn.click(); return; }
+  }
   const typing = e.target.closest('[contenteditable], input, textarea, select');
   if (e.key === 'Escape' && S.open && !typing) return go({ open: null });
-  if (e.key === '\\' && !typing) { e.preventDefault(); return toggleSide(); }
   // ▶ with a row focused: start (or stop) it without opening the pane.
   if ((e.ctrlKey || e.metaKey) && e.key === '.' ) {
     const li = e.target.closest && e.target.closest('li.row');
@@ -619,7 +635,7 @@ document.addEventListener('keydown', async (e) => {
   const el = e.target.closest('.title, .pane-title, .plate-title'); if (!el) return;
   if (el.classList.contains('pane-title') || el.classList.contains('plate-title')) { if (e.key === 'Enter') { e.preventDefault(); el.blur(); } return; }
   const li = rowOf(el); const id = li && li.dataset.id; const isDraft = el.classList.contains('draft');
-  if (S.view !== 'outline' && !isDraft) { if (e.key === 'Enter') { e.preventDefault(); el.blur(); } return; }
+  if (S.view !== 'outline' && S.view !== 'someday' && !isDraft) { if (e.key === 'Enter') { e.preventDefault(); el.blur(); } return; }
 
   if (e.key === 'Enter') {
     e.preventDefault();
@@ -671,7 +687,7 @@ document.addEventListener('keydown', async (e) => {
 
 // ---------- "first I need to…": a draft line nested under a row ----------
 function insertDraftUnder(id) {
-  if (S.view !== 'outline') { go({ view: 'outline', open: null }); }
+  if (S.view !== 'outline' && S.view !== 'someday') { go({ view: 'outline', open: null }); }
   const li = $(`#main li[data-id="${id}"]`); if (!li) return;
   const draft = document.createElement('div');
   draft.className = 'row draftrow'; draft.style.setProperty('--depth', +li.dataset.depth + 1);
@@ -708,7 +724,7 @@ function renderPlate(t) {
   const unlocks = chain.length ? `<div class="unlocks">→ ${chain.map(c => `<a href="#" data-open="${c.id}">${esc(c.title)}</a>${isAgent(c) ? ' 🤖' : ''}`).join(' → ')}</div>` : '';
   return `
     <div class="plate top ${closed ? 'closed' : ''}">
-      <div class="rel">${closed ? 'done' : t.status === 'waiting' ? '⌛ waiting on ' + esc(t.waiting_on || '') : d.blocked_by ? '⏳ blocked — finish what is under it' : 'in hand'}</div>
+      <div class="rel">${closed ? 'done' : t.status === 'waiting' ? '✉ waiting on ' + esc(t.waiting_on || '') : d.blocked_by ? '▽ blocked — finish what is under it' : 'in hand'}</div>
       <h2 class="plate-title" contenteditable="true" spellcheck="false" data-title="${t.id}">${esc(t.title)}</h2>
       ${unlocks}
       <div class="meta">${chips(t, d)}${isAgent(t) ? '<span class="chip agent">🤖 agent</span>' : ''}</div>
@@ -739,6 +755,16 @@ function shiftStack(out) {
   } else {
     flash('✓ ' + t.title + ' — ' + parent.title + ' still needs: ' + left.map(k => k.title).join(', '), 'ok');
   }
+}
+
+// ---------- nudges ----------
+function renderNudges() {
+  if (!S.nudges.length) return '<p class="empty">Nothing to nudge you about.</p>';
+  return `<ul class="rows">${S.nudges.map(n => {
+    const t = n.task && byId(n.task);
+    const link = t ? `<a href="#" data-open="${t.id}">${esc(t.title)}</a> ` : '';
+    return `<li class="row compact"><span class="mark">⚑</span><span class="title"><strong>${esc(n.title)}</strong> — ${esc(n.message)}${link ? '<span class="crumb">' + link + '</span>' : ''}</span><span class="meta">${t ? hoverMeta(t) : ''}</span></li>`;
+  }).join('')}</ul>`;
 }
 
 // ---------- drag to reorder / nest (outline) ----------

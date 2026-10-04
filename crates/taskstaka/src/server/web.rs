@@ -86,7 +86,6 @@ const SHELL: &str = r#"<!doctype html>
 <body>
 <div id="app">
   <aside id="side"></aside>
-  <button id="side-toggle" title="collapse sidebar (\)">‹</button>
   <section id="main"><div class="content"><p class="empty">loading…</p></div></section>
   <button id="pane-toggle" title="close details (Esc)">›</button>
   <aside id="pane"></aside>

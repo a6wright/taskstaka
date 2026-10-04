@@ -115,7 +115,7 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         };
         Line::from(Span::styled(
             format!(
-                " ⌛ waiting on {} · {} · {}{chased}{}",
+                " ✉ waiting on {} · {} · {}{chased}{}",
                 g.person,
                 first.wait.title,
                 taskstaka_core::humanize::duration(first.since_secs),
@@ -253,8 +253,8 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
                 let (mark, style) = match kind {
                     NodeKind::Free => ("›", Style::default()),
                     NodeKind::Doing => ("▶", Style::default().fg(Color::Yellow)),
-                    NodeKind::Blocked => ("⏳", Style::default().fg(Color::DarkGray)),
-                    NodeKind::Waiting => ("⌛", Style::default().fg(Color::Cyan)),
+                    NodeKind::Blocked => ("▽", Style::default().fg(Color::DarkGray)),
+                    NodeKind::Waiting => ("✉", Style::default().fg(Color::Cyan)),
                     NodeKind::Someday => ("💤", Style::default().fg(Color::DarkGray)),
                     NodeKind::Closed => ("✓", Style::default().fg(Color::DarkGray)),
                 };
@@ -390,7 +390,7 @@ fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
                 Status::Done => ("✓", Style::default().fg(Color::Green)),
                 Status::Dropped => ("✗", Style::default().fg(Color::DarkGray)),
                 Status::Doing => ("▶", Style::default().fg(Color::Yellow)),
-                Status::Waiting => ("⌛", Style::default().fg(Color::Cyan)),
+                Status::Waiting => ("✉", Style::default().fg(Color::Cyan)),
                 Status::Someday => ("💤", Style::default().fg(Color::DarkGray)),
                 Status::Todo => ("·", Style::default()),
             };

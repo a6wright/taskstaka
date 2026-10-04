@@ -85,7 +85,7 @@ function check(cond, what) {
   depths = await page.locator('li.row').evaluateAll(els => els.map(e => e.dataset.depth));
   check(depths.join(',') === '0,1,2,1', `tree is story › figure › ask, story › write (depths ${depths})`);
   const storyChip = await page.locator('li.row').nth(0).locator('.chip.wait').textContent().catch(() => '');
-  check(/⌛ B/.test(storyChip || ''), `blocked story says who it waits on: "${storyChip}"`);
+  check(/✉ B/.test(storyChip || ''), `blocked story says who it waits on: "${storyChip}"`);
   await shot('01-outline');
 
   console.log('start a task from the row');
@@ -108,12 +108,10 @@ function check(cond, what) {
   await page.keyboard.press('Escape'); await settle();
   check(await page.locator('#app.pane-open').count() === 0, 'Esc closes the pane');
 
-  console.log('sidebar chevron');
-  await page.locator('#side-toggle').click({ force: true }); await settle();
-  check(await page.locator('#app.side-collapsed').count() === 1, 'chevron collapses the sidebar');
-  await shot('03-collapsed');
-  await page.keyboard.press('\\'); await settle();
-  check(await page.locator('#app.side-collapsed').count() === 0, 'backslash restores it');
+  console.log('nudges is a page');
+  await page.locator('a[data-view="nudges"]').click(); await settle();
+  check(/Nudges/.test(await page.locator('.head h1').textContent()), 'nudges opens its own view');
+  await shot('03-nudges');
 
   console.log('views');
   await page.locator('a[data-view="waiting"]').click(); await settle();
@@ -230,6 +228,18 @@ function check(cond, what) {
   const handAfterPutBack = await page.locator('.plate.top .plate-title').textContent().catch(() => '');
   check(handAfterPutBack !== 'Drive to the orchard', `put back takes it out of the hand ("${handAfterPutBack || 'empty'}")`);
   await page.locator('a[data-view="outline"]').click(); await settle();
+
+  console.log('someday is an outline you can refine');
+  await page.request.post(base + '/api/v1/tasks/' + pieId + '/status', { data: { status: 'someday' } }); await settle();
+  await page.locator('a[data-view="someday"]').click(); await settle();
+  check((await page.locator('li.row', { hasText: 'Bake an apple pie' }).first().locator('.title[contenteditable]').count()) === 1, 'parked story rows are editable');
+  check((await page.locator('li.row', { hasText: 'Buy apples' }).count()) >= 1, 'its subtasks show nested');
+  await page.locator('.newline .title').click(); await page.keyboard.type('Learn to make croissants'); await page.keyboard.press('Enter'); await settle();
+  const parkedTitles = await page.request.get(base + '/api/v1/tasks?status=someday').then(r => r.json()).then(a => a.map(t => t.title));
+  check(parkedTitles.includes('Learn to make croissants'), `capture in Someday parks the new story (${parkedTitles.join(' | ')})`);
+  await page.locator('li.row', { hasText: 'Bake an apple pie' }).first().locator('button', { hasText: 'revive' }).click(); await settle();
+  await page.locator('a[data-view="outline"]').click(); await settle();
+  check((await page.locator('li.row', { hasText: 'Bake an apple pie' }).count()) >= 1, 'revive puts the story back in the outline');
 
   console.log('checkbox on a parent completes the subtree');
   const roots = await page.locator('li.row[data-depth="0"]').count();

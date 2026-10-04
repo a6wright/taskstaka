@@ -179,7 +179,7 @@ you forget B is the reason the story is stuck. So:
 - `chase` records that you poked them and shortens the next follow-up;
 - `waiting` (and the strip at the top of the panel, TUI header, and web pages) lists
   everyone you're waiting on, grouped by person, with how long and how many chases;
-- a blocked story says `⌛ B · 4d`, not "blocked by 1";
+- a blocked story says `✉ B · 4d`, not "blocked by 1";
 - at 9:00 you get one digest: "Waiting on 2 people: B — DNS address (4d, 2×) · …".
 
 In the web outliner, ending a line with `@Name` creates it waiting on that person

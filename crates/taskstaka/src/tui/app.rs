@@ -256,7 +256,7 @@ impl App {
                 Status::Waiting => (
                     NodeKind::Waiting,
                     format!(
-                        "⌛ {} · {}{}{}",
+                        "✉ {} · {}{}{}",
                         t.waiting_on.as_deref().unwrap_or("?"),
                         humanize_secs(
                             ts.as_second() - t.waiting_since.unwrap_or(t.updated).as_second()
@@ -280,13 +280,13 @@ impl App {
                         (
                             NodeKind::Blocked,
                             format!(
-                                "⌛ {} · {}",
+                                "✉ {} · {}",
                                 w.person,
                                 humanize_secs(ts.as_second() - w.since.as_second())
                             ),
                         )
                     } else if d.blocked_by > 0 {
-                        (NodeKind::Blocked, format!("⏳ blocked by {}", d.blocked_by))
+                        (NodeKind::Blocked, format!("▽ blocked by {}", d.blocked_by))
                     } else if d.deferred_by.is_some() {
                         (NodeKind::Someday, "deferred".to_string())
                     } else if d.resurfaced_at.is_some() {
@@ -877,17 +877,17 @@ mod tree_view_tests {
         assert_eq!(
             rows,
             [
-                (0, "Get DNS address", "⌛ B · 3d", NodeKind::Blocked),
+                (0, "Get DNS address", "✉ B · 3d", NodeKind::Blocked),
                 (
                     1,
                     "Figure out what's possible",
-                    "⌛ B · 3d",
+                    "✉ B · 3d",
                     NodeKind::Blocked
                 ),
                 (
                     2,
                     "Ask B about wildcard certs",
-                    "⌛ B · 3d · 1× · follow up!",
+                    "✉ B · 3d · 1× · follow up!",
                     NodeKind::Waiting
                 ),
                 (1, "Write the change request", "", NodeKind::Free),

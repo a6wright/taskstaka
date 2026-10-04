@@ -3,7 +3,7 @@ source: crates/taskstaka/src/tui/ui.rs
 expression: "render(&app, 100, 24)"
 ---
 " taskstaka · all · 3 actionable · 1 doing · 1 blocked · 1 waiting · 1 someday                       "
-" ⌛ waiting ┌──────────────────────────────────────────────────────────────────────────┐            " Hidden by multi-width symbols: [(2, " ")]
+" ✉ waiting o┌──────────────────────────────────────────────────────────────────────────┐            "
 "› OVERDUE   │ taskstaka — keys                                                         │  1d ·   1d "
 "  ↑ ready   │                                                                          │  8d ·   8d "
 "  ▶ doing   │ j / k, ↑ / ↓     move        g / G   first / last                        │  2d ·   2d "

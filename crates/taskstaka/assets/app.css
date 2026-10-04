@@ -41,16 +41,8 @@ button { cursor: pointer; }
 /* ---- layout ---- */
 #app { display: grid; grid-template-columns: 232px 1fr; height: 100vh; }
 #app.pane-open { grid-template-columns: 232px 1fr 440px; }
-#app.side-collapsed { grid-template-columns: 0 1fr; }
-#app.side-collapsed.pane-open { grid-template-columns: 0 1fr 440px; }
 #side { background: var(--bg-side); border-right: 1px solid var(--line); padding: 14px 10px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; overflow-x: hidden; }
-#app.side-collapsed #side { display: none; }
 #main { overflow-y: auto; min-width: 0; position: relative; }
-/* the collapse chevron sits on the boundary between sidebar and list */
-#side-toggle { position: fixed; top: 50%; transform: translateY(-50%); left: 220px; width: 22px; height: 40px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg-side); color: var(--muted); font-size: 12px; line-height: 38px; text-align: center; padding: 0; z-index: 5; opacity: 0; transition: opacity .15s, left .15s; }
-#side:hover ~ #side-toggle, #side-toggle:hover, #app.side-collapsed #side-toggle { opacity: 1; }
-#side-toggle:hover { color: var(--fg); border-color: var(--muted); }
-#app.side-collapsed #side-toggle { left: 10px; }
 /* …and its twin on the boundary between the list and the details pane */
 #pane-toggle { display: none; position: fixed; top: 50%; transform: translateY(-50%); right: 429px; width: 22px; height: 40px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg-pane); color: var(--muted); font-size: 12px; line-height: 38px; text-align: center; padding: 0; z-index: 5; }
 #app.pane-open #pane-toggle { display: block; }
@@ -63,12 +55,8 @@ button { cursor: pointer; }
 #app.pane-open #pane { display: block; }
 @media (max-width: 1000px) {
   #pane-toggle { right: auto; left: 10px; }
-  #app, #app.pane-open, #app.side-collapsed, #app.side-collapsed.pane-open { grid-template-columns: 1fr; }
   #side { display: none; }
   #app.pane-open #main { display: none; }
-  #app.side-open #side { display: flex; position: fixed; inset: 0 auto 0 0; width: 260px; z-index: 10; }
-  #side-toggle { opacity: 1; left: 10px; }
-  #app.side-open #side-toggle { left: 248px; }
 }
 
 /* ---- sidebar ---- */

@@ -109,13 +109,11 @@ pub fn derive(tree: &Tree, task: &Task, today: Date) -> Derived {
 
     let followup = task.status == Status::Waiting && task.until.is_some_and(|u| u <= today);
 
-    // A step tagged `agent` is Claude's to do, not the user's: it never ranks
-    // in Next, but it still blocks its parent until Claude closes it.
-    let agent = is_agent_step(task);
+    // A step tagged `agent` is Claude's to perform, but the human still has
+    // to trigger it, so it ranks like any other leaf (with a 🤖 badge).
     let actionable = task.status.is_open()
         && deferred_by.is_none()
         && blocked_by == 0
-        && !agent
         && (matches!(task.status, Status::Todo | Status::Doing) || followup);
 
     let resurfaced_at = if actionable && tree.has_children(&task.id) {
@@ -778,7 +776,7 @@ mod agent_step_tests {
     use super::*;
 
     #[test]
-    fn agent_steps_block_the_story_but_never_rank_for_the_user() {
+    fn agent_steps_rank_for_the_human_and_block_the_story() {
         let now: Zoned = "2026-09-29T15:00:00[UTC]".parse().unwrap();
         let ts = now.timestamp();
         let story = Task::new("stry00".parse().unwrap(), "Get DNS", Context::Work, ts);
@@ -800,13 +798,19 @@ mod agent_step_tests {
         let tree = Tree::from_tasks([story.clone(), mine, theirs.clone()]);
 
         let items = needs_action(&tree, &now, None, &RankConfig::default());
-        let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
-        assert_eq!(ids, ["m1ne00"], "only the user's step ranks");
-        assert!(!derive(&tree, &theirs, now.date()).actionable);
+        let mut ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
+        ids.sort();
+        assert_eq!(
+            ids,
+            ["agnt00", "m1ne00"],
+            "the agent step ranks too: a human has to trigger it"
+        );
+        assert!(derive(&tree, &theirs, now.date()).actionable);
+        assert!(is_agent_step(&theirs));
         assert_eq!(
             derive(&tree, &story, now.date()).blocked_by,
             2,
-            "the agent step still blocks the story"
+            "and it still blocks the story"
         );
     }
 }
@@ -819,7 +823,7 @@ pub struct LaterItem {
     pub id: TaskId,
     pub title: String,
     pub status: Status,
-    /// "after Install the gcloud CLI", "⌛ Dave · 3d · 1×", "💤 someday", …
+    /// "after Install the gcloud CLI", "✉ Dave · 3d · 1×", "💤 someday", …
     pub why: String,
     pub agent: bool,
     /// How many open tasks still sit under it: 0 means it is next in line.
@@ -967,7 +971,7 @@ fn later_reason(tree: &Tree, t: &Task, d: &Derived, now: Timestamp) -> String {
     }
     match t.status {
         Status::Waiting => parts.push(format!(
-            "⌛ {} · {}{}",
+            "✉ {} · {}{}",
             t.waiting_on.as_deref().unwrap_or("?"),
             crate::humanize::since(t.waiting_since.unwrap_or(t.updated), now),
             match t.chases.len() {
@@ -1061,7 +1065,7 @@ mod plan_tests {
         assert_eq!(
             later,
             [
-                ("Ask Priya", "⌛ Priya · 3d"),
+                ("Ask Priya", "✉ Priya · 3d"),
                 ("Log in", "after Install the gcloud CLI"),
                 ("Create the zone", "🤖 Claude · after Log in"),
                 (

@@ -25,7 +25,7 @@ must hold in their head — which is why recording comes *first*, not after the 
 - **Nesting means "first this."** A subtask is a prerequisite: something that must finish before its parent can. *To bake an apple pie from scratch you must first invent the universe* — so "invent the universe" goes under "bake the pie". The tree is a stack of causes, knocked out from the bottom.
 - **Siblings mean "and also this."** Everything under one parent is independent and can be in flight at the same time; the parent finishes when all of them do. Siblings never depend on each other — if you want to write "after the sibling above", nest instead.
 - A task with open subtasks is **blocked** — not theirs to do; the deepest open leaves are. When its last subtask closes it **resurfaces** at the top of Next. You never manage this; it is computed.
-- A subtask tagged **`agent`** is yours. It never appears in the user's Next, but it still blocks the story until you close it. So tag honestly: it is how the user sees what is on you versus on them.
+- A subtask tagged **`agent`** is yours to perform — but it still shows in the user's Next with a 🤖, because a person has to trigger you, check the result, or hand you what you need. Tag honestly: it is how the user sees what is on you versus on them.
 - `waiting` always has a follow-up date (default two days). `chase` records a nudge; `record_reply` records what came back; "unblock" (status `doing`) means it is ready and they are on it.
 - Ids are six characters; any unique prefix works. Subtask order is the user's priority order — keep the order they would do things in.
 - Block at the leaf: if a story is stuck on a person, the *subtask* that depends on them is `waiting`, not the story.
@@ -70,8 +70,8 @@ must hold in their head — which is why recording comes *first*, not after the 
      finished — and before closing it, put *what you found or did* in its `body` (the
      two options, the command you ran, the link), not only in the chat. Next week the
      story has to explain itself without this conversation. If a step of yours cannot
-     start until the user does theirs, leave it `todo` with the tag — it is hidden from
-     their Next automatically and still blocks the story. If you could not finish,
+     start until the user does theirs, nest it under their step (it is a prerequisite)
+     rather than leaving it as a sibling that looks doable. If you could not finish,
      leave it open and say why in the notes.
    - Steps **the user** must do by hand (console clicks, commands on a machine you
      cannot reach, approvals, sending an email): no tag. Put *exactly how to do that

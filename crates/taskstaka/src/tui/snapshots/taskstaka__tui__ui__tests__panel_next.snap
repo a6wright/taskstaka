@@ -13,7 +13,7 @@ expression: "render(&app, 100, 24)"
 "  ☐ Install the gcloud CLI ‹ Log in: gcloud auth login                                           1d "
 "  ☐ Email platform-eng to approve the zone                                          ▶ in hand    1d "
 "    ▸ … 5 later · 1 🤖: Ask Priya about wildcard certs, Log in: gcloud auth login, +3               " Hidden by multi-width symbols: [(21, " ")]
-"  ▔▔ so that Get DNS address                                                     · 5 later · ✉ Priya"
+"  ──▶ so that Get DNS address  5 later · ✉ Priya ───────────────────────────────────────────────────"
 "                                                                                                    "
 "                                                                                                    "
 "                                                                                                    "

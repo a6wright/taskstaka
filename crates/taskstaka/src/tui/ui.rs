@@ -442,16 +442,29 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
                 note,
                 ..
             } => {
+                // The base of the stack: a full-width rule with the story
+                // set into it, so each story reads as its own block.
                 let mut tail = match (now, later) {
                     (0, _) => String::new(),
-                    (_, 0) => " · last steps".to_string(),
-                    _ => format!(" · {later} later"),
+                    (_, 0) => "last steps".to_string(),
+                    _ => format!("{later} later"),
                 };
                 if let Some(n) = note {
-                    tail.push_str(&format!(" · {n}"));
+                    if !tail.is_empty() {
+                        tail.push_str(" · ");
+                    }
+                    tail.push_str(n);
                 }
-                let tail_s = format!("{tail} ");
-                let title_room = width.saturating_sub(12 + cells(&tail_s));
+                let tail_s = if tail.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {tail} ")
+                };
+                let head = "──▶ so that ";
+                let title_room = width.saturating_sub(2 + cells(head) + 1 + cells(&tail_s) + 3);
+                let title_s = format!("{} ", fit(title, title_room));
+                let used = 2 + cells(head) + cells(&title_s) + cells(&tail_s);
+                let rule = "─".repeat(width.saturating_sub(used));
                 let style = if *now == 0 {
                     Style::default().fg(Color::DarkGray)
                 } else {
@@ -459,14 +472,13 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
                 };
                 Line::from(vec![
                     Span::raw(cursor),
-                    Span::styled("▔▔ so that ", style),
-                    Span::styled(
-                        pad(&fit(title, title_room), title_room),
-                        if selected { style.bold() } else { style },
-                    ),
+                    Span::styled(head, style),
+                    Span::styled(title_s, style.bold()),
                     Span::styled(tail_s, Style::default().fg(Color::DarkGray)),
+                    Span::styled(rule, style),
                 ])
             }
+            Row::Gap => Line::from(""),
             Row::Node {
                 depth,
                 title,
@@ -870,6 +882,44 @@ mod tests {
         insta::assert_snapshot!("panel_someday", render(&app, 100, 14));
         app.mode = Mode::Help;
         insta::assert_snapshot!("panel_help", render(&app, 100, 28));
+    }
+
+    #[test]
+    fn two_stories_are_separate_blocks() {
+        let (tree, now) = super::super::app::tests::fixture();
+        let mut tasks: Vec<_> = tree.iter().cloned().collect();
+        let mk = |id: &str, title: &str, parent: Option<&str>| {
+            let mut t = taskstaka_core::Task::new(
+                id.parse().unwrap(),
+                title,
+                taskstaka_core::Context::Personal,
+                now.timestamp(),
+            );
+            t.parent = parent.map(|p| p.parse().unwrap());
+            t
+        };
+        tasks.push(mk("p1e000", "Bake an apple pie from scratch", None));
+        tasks.push(mk("vrse00", "Invent the universe", Some("p1e000")));
+        let app = App::new(taskstaka_core::Tree::from_tasks(tasks), None, now);
+        let out = render(&app, 100, 22);
+        insta::assert_snapshot!("panel_next_two_stories", out.clone());
+        // A rule, then a blank line, then the next story's rows.
+        let lines: Vec<&str> = out.lines().collect();
+        let base = lines
+            .iter()
+            .position(|l| l.contains("so that Get DNS"))
+            .unwrap();
+        assert!(
+            lines[base].trim_end_matches('"').trim_end().ends_with('─'),
+            "{}",
+            lines[base]
+        );
+        assert_eq!(lines[base + 1].trim_matches('"').trim(), "");
+        assert!(
+            lines[base + 2].contains("Invent the universe"),
+            "{}",
+            lines[base + 2]
+        );
     }
 
     #[test]

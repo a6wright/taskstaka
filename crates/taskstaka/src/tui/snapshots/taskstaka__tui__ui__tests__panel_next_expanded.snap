@@ -18,7 +18,7 @@ expression: "render(&app, 100, 26)"
 "      ▽ Create the zone and record 🤖                🤖 Claude · after Log in: gcloud auth login    " Hidden by multi-width symbols: [(36, " "), (54, " ")]
 "      ▽ Verify the record resolves                                 after Create the zone and record "
 "      ▽ Get DNS address         after Verify the record resolves, Ask Priya about wildcard certs +1 "
-"  ▔▔ so that Get DNS address                                                     · 5 later · ✉ Priya"
+"  ──▶ so that Get DNS address  5 later · ✉ Priya ───────────────────────────────────────────────────"
 "────────────────────────────────────────────────────────────────────────────────────────────────────"
 " 1nst00 Get DNS address › Verify the record resolves › Create the zone and record › Log in: gcloud  "
 "auth login › Install the gcloud CLI                                                                 "

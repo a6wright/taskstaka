@@ -99,6 +99,8 @@ pub enum Row {
     Wait(WaitingItem),
     Nudge(Nudge),
     Section(String),
+    /// A blank line between stories on Next.
+    Gap,
 }
 
 impl Row {
@@ -111,12 +113,12 @@ impl Row {
             Row::Node { id, .. } => Some(id),
             Row::Wait(w) => Some(&w.wait.task_id),
             Row::Nudge(n) => n.task.as_ref(),
-            Row::LaterToggle { .. } | Row::Person { .. } | Row::Section(_) => None,
+            Row::LaterToggle { .. } | Row::Person { .. } | Row::Section(_) | Row::Gap => None,
         }
     }
 
     pub fn selectable(&self) -> bool {
-        !matches!(self, Row::Section(_) | Row::Person { .. })
+        !matches!(self, Row::Section(_) | Row::Person { .. } | Row::Gap)
     }
 }
 
@@ -271,7 +273,9 @@ impl App {
         if let Some(t) = self.in_hand() {
             rows.push(Row::Plate(t.id.clone()));
         }
-        for p in plan(&self.tree, &self.now, self.ctx, &RankConfig::default()) {
+        let stories = plan(&self.tree, &self.now, self.ctx, &RankConfig::default());
+        let last = stories.len().saturating_sub(1);
+        for (i, p) in stories.into_iter().enumerate() {
             // Reads top-down like the web's plates: now, later folded
             // beneath, the story at the base.
             let note = p.stuck.clone().or_else(|| {
@@ -312,6 +316,9 @@ impl App {
                 later: later_n,
                 note,
             });
+            if i < last {
+                rows.push(Row::Gap);
+            }
         }
         rows
     }
@@ -977,6 +984,7 @@ pub(crate) mod tests {
                 Row::Wait(w) => format!("wait:{}", w.wait.title),
                 Row::Nudge(n) => format!("nudge:{}", n.title),
                 Row::Section(s) => format!("section:{s}"),
+                Row::Gap => "gap".to_string(),
             })
             .collect()
     }

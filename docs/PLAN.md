@@ -235,7 +235,7 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 | ✅ | **P12 Next = the stack** | Stack and Next merged: `core::action::plan` groups Next by story — `now` (ranked leaves) and `later` (everything else still open, nearest-to-doable first, each with *why not yet*: after X / ✉ person / 🤖 Claude), stuck stories listed with their reason. `GET /api/v1/plan`, MCP `plan` (the skill starts there), CLI `next` prints stories with `… N later` (`--later` expands), web Next shows the in-hand plate on top and folds each story's later list. Agent steps are counted and listed (a person still has to prompt/check them). | core `plan_tests` (DNS + passport fixture: now/later order and reasons, stuck); e2e: start → in hand, unlocks line, fold/expand, tick shifts up |
 | ✅ | **P13 in hand** (ADR 0009) | In hand = most recently started, open, unblocked, else nothing. Put back / wait empty the hand; push starts the new prerequisite in hand and pauses the task above (store-enforced, journaled). Plate carries editable notes. Now rows are unranked parallel streams in outline order. Resurfaced reads "↑ ready". Nudge set changes wake long-polls. Definitions live in `CONTEXT.md` (The hand). | core `in_hand_tests`; e2e: push from plate, pause, done/put back move the hand, ready badge |
 | ✅ | **P14 TUI = the same model** | `taskstaka tui` mirrors the web: `1` Next (the in-hand plate boxed on top with its notes and `d done · p put back · i first I need to… · w wait`; per story the *now* rows, a folded `… N later` line (`l`/Enter unfold, each with *why not yet*), the story as the base `▔▔ so that`), `2` Outline (☐ ▶ ▽ ✉ 💤 ✓ marks, `↑ ready`, `🤖 Claude`, ⇧arrows move, `h` completed), `3` Waiting on grouped by person (`f` chase, `u` unblock), `4` Someday as an outline of parked stories + parked leaves under live stories (`u` revive, `a` parks), `5` Nudges. `i` from the plate creates the prerequisite already `doing` so the store takes it in hand and pauses the task above. Widths are display cells, so emoji align. | `tui/app.rs` tests (plate + stacks + fold, push from plate → `Add{status: doing}`, views and their rows, prompts); `tui/ui.rs` `TestBackend` snapshots `panel_next`, `panel_next_expanded`, `panel_outline`, `panel_waiting`, `panel_someday`, `panel_help`; empty/stuck states |
-| | post-v1 | snooze, Obsidian two-way (file watching), streamable-HTTP `/mcp`, recurring, business-day follow-ups, Teams/Slack read integration, keyboard palette (Ctrl+K) in the web shell | |
+| | post-v1 | see the candidate list under **Resume here** | |
 
 ### Deviations from the original plan (recorded as they happen)
 
@@ -260,57 +260,67 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 
 ## Resume here
 
-**P1–P14 complete** (2026-10-04). 86 automated tests + 48 Playwright checks; `cargo fmt`,
-`clippy --all-targets`, `cargo test` and `cd e2e && npm test` are clean at head. CLI, TUI
-and web all show the same thing: the task in hand, then each story as a stack. A code
-review pass (2026-10-04) fixed sixteen findings — the notable ones: `started` is *this*
-start so the hand's recency is right after a put-back; in hand requires *actionable* (not
-under a waiting/parked ancestor); reopening a prerequisite pauses a doing parent; the
-mtime guard covers every note a command rewrites, not just the target; `/tasks?context=`
-follows the root like everything else; `serve --detach`/`restart` no longer race a second
-daemon; the web Waiting page has its chase button back.
+**P1–P14 complete** (2026-10-04). `cargo fmt`, `clippy --all-targets`, `cargo test` (86
+tests at that date) and the Playwright scenario (`cd e2e && npm test`) are clean at head.
+CLI, TUI and web all show the same thing: the task in hand, then each story as a stack.
+Two code-review passes on 2026-10-04 (`/code-review` on the README, then a whole-repo
+correctness pass) landed as commits `2660c13` and `6195106`. The notable fixes: reopening or
+reviving a prerequisite pauses a doing parent (`2660c13`); `started` is *this* start so the
+hand's recency is right after a put-back; in hand requires *actionable* (not under a
+waiting/parked ancestor); the mtime guard covers every note a command rewrites, not just the
+target; `/tasks?context=` follows the root like everything else; `serve --detach`/`restart`
+no longer race a second daemon; the web Waiting page has its chase button back (all
+`6195106`).
 
 **Next, in the user's words:** "getting osx tested and then getting it on brew." Recorded
 in the store as *Get taskstaka on Homebrew* with *Test taskstaka on macOS* nested under it.
 What that needs:
 
-1. **macOS pass** — `cargo install`, `init`, `tui`, web, notifications (`osascript` path in
-   `server/nudge.rs`), the launchd plist in the README, `File::try_lock` behaviour on APFS,
-   `process_group(0)` for the detached daemon. Expect small fixes, not design changes.
+1. **macOS pass** — `cargo install`, `init`, `tui`, web, desktop notifications, the launchd
+   plist in the README, the daemon lock and detached start (see the P1 and P4 deviations
+   below for how those are built). Expect small fixes, not design changes.
 2. **Release artefacts** — tagged release with prebuilt tarballs (`cargo-dist` or a GitHub
    Actions matrix for `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`).
 3. **Tap** — `homebrew-taskstaka` with a formula pointing at the tarball + sha256, a
    `brew services` plist (`service do run [opt_bin/"taskstaka", "serve"]`), and `taskstaka
    setup claude` mentioned in the caveats.
 
-Candidate features after that, roughly by how much they change daily use:
+Candidate features after that (the one list; the phase table's *post-v1* row points
+here), roughly by how much they change daily use:
 
 - **Hot-key add → agent breakdown**: a one-line capture that hands the story to Claude to
   shape as a stack (skill first, then UI).
 - **Snooze** (`snoozed_until`), **Obsidian two-way** (file watching), **`--bind` + auth
   token** for the phone, **recurring tasks**, streamable-HTTP `/mcp`.
+- **Business-day follow-ups**; **Teams/Slack read integration** (detecting "left on
+  read" — the agent recipe in the README is the manual version).
+- **R6 WIP limit tuning** (still hard-coded to 3 in `core::nudge`); a **Ctrl+K palette** in
+  the web shell; TUI **search** and **multi-select**.
 
 When picking one up: update the phase table above (add a row), record deviations as
 they happen, and add an ADR if the decision is hard to reverse and would surprise a
 future reader.
 
-## Verification (end to end, after P1–P3)
+## Verification (end to end, smoke test)
 
 ```
 taskstaka init && taskstaka add "Ship auth story" -c work
-taskstaka add "Fix JWT expiry" --parent <id> && taskstaka add "Write migration" --parent <id>
-taskstaka next --explain      # story is NOT shown (blocked by 2); both children T6
-taskstaka start <jwt>         # → T2 doing
+taskstaka add "Fix JWT expiry" -p <story> && taskstaka add "Write migration" -p <story>
+taskstaka next                # one story, "2 now · 1 later"; both children as ☐ rows; the story is the later one
+taskstaka start <jwt>         # → "todo → doing"; next shows the ▶ in hand plate for it
+taskstaka add "Read the RFC" -p <jwt> --start   # push: the new task is in hand, jwt "paused: first Read the RFC"
+taskstaka done <rfc>          # "↑ Fix JWT expiry is ready: all its prerequisites are done"
 taskstaka done <jwt>; taskstaka done <migration>
-taskstaka next --explain      # story is back at T1 "resurfaced: all subtasks done 0m ago"
-taskstaka tui                 # panel shows the same; R4 notification fired
-cat todo/index.md          # tree with ▽/▶ annotations; open in Obsidian, links resolve
+taskstaka next                # the story is a now row with ↑ ready; nothing later
+taskstaka tui                 # 1 Next shows the same; 2 Outline shows ✓ with h
+cat todo/index.md             # tree with ▽/▶/✉ annotations; open in Obsidian, links resolve
 ```
 
 ## Known risks (accepted)
 
 - Someday children block `done` but not actionability — will annoy once; orphans are worse.
 - Frozen filename slugs go stale after renames — `title:` is truth, links keep working.
-- Multi-file mutations (cascade, auto-reopen) aren't atomic across files; each file stays
-  individually valid. No journal in v1.
+- Multi-file mutations (cascade close, pause) aren't atomic across files; each file stays
+  individually valid, and every status change is journaled into the task's own note, so a
+  half-applied cascade is visible rather than silent.
 - Tier order will feel wrong sometimes — `--explain` from day one so tuning is informed.

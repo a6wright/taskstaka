@@ -27,6 +27,8 @@ pub fn run(dir: &Path, port_hint: Option<u16>, ctx: Option<Context>) -> Result<(
     let rev = client.health()?.rev;
     let tree = tree_from_views(client.tasks(true)?);
     let mut app = App::new(tree, ctx, Zoned::now());
+    app.nudges = client.nudges().unwrap_or_default();
+    app.rebuild();
 
     let (tx, rx) = mpsc::channel::<Msg>();
     spawn_watcher(client.clone(), rev, tx);
@@ -71,12 +73,11 @@ fn spawn_watcher(client: Client, mut rev: u64, tx: mpsc::Sender<Msg>) {
 fn refresh(app: &mut App, client: &Client) {
     match client.tasks(true) {
         Ok(views) => {
+            // Nudges first: set_tree rebuilds the rows, and the Nudges view
+            // is built from them.
+            app.nudges = client.nudges().unwrap_or_default();
             app.set_tree(tree_from_views(views), Zoned::now());
             app.connected = true;
-            app.nudges = client
-                .nudges()
-                .map(|ns| ns.into_iter().map(|n| n.message).collect())
-                .unwrap_or_default();
         }
         Err(e) => {
             app.connected = false;

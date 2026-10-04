@@ -88,6 +88,14 @@ taskstaka ls · show <id> · mv <id> <parent>
 taskstaka tui                                   # the always-on panel
 ```
 
+The panel has the same five pages as the web (`1`–`5`, or `v` to cycle): **Next** shows
+the task in hand boxed at the top with its notes — `d` done, `p` put back, `i` *first I
+need to…*, `w` wait on someone — then each story as a stack: what you can do now, `… N
+later` (`l` unfolds, each line says why not yet), and the story at the base. **Outline**
+is the tree (`⇧` + arrows rearrange, `A` adds under, `h` shows completed), **Waiting on**
+groups by person (`f` chase, `u` unblock when they reply), **Someday** is the parked
+outline (`u` revives), **Nudges** is the current set. `?` lists every key.
+
 Ids are 6 characters; any unique prefix works. Add `--json` to anything for scripts.
 
 ### Ranking

@@ -77,6 +77,9 @@ fn plate_height(app: &App, area: Rect) -> u16 {
 }
 
 fn detail_height(app: &App, area: Rect) -> u16 {
+    if !app.show_detail {
+        return 0;
+    }
     let Some(t) = app.selected_task() else {
         return 0;
     };
@@ -951,19 +954,19 @@ fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     let keys = match app.view {
         View::Next => {
-            " 1-5 views · j/k · l later · d done · s start · p put back · i first · w wait · a add · ? help · q"
+            " 1-5 views · j/k · l later · d done · s start · p put back · i first · w wait · a add · space details · ? · q"
         }
         View::Outline => {
-            " 1-5 views · j/k · ⇧arrows move · d done · s start · w wait · z someday · a add · ? · q"
+            " 1-5 views · j/k · ⇧arrows move · d done · s start · w wait · z someday · space details · ? · q"
         }
         View::Waiting => {
-            " 1-5 views · j/k · f chase · u unblock (they replied) · d done · e edit · ? · q"
+            " 1-5 views · j/k · f chase · u unblock (they replied) · d done · space details · ? · q"
         }
         View::Someday => {
-            " 1-5 views · j/k · u revive · a park an idea · A add under · d done · x drop · ? · q"
+            " 1-5 views · j/k · u revive · a park an idea · d done · x drop · space details · ? · q"
         }
         View::Nudges => {
-            " 1-5 views · j/k · Enter open the task · d done · s start · f chase · r refresh · ? · q"
+            " 1-5 views · j/k · Enter edit · d done · s start · f chase · space details · ? · q"
         }
     };
     f.render_widget(
@@ -999,6 +1002,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         ),
         Line::from(" e / Enter        open the note in $EDITOR"),
         Line::from(" ⇧↑ / ⇧↓          move among siblings · ⇧→ nest under row above · ⇧← out"),
+        Line::from(" space            show / hide the details box        Esc   hide it"),
         Line::from(" h                show / hide completed (outline)    c   cycle context"),
         Line::from(" r                refresh     q       quit"),
         Line::from(""),
@@ -1173,6 +1177,38 @@ mod tests {
             lines[base + 3].contains("Invent the universe"),
             "{}",
             lines[base + 3]
+        );
+    }
+
+    #[test]
+    fn details_are_hidden_until_space_opens_them() {
+        let (tree, now) = super::super::app::tests::fixture();
+        let mut app = App::new(tree, None, now);
+        press(&mut app, '2');
+        let id_title = "ema110";
+        assert!(
+            !render(&app, 100, 20).contains(id_title),
+            "hidden by default"
+        );
+
+        press(&mut app, ' ');
+        let open = render(&app, 100, 20);
+        assert!(open.contains(id_title), "space opens the details box");
+        insta::assert_snapshot!("panel_outline_details", open);
+
+        press(&mut app, ' ');
+        assert!(!render(&app, 100, 20).contains(id_title), "space closes it");
+
+        press(&mut app, ' ');
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!render(&app, 100, 20).contains(id_title), "Esc closes it");
+
+        // It stays open as you move: it follows the selection.
+        press(&mut app, ' ');
+        press(&mut app, 'k');
+        assert!(
+            render(&app, 100, 20).contains('╭'),
+            "still open after moving"
         );
     }
 

@@ -194,6 +194,8 @@ pub struct App {
     pub view: View,
     /// Outline / Someday: include tasks closed in the last two weeks.
     pub show_done: bool,
+    /// The boxed detail pane under the list. Hidden until Space opens it.
+    pub show_detail: bool,
     /// Next: stories whose later list is unfolded.
     pub expanded: HashSet<TaskId>,
     pub rows: Vec<Row>,
@@ -213,6 +215,7 @@ impl App {
             ctx,
             view: View::Next,
             show_done: false,
+            show_detail: false,
             expanded: HashSet::new(),
             rows: Vec::new(),
             selected: 0,
@@ -691,6 +694,14 @@ impl App {
             },
             KeyCode::Char('c') => {
                 self.cycle_context();
+                Action::None
+            }
+            KeyCode::Char(' ') => {
+                self.show_detail = !self.show_detail;
+                Action::None
+            }
+            KeyCode::Esc if self.show_detail => {
+                self.show_detail = false;
                 Action::None
             }
             KeyCode::Char('h') => {

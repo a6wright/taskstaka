@@ -99,12 +99,21 @@ function urlFor({ view = S.view, ctx = S.ctx, open = S.open, stackId = S.stackId
   const qs = sp.toString();
   return (view === 'outline' ? '/' : '/' + view) + (qs ? '?' + qs : '');
 }
+// The server filters tree/next/plan/waiting by context, so a context change
+// must refetch; a view change alone only needs a re-render.
 function go(opts) {
+  const ctxChanged = opts.ctx !== undefined && opts.ctx !== S.ctx;
   Object.assign(S, opts);
   history.pushState(null, '', urlFor());
-  render();
+  if (ctxChanged) load().catch((e) => flash(e.message, 'error'));
+  else render();
 }
-window.addEventListener('popstate', () => { routeFromUrl(); render(); });
+window.addEventListener('popstate', () => {
+  const prev = S.ctx;
+  routeFromUrl();
+  if (S.ctx !== prev) load().catch((e) => flash(e.message, 'error'));
+  else render();
+});
 
 // ---------- flash ----------
 function flash(msg, kind) {

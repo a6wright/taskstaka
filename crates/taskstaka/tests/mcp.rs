@@ -28,6 +28,7 @@ impl Session {
             .arg("mcp")
             .env("TASKSTAKA_DIR", dir.path())
             .env("TASKSTAKA_PORT", "0")
+            .env("TASKSTAKA_NO_NOTIFY", "true")
             .env_remove("TASKSTAKA_DIRECT")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

@@ -181,6 +181,7 @@ impl DaemonEnv {
         let mut c = Command::cargo_bin("taskstaka").unwrap();
         c.env("TASKSTAKA_DIR", self.dir.path())
             .env("TASKSTAKA_PORT", "0")
+            .env("TASKSTAKA_NO_NOTIFY", "true")
             .env_remove("TASKSTAKA_DIRECT")
             .env_remove("TASKSTAKA_CONTEXT");
         c
@@ -388,4 +389,24 @@ fn second_store_falls_back_to_a_free_port() {
         .assert()
         .success()
         .stdout(predicate::str::contains("in B"));
+}
+
+#[test]
+fn notifications_setting_persists_and_defaults_on() {
+    let env = Env::new();
+    env.cmd()
+        .args(["notifications"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("notifications are on"));
+    env.cmd()
+        .args(["notifications", "off"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("notifications are off"));
+    env.cmd()
+        .args(["notifications"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("notifications are off"));
 }

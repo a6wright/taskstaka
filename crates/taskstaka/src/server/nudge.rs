@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use jiff::Zoned;
 use taskstaka_core::nudge::{Nudge, NudgeConfig, NudgeLog, evaluate, resurfaced};
+use taskstaka_core::settings::Settings;
 use taskstaka_core::{Event, Outcome, TaskId};
 use tracing::{debug, info, warn};
 
@@ -69,6 +70,7 @@ pub struct Nudger {
     pub cfg: NudgeConfig,
     pub notifier: Box<dyn Notifier>,
     log_path: PathBuf,
+    dir: PathBuf,
 }
 
 impl Nudger {
@@ -77,6 +79,7 @@ impl Nudger {
             cfg,
             notifier,
             log_path: state.dir.join(".taskstaka").join("nudges.json"),
+            dir: state.dir.clone(),
         }
     }
 
@@ -132,8 +135,16 @@ impl Nudger {
             return;
         };
         let mut log = NudgeLog::load(&self.log_path);
+        // A parent that is already in hand (auto-advance started it) needs no
+        // "it is ready" popup: you are looking at it.
         let nudges: Vec<Nudge> = ids
             .iter()
+            .filter(|id| {
+                store
+                    .tree()
+                    .get(id)
+                    .is_some_and(|t| t.status != taskstaka_core::Status::Doing)
+            })
             .filter_map(|id| resurfaced(store.tree(), id))
             .collect();
         // Fresh key each time it resurfaces: encode the moment into the key
@@ -155,6 +166,11 @@ impl Nudger {
 
     fn deliver(&self, due: &[Nudge], now: &Zoned) {
         if due.is_empty() {
+            return;
+        }
+        // Read per delivery so the setting applies without a restart.
+        if !Settings::load(&self.dir).notifications {
+            debug!("{} nudge(s) suppressed: notifications are off", due.len());
             return;
         }
         if self.cfg.in_quiet_hours(now) {

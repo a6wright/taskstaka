@@ -9,6 +9,7 @@ pub mod humanize;
 pub mod index_md;
 pub mod model;
 pub mod nudge;
+pub mod settings;
 pub mod store;
 pub mod tree;
 pub mod view;

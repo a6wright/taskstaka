@@ -16,6 +16,7 @@ use jiff::civil::Date;
 use serde::{Deserialize, Serialize};
 use taskstaka_core::action::{RankConfig, needs_action, summary};
 use taskstaka_core::command::{AddTask, EditTask, Set};
+use taskstaka_core::settings::Settings;
 use taskstaka_core::view::{NextResponse, TreeNode};
 use taskstaka_core::{Command, Context, Outcome, Priority, Status, TaskId, TaskView};
 
@@ -47,6 +48,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/commands", post(command))
         .route("/api/v1/changes", get(changes))
         .route("/api/v1/nudges", get(nudges))
+        .route("/api/v1/settings", get(get_settings).put(put_settings))
         .route("/api/v1/reindex", post(reindex))
         .route("/api/v1/reload", post(reload))
         .route("/api/v1/shutdown", post(shutdown))
@@ -535,4 +537,26 @@ async fn plan(
         q.context,
         &RankConfig::default(),
     )))
+}
+
+async fn get_settings(State(s): S) -> Json<Settings> {
+    Json(Settings::load(&s.dir))
+}
+
+#[derive(Deserialize)]
+struct SettingsPatch {
+    notifications: Option<bool>,
+}
+
+async fn put_settings(State(s): S, Json(p): Json<SettingsPatch>) -> R<Settings> {
+    let mut settings = Settings::load(&s.dir);
+    if let Some(n) = p.notifications {
+        settings.notifications = n;
+    }
+    settings
+        .save(&s.dir)
+        .map_err(|e| ApiError::internal(format!("could not save settings: {e}")))?;
+    // Other open pages refetch and show the new state.
+    s.bump();
+    Ok(Json(settings))
 }

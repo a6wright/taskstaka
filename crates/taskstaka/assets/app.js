@@ -7,7 +7,7 @@
 const S = {
   view: 'outline', ctx: 'work', open: null,     // route
   stackId: null,                             // the leaf the Stack view is on
-  tree: [], next: null, waiting: [], nudges: [], all: [],
+  tree: [], next: null, waiting: [], nudges: [], all: [], settings: { notifications: true },
   rev: 0, dirty: false, pendingRefresh: false, focus: null,
   showDone: false,                           // outline: show completed tasks
   showNotes: false,                          // outline: show each task's notes under it
@@ -65,15 +65,16 @@ const q = (extra = {}) => {
 
 async function load() {
   if (S.dirty) { S.pendingRefresh = true; return; }
-  const [tree, next, plan, waiting, nudges, all] = await Promise.all([
+  const [tree, next, plan, waiting, nudges, all, settings] = await Promise.all([
     api('GET', '/api/v1/tree' + q({ include_closed: 'true' })),
     api('GET', '/api/v1/next' + q()),
     api('GET', '/api/v1/plan' + q()),
     api('GET', '/api/v1/waiting' + q()),
     api('GET', '/api/v1/nudges'),
     api('GET', '/api/v1/tasks' + q({ include_closed: 'true' })),
+    api('GET', '/api/v1/settings'),
   ]);
-  Object.assign(S, { tree, next, plan, waiting, nudges, all, rev: next.rev });
+  Object.assign(S, { tree, next, plan, waiting, nudges, all, settings, rev: next.rev });
   render();
 }
 
@@ -173,6 +174,7 @@ function renderSide() {
     <div class="brand"><span><span class="dot"></span>taskstaka</span></div>
     <div class="ctxs">${['', 'work', 'personal'].map(c => `<a href="${urlFor({ ctx: c })}" data-ctx="${c}" class="${S.ctx === c ? 'active' : ''}">${c || 'all'}</a>`).join('')}</div>
     <nav class="nav">${Object.entries(VIEWS).map(([k, v]) => `<a href="${urlFor({ view: k })}" data-view="${k}" class="${S.view === k ? 'active' : ''}"><span class="ico">${v.ico}</span>${v.label}<span class="count">${counts[k]}</span></a>`).join('')}</nav>
+    <div class="sidefoot"><button id="toggle-notify" class="toggle ${S.settings.notifications ? 'on' : ''}" title="desktop notifications for nudges; the Nudges view still shows them">🔔 notifications ${S.settings.notifications ? 'on' : 'off'}</button></div>
 `;
 }
 
@@ -536,6 +538,10 @@ document.addEventListener('click', async (e) => {
   const id = b.dataset.id || b.dataset.open || b.dataset.chase || b.dataset.reply || b.dataset.wait || b.dataset.addsub || b.dataset.delete;
   if (b.dataset.open) return go({ open: b.dataset.open });
   if (b.hasAttribute('data-close') || b.id === 'pane-toggle') return go({ open: null });
+  if (b.id === 'toggle-notify') {
+    try { S.settings = await api('PUT', '/api/v1/settings', { notifications: !S.settings.notifications }); } catch (err) { flash(err.message, 'error'); }
+    return render();
+  }
   if (b.id === 'toggle-done') { S.showDone = !S.showDone; try { localStorage.setItem('taskstaka.showDone', S.showDone ? '1' : '0'); } catch (_) {} return render(); }
   if (b.dataset.expand) { const id = b.dataset.expand; if (S.expanded.has(id)) S.expanded.delete(id); else S.expanded.add(id); return render(); }
   if (b.id === 'toggle-notes') { S.showNotes = !S.showNotes; try { localStorage.setItem('taskstaka.showNotes', S.showNotes ? '1' : '0'); } catch (_) {} return render(); }

@@ -186,6 +186,13 @@ pub enum Cmd {
     /// Stop the daemon and start a fresh one (after installing a new build).
     Restart,
 
+    /// Desktop notifications: show the setting, or turn them `on` / `off`.
+    /// Takes effect immediately; nudges still show in the panel.
+    Notifications {
+        #[arg(value_parser = ["on", "off"])]
+        state: Option<String>,
+    },
+
     /// Bump "last touched"; optionally journal a note into the body.
     Touch { id: String, note: Vec<String> },
 

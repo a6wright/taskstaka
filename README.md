@@ -210,7 +210,13 @@ WantedBy=default.target
 
 Nudges (desktop notifications) fire for: stuck in *doing* > 2 days, nothing actionable,
 tasks rotting untouched > 14 days, a parent resurfacing, follow-ups due, too much WIP.
-`taskstaka serve --quiet 22-8` silences them overnight; `--no-notify` logs only.
+`taskstaka serve --quiet 22-8` silences them overnight; `--no-notify` logs only (as an
+environment variable it must be `TASKSTAKA_NO_NOTIFY=true`).
+
+To turn the popups off or on without restarting: `taskstaka notifications off` (or `on`; with
+no argument it shows the setting), or the 🔔 switch at the bottom of the web sidebar. It is
+stored in `.taskstaka/settings.json`. Nudges still appear in the Nudges view. A parent that
+finishing a task puts straight in your hand (ADR 0010) does not send a "ready" popup.
 
 ## Other clients
 

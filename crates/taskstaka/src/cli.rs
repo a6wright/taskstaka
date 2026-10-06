@@ -107,6 +107,19 @@ pub fn main() -> Result<()> {
             print!("{}", crate::setup::describe(&report, &opts));
             return Ok(());
         }
+        Cmd::Notifications { state } => {
+            use taskstaka_core::settings::Settings;
+            let mut settings = Settings::load(&dir);
+            if let Some(state) = state {
+                settings.notifications = state == "on";
+                settings.save(&dir).context("saving settings")?;
+            }
+            println!(
+                "desktop notifications are {}",
+                if settings.notifications { "on" } else { "off" }
+            );
+            return Ok(());
+        }
         Cmd::Status => {
             return match Client::discover(&dir) {
                 Some(c) => {
@@ -196,6 +209,7 @@ pub fn run(b: &mut dyn Backend, cmd: Cmd, json: bool) -> Result<()> {
         | Cmd::Serve { .. }
         | Cmd::Stop
         | Cmd::Restart
+        | Cmd::Notifications { .. }
         | Cmd::Status
         | Cmd::Tui { .. }
         | Cmd::Mcp

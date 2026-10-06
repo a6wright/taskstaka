@@ -5,7 +5,7 @@
 
 // ---------- state ----------
 const S = {
-  view: 'outline', ctx: '', open: null,     // route
+  view: 'outline', ctx: 'work', open: null,     // route
   stackId: null,                             // the leaf the Stack view is on
   tree: [], next: null, waiting: [], nudges: [], all: [],
   rev: 0, dirty: false, pendingRefresh: false, focus: null,
@@ -81,8 +81,9 @@ async function load() {
 function routeFromUrl() {
   const path = location.pathname.replace(/\/+$/, '') || '/';
   const sp = new URLSearchParams(location.search);
+  // No param means work (the default tab); 'all' is spelled out.
   const ctx = sp.get('context');
-  S.ctx = (ctx === 'work' || ctx === 'personal') ? ctx : '';
+  S.ctx = ctx === 'all' ? '' : (ctx === 'personal' ? 'personal' : 'work');
   const m = path.match(/^\/t\/([0-9a-z]+)$/);
   if (m) { S.view = sp.get('view') || 'outline'; S.open = m[1]; return; }
   S.view = path === '/' ? 'outline' : path.slice(1);
@@ -93,7 +94,7 @@ function routeFromUrl() {
 }
 function urlFor({ view = S.view, ctx = S.ctx, open = S.open, stackId = S.stackId } = {}) {
   const sp = new URLSearchParams();
-  if (ctx) sp.set('context', ctx);
+  if (ctx !== 'work') sp.set('context', ctx || 'all');
   if (open) sp.set('open', open);
   if (view === 'next' && stackId) sp.set('task', stackId);
   const qs = sp.toString();

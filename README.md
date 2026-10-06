@@ -301,3 +301,7 @@ Answered items resurface in `next`; chases move the counts; you get a notificati
 ```
 cargo fmt --all && cargo clippy --all-targets && cargo test
 ```
+
+## License
+
+[MIT](LICENSE).

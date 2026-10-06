@@ -281,7 +281,11 @@ What that needs:
 1. **macOS pass** — `cargo install`, `init`, `tui`, web, desktop notifications, the launchd
    plist in the README, the daemon lock and detached start (see the P1 and P4 deviations
    below for how those are built). Expect small fixes, not design changes.
-2. **Release artefacts** — tagged release with prebuilt tarballs (`cargo-dist` or a GitHub
+2. **Release artefacts** — start with a tagged release and let the formula build from the
+   source tarball (`depends_on "rust" => :build`; slow install, but no CI to maintain and it
+   works for both Mac architectures). Needs the repo public, or a token for a private one.
+   Prebuilt tarballs come later, once someone other than the author installs it:
+   tagged release with prebuilt tarballs (`cargo-dist` or a GitHub
    Actions matrix for `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`).
 3. **Tap** — `homebrew-taskstaka` with a formula pointing at the tarball + sha256, a
    `brew services` plist (`service do run [opt_bin/"taskstaka", "serve"]`), and `taskstaka

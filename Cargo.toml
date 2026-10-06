@@ -6,6 +6,7 @@ resolver = "3"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+repository = "https://github.com/a6wright/taskstaka"
 
 [workspace.dependencies]
 taskstaka-core = { path = "crates/core" }

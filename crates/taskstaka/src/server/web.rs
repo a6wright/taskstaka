@@ -25,6 +25,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/waiting", get(shell))
         .route("/someday", get(shell))
         .route("/done", get(shell))
+        .route("/nudges", get(shell))
+        .route("/stack", get(shell))
         .route("/t/{id}", get(shell))
         .route("/app.js", get(js))
         .route("/app.css", get(css))

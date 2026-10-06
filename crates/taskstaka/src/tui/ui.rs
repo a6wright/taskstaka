@@ -15,15 +15,18 @@ use taskstaka_core::{Status, TaskId, Tier, humanize};
 use super::app::{App, MessageKind, Mode, NodeKind, Row, View};
 
 const SELECTED_BG: Color = Color::Rgb(40, 40, 50);
+/// Rows the header takes, and the fewest list rows we keep.
+const HEADER: u16 = 3;
+const MIN_LIST: u16 = 4;
 
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
     let plate_h = plate_height(app, area);
     let [header, plate, spacer, list, detail, footer] = Layout::vertical([
-        Constraint::Length(3),
+        Constraint::Length(HEADER),
         Constraint::Length(plate_h),
         Constraint::Length(u16::from(plate_h > 0)),
-        Constraint::Min(4),
+        Constraint::Min(MIN_LIST),
         Constraint::Length(detail_height(app, area)),
         Constraint::Length(1),
     ])
@@ -72,8 +75,14 @@ fn plate_height(app: &App, area: Rect) -> u16 {
     let Some(t) = app.in_hand() else { return 0 };
     let notes = note_lines(&t.body).len() as u16;
     // border + title + crumb + notes + verbs + border
-    let want = 2 + 1 + 1 + notes + 1;
-    want.min(area.height / 2).max(4)
+    let crumb = u16::from(!app.tree.ancestors(&t.id).is_empty() || is_agent_step(t));
+    let want = 2 + 1 + crumb + notes + 1;
+    // Header, spacer, footer and at least four list rows always stay.
+    let room = area.height.saturating_sub(HEADER + 1 + 1 + MIN_LIST);
+    if room < 4 {
+        return 0;
+    }
+    want.min(room)
 }
 
 fn detail_height(app: &App, area: Rect) -> u16 {
@@ -87,7 +96,14 @@ fn detail_height(app: &App, area: Rect) -> u16 {
     if matches!(app.selected_row(), Some(Row::Plate(id)) if *id == t.id) {
         return 0;
     }
-    (area.height / 3).clamp(6, 12)
+    let room = area
+        .height
+        .saturating_sub(HEADER + 1 + MIN_LIST + plate_height(app, area));
+    // Too little room: skip it rather than squeeze the list or the footer.
+    if room < 6 {
+        return 0;
+    }
+    (area.height / 3).clamp(6, 12).min(room)
 }
 
 /// Notes without the journal stamps, newest last, at most three.
@@ -167,11 +183,20 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(Color::Yellow).bold(),
         ))
     } else {
+        // Only what is non-zero: a row of zeros is noise.
+        let mut parts = vec![format!("{} to do now", s.actionable)];
+        for (n, what) in [
+            (s.doing, "doing"),
+            (s.blocked, "blocked"),
+            (s.waiting, "waiting on people"),
+            (s.someday, "someday"),
+        ] {
+            if n > 0 {
+                parts.push(format!("{n} {what}"));
+            }
+        }
         Line::from(Span::styled(
-            format!(
-                " {} you can do now · {} doing · {} blocked · {} waiting on people · {} someday",
-                s.actionable, s.doing, s.blocked, s.waiting, s.someday
-            ),
+            format!(" {}", parts.join(" · ")),
             Style::default().fg(Color::Gray),
         ))
     };
@@ -197,17 +222,20 @@ fn draw_plate(f: &mut Frame, app: &App, area: Rect) {
     let anc = app.tree.ancestors(&t.id);
     let path: Vec<&str> = anc.iter().rev().map(|a| a.title.as_str()).collect();
     let mut crumb = if path.is_empty() {
-        " a story of its own".to_string()
+        String::new()
     } else {
         format!(" so that › {}", path.join(" › "))
     };
     if is_agent_step(t) {
         crumb.push_str("   🤖 Claude's step — prompt it, then check");
     }
-    lines.push(Line::from(Span::styled(
-        crumb,
-        Style::default().fg(Color::DarkGray),
-    )));
+    // A story with no parent has nothing to say here: skip the line.
+    if !crumb.is_empty() {
+        lines.push(Line::from(Span::styled(
+            crumb,
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
 
     let notes = note_lines(&t.body);
     if notes.is_empty() {
@@ -227,6 +255,9 @@ fn draw_plate(f: &mut Frame, app: &App, area: Rect) {
         " d done · p put back · i first I need to… · w wait on someone",
         Style::default().fg(Color::Yellow),
     )));
+
+    let inner = area.width.saturating_sub(2) as usize;
+    let lines: Vec<Line> = lines.into_iter().map(|l| clip_line(l, inner)).collect();
 
     let border = if selected {
         Style::default().fg(Color::Yellow)
@@ -285,6 +316,16 @@ fn empty_message(app: &App) -> &'static str {
     }
 }
 
+/// How long a task has waited, shown only once it starts to matter: a column
+/// of "1d" on every row is noise, three days or more is a signal.
+fn age_cell(secs: i64) -> String {
+    if secs >= 3 * 86_400 {
+        format!(" {:>4} ", humanize::duration(secs))
+    } else {
+        "      ".to_string()
+    }
+}
+
 /// One row as a single line `width` cells wide at most. Selection highlight
 /// and any box around it are added by the caller.
 fn row_line(
@@ -332,7 +373,7 @@ fn row_line(
             } else {
                 format!(" {badge} ")
             };
-            let age = format!(" {:>4} ", humanize::duration(it.queued_secs));
+            let age = age_cell(it.queued_secs);
             let fixed = 4 + cells(&badge_s) + cells(&age);
             let title_room = width.saturating_sub(fixed);
             let style = if in_hand == Some(&it.id) {
@@ -362,7 +403,6 @@ fn row_line(
             count,
             agent,
             expanded,
-            peek,
             ..
         } => {
             let arrow = if *expanded { "▾" } else { "▸" };
@@ -371,11 +411,7 @@ fn row_line(
             } else {
                 String::new()
             };
-            let text = if *expanded {
-                format!("  {arrow} {count} later{robots}")
-            } else {
-                format!("  {arrow} … {count} later{robots}: {peek}")
-            };
+            let text = format!("  {arrow} {count} later{robots}");
             Line::from(vec![
                 Span::raw(cursor),
                 Span::styled(
@@ -470,7 +506,7 @@ fn row_line(
                 NodeKind::Closed => ("✓", Style::default().fg(Color::DarkGray)),
             };
             let indent = "  ".repeat(*depth);
-            let age = format!(" {:>4} ", humanize::duration(*age_secs));
+            let age = age_cell(*age_secs);
             let state_s = if state.is_empty() {
                 String::new()
             } else {
@@ -673,7 +709,55 @@ fn groups(app: &App) -> Vec<Group<'_>> {
             g.base = None;
         }
     }
+    // Stories that are a single task each, side by side, share one box: a
+    // box per lone task is three lines of border for one line of content.
+    if app.view == View::Next {
+        let lone = |g: &Group| g.rows.len() == 1 && g.base.is_none() && g.label.is_empty();
+        let mut merged: Vec<Group> = Vec::new();
+        let mut run = false;
+        for g in out {
+            if lone(&g) {
+                if run && let Some(prev) = merged.last_mut() {
+                    prev.rows.extend(g.rows);
+                    prev.label = "single tasks".into();
+                    continue;
+                }
+                run = true;
+            } else {
+                run = false;
+            }
+            merged.push(g);
+        }
+        return merged;
+    }
     out
+}
+
+/// Cut a line to `max` cells, ending in `…`, keeping each span's style.
+fn clip_line(line: Line<'static>, max: usize) -> Line<'static> {
+    if line_cells(&line) <= max {
+        return line;
+    }
+    let mut left = max.saturating_sub(1);
+    let mut spans = Vec::new();
+    for sp in line.spans {
+        if left == 0 {
+            break;
+        }
+        let fitted = fit(&sp.content, left + 1);
+        let w = cells(fitted.trim_end_matches('…'));
+        let cut = fitted.ends_with('…') && cells(&sp.content) > left;
+        left = left.saturating_sub(w);
+        spans.push(Span::styled(
+            fitted.trim_end_matches('…').to_string(),
+            sp.style,
+        ));
+        if cut {
+            break;
+        }
+    }
+    spans.push(Span::raw("…"));
+    Line::from(spans)
 }
 
 fn line_cells(line: &Line) -> usize {
@@ -769,6 +853,8 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
     let inner = width.saturating_sub(4);
     // (row index, line): rows are one line each; borders and gaps have no row.
     let mut disp: Vec<(Option<usize>, Line<'static>)> = Vec::new();
+    // First and last line of each box in `disp`, for scrolling by whole boxes.
+    let mut spans: Vec<(usize, usize)> = Vec::new();
     if app.view == View::Nudges {
         for (i, row) in app.rows.iter().enumerate() {
             let sel = i == app.selected;
@@ -782,6 +868,7 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
         let all = groups(app);
         let last = all.len().saturating_sub(1);
         for (gi, g) in all.iter().enumerate() {
+            let top = disp.len();
             disp.push((None, box_top(&g.label, width)));
             let content = |idx: usize, row: &Row, disp: &mut Vec<_>| {
                 let sel = idx == app.selected;
@@ -807,29 +894,109 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
                 }
                 None => disp.push((None, box_bottom(width))),
             }
+            spans.push((top, disp.len() - 1));
             if gi != last {
                 disp.push((None, Line::from("")));
             }
         }
     }
 
-    let visible = area.height as usize;
+    let lines = window(disp, &spans, app.selected, area.height as usize);
+    f.render_widget(Paragraph::new(lines), area);
+}
+
+/// Pick the lines to show. Boxes are never cut in half: the window starts at
+/// the top of a box and ends at the bottom of one, with the selected box fully
+/// inside (a box taller than the window scrolls inside itself). Dim markers
+/// say how many boxes are above and below.
+fn window(
+    disp: Vec<(Option<usize>, Line<'static>)>,
+    spans: &[(usize, usize)],
+    selected: usize,
+    visible: usize,
+) -> Vec<Line<'static>> {
+    if disp.len() <= visible || spans.is_empty() {
+        // Plain lists (Nudges) have no boxes: keep the selection in view.
+        let sel_line = disp
+            .iter()
+            .position(|(i, _)| *i == Some(selected))
+            .unwrap_or(0);
+        let start = if disp.len() > visible && sel_line >= visible {
+            sel_line + 1 - visible
+        } else {
+            0
+        };
+        return disp
+            .into_iter()
+            .skip(start)
+            .take(visible)
+            .map(|(_, l)| l)
+            .collect();
+    }
     let sel_line = disp
         .iter()
-        .position(|(i, _)| *i == Some(app.selected))
+        .position(|(i, _)| *i == Some(selected))
         .unwrap_or(0);
-    let start = if sel_line >= visible {
-        sel_line + 1 - visible
-    } else {
-        0
+    let sel_box = spans
+        .iter()
+        .position(|(a, b)| (*a..=*b).contains(&sel_line))
+        .unwrap_or(0);
+    // The first box top that leaves the selected box fully visible.
+    let pick = |usable: usize| -> usize {
+        let (sa, sb) = spans[sel_box];
+        if sb + 1 - sa > usable {
+            // Taller than the window: show the selected line near the bottom.
+            return sa.max((sel_line + 1).saturating_sub(usable));
+        }
+        spans
+            .iter()
+            .map(|(a, _)| *a)
+            .find(|a| sb < a + usable)
+            .unwrap_or(sa)
     };
-    let lines: Vec<Line> = disp
-        .into_iter()
-        .skip(start)
-        .take(visible)
-        .map(|(_, l)| l)
-        .collect();
-    f.render_widget(Paragraph::new(lines), area);
+    let mut usable = visible - 1; // room for a "more below" marker
+    let mut start = pick(usable);
+    if start > 0 {
+        usable = visible - 2; // and one for "more above"
+        start = pick(usable);
+    }
+    // End at the bottom of the last box that fits whole.
+    let limit = start + usable;
+    let mut end = spans
+        .iter()
+        .filter(|(a, b)| *a >= start && *b < limit)
+        .map(|(_, b)| b + 1)
+        .max()
+        .unwrap_or(limit.min(disp.len()));
+    if end <= start {
+        end = limit.min(disp.len());
+    }
+    let above = spans.iter().filter(|(_, b)| *b < start).count();
+    let below = spans.iter().filter(|(a, _)| *a >= end).count();
+    let dim = Style::default().fg(Color::DarkGray);
+    let mut out: Vec<Line<'static>> = Vec::with_capacity(visible);
+    if start > 0 {
+        out.push(Line::from(Span::styled(
+            format!(" ▲ {above} more above"),
+            dim,
+        )));
+    }
+    out.extend(
+        disp.into_iter()
+            .skip(start)
+            .take(end - start)
+            .map(|(_, l)| l),
+    );
+    if below > 0 {
+        while out.len() < visible - 1 {
+            out.push(Line::from(""));
+        }
+        out.push(Line::from(Span::styled(
+            format!(" ▼ {below} more below"),
+            dim,
+        )));
+    }
+    out
 }
 
 fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
@@ -951,24 +1118,78 @@ fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
     );
 }
 
+/// Keys for each view, most useful first. The footer shows as many as fit.
+fn footer_keys(view: View) -> &'static [&'static str] {
+    match view {
+        View::Next => &[
+            "j/k move",
+            "d done",
+            "s start",
+            "space details",
+            "l later",
+            "p put back",
+            "i first",
+            "w wait",
+            "a add",
+            "1-5 views",
+        ],
+        View::Outline => &[
+            "j/k move",
+            "d done",
+            "s start",
+            "space details",
+            "w wait",
+            "a add",
+            "⇧arrows reorder",
+            "z someday",
+            "1-5 views",
+        ],
+        View::Waiting => &[
+            "j/k move",
+            "f chase",
+            "u unblock",
+            "d done",
+            "space details",
+            "1-5 views",
+        ],
+        View::Someday => &[
+            "j/k move",
+            "u revive",
+            "a park an idea",
+            "d done",
+            "x drop",
+            "space details",
+            "1-5 views",
+        ],
+        View::Nudges => &[
+            "j/k move",
+            "Enter edit",
+            "d done",
+            "s start",
+            "f chase",
+            "1-5 views",
+        ],
+    }
+}
+
+/// `1 line of keys` that never overflows: items are dropped from the end of the
+/// list until it fits, and `? help · q quit` always stays.
+fn footer_text(view: View, width: usize) -> String {
+    let tail = "? help · q quit";
+    let mut text = String::from(" ");
+    for key in footer_keys(view) {
+        let next = format!("{text}{key} · ");
+        if cells(&next) + cells(tail) + 1 > width {
+            break;
+        }
+        text = next;
+    }
+    text.push_str(tail);
+    text
+}
+
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
-    let keys = match app.view {
-        View::Next => {
-            " 1-5 views · j/k · l later · d done · s start · p put back · i first · w wait · a add · space details · ? · q"
-        }
-        View::Outline => {
-            " 1-5 views · j/k · ⇧arrows move · d done · s start · w wait · z someday · space details · ? · q"
-        }
-        View::Waiting => {
-            " 1-5 views · j/k · f chase · u unblock (they replied) · d done · space details · ? · q"
-        }
-        View::Someday => {
-            " 1-5 views · j/k · u revive · a park an idea · d done · x drop · space details · ? · q"
-        }
-        View::Nudges => {
-            " 1-5 views · j/k · Enter edit · d done · s start · f chase · space details · ? · q"
-        }
-    };
+    let keys = footer_text(app.view, area.width as usize);
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
             keys,
@@ -1210,6 +1431,107 @@ mod tests {
             render(&app, 100, 20).contains('╭'),
             "still open after moving"
         );
+    }
+
+    /// Twelve two-step stories, so Next has far more than a window can hold.
+    fn tall_app() -> App {
+        let now: jiff::Zoned = "2026-09-29T15:00:00[UTC]".parse().unwrap();
+        let mut tasks = Vec::new();
+        for n in 0..12 {
+            let story = format!("s{n:02}x00");
+            let mut t = taskstaka_core::Task::new(
+                story.parse().unwrap(),
+                format!("Story number {n}"),
+                taskstaka_core::Context::Work,
+                now.timestamp(),
+            );
+            t.parent = None;
+            tasks.push(t);
+            for k in 0..2 {
+                let mut c = taskstaka_core::Task::new(
+                    format!("s{n:02}y{k}0").parse().unwrap(),
+                    format!("Step {k} of story {n}"),
+                    taskstaka_core::Context::Work,
+                    now.timestamp(),
+                );
+                c.parent = Some(story.parse().unwrap());
+                tasks.push(c);
+            }
+        }
+        App::new(taskstaka_core::Tree::from_tasks(tasks), None, now)
+    }
+
+    /// Scrolling shows whole boxes, keeps the selection on screen, and never
+    /// loses the footer, wherever the selection is and however short the window.
+    #[test]
+    fn scrolling_never_cuts_a_box_or_loses_the_cursor() {
+        for height in [12u16, 16, 22, 30] {
+            let mut app = tall_app();
+            for step in 0..40 {
+                let out = render(&app, 90, height);
+                let lines: Vec<&str> = out
+                    .lines()
+                    .map(|l| {
+                        l.trim()
+                            .split("\" Hidden by")
+                            .next()
+                            .unwrap_or(l)
+                            .trim_matches('"')
+                    })
+                    .collect();
+                let tops = lines
+                    .iter()
+                    .filter(|l| l.trim_start().starts_with('╭'))
+                    .count();
+                let bottoms = lines
+                    .iter()
+                    .filter(|l| l.trim_start().starts_with('╰'))
+                    .count();
+                assert_eq!(
+                    tops, bottoms,
+                    "h={height} step={step}: a box was cut\n{out}"
+                );
+                assert!(
+                    lines.iter().any(|l| l.contains('›')),
+                    "h={height} step={step}: the cursor scrolled out of view\n{out}"
+                );
+                assert!(
+                    lines.last().unwrap().contains("q quit"),
+                    "h={height} step={step}: the footer was cut off\n{out}"
+                );
+                press(&mut app, 'j');
+            }
+        }
+    }
+
+    #[test]
+    fn markers_say_how_many_boxes_are_out_of_view() {
+        let mut app = tall_app();
+        assert!(render(&app, 90, 20).contains("more below"));
+        assert!(!render(&app, 90, 20).contains("more above"));
+        for _ in 0..80 {
+            press(&mut app, 'j');
+        }
+        let out = render(&app, 90, 20);
+        assert!(out.contains("more above"), "{out}");
+        assert!(!out.contains("more below"), "{out}");
+    }
+
+    #[test]
+    fn the_footer_fits_any_width_and_keeps_help_and_quit() {
+        for view in super::super::app::View::ALL {
+            for width in [24usize, 40, 60, 80, 120, 200] {
+                let text = footer_text(view, width);
+                assert!(
+                    cells(&text) <= width.max(cells(" ? help · q quit") + 1),
+                    "{view:?} {width}: {text:?}"
+                );
+                assert!(
+                    text.ends_with("? help · q quit"),
+                    "{view:?} {width}: {text:?}"
+                );
+            }
+        }
     }
 
     /// Every border of every box is the same width, whatever the row holds

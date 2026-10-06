@@ -3,7 +3,7 @@ source: crates/taskstaka/src/tui/ui.rs
 expression: "render(&app, 100, 14)"
 ---
 "  taskstaka · all  1 Next  2 Outline  3 Waiting on·1  4 Someday·1  5 Nudges                         "
-"  2 you can do now · 1 doing · 4 blocked · 1 waiting on people · 1 someday                          "
+"  2 to do now · 1 doing · 4 blocked · 1 waiting on people · 1 someday                               "
 "                                                                                                    "
 "  ╭─ parked stories (1) ─────────────────────────────────────────────────────────────────────────╮  "
 "  │ › 💤 Learn Zig                                                                          12d  │  " Hidden by multi-width symbols: [(7, " ")]
@@ -15,4 +15,4 @@ expression: "render(&app, 100, 14)"
 "                                                                                                    "
 "                                                                                                    "
 "                                                                                                    "
-"  1-5 views · j/k · u revive · a park an idea · d done · x drop · space details · ? · q             "
+"  j/k move · u revive · a park an idea · d done · x drop · space details · ? help · q quit          "

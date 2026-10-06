@@ -387,7 +387,7 @@ impl App {
                             ),
                         )
                     } else if d.blocked_by > 0 {
-                        (NodeKind::Blocked, format!("▽ blocked by {}", d.blocked_by))
+                        (NodeKind::Blocked, String::new()) // the ▽ already says so
                     } else if d.deferred_by.is_some() {
                         (NodeKind::Someday, "deferred".to_string())
                     } else if d.resurfaced_at.is_some() {
@@ -1129,7 +1129,7 @@ pub(crate) mod tests {
                 _ => None,
             })
             .unwrap();
-        assert_eq!(create, "▽ blocked by 1 · 🤖 Claude");
+        assert_eq!(create, "🤖 Claude");
 
         app.handle_key(key('3'));
         assert_eq!(

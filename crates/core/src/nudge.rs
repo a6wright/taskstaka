@@ -362,8 +362,12 @@ impl NudgeLog {
     }
 
     /// Forget keys for tasks that no longer exist, so the file stays small.
-    pub fn prune(&mut self, tree: &Tree) {
-        self.last_fired.retain(|k, _| match k.split_once(':') {
+    /// Date-keyed digests have no task: keep them while their cooldown could
+    /// still matter, or the once-a-day digest would fire on every tick.
+    pub fn prune(&mut self, tree: &Tree, now: Timestamp) {
+        const DIGEST_KEEP_SECS: i64 = 7 * 24 * 3600;
+        self.last_fired.retain(|k, at| match k.split_once(':') {
+            Some(("waiting_digest", _)) => now.as_second() - at.as_second() < DIGEST_KEEP_SECS,
             Some((_, id)) => id
                 .parse::<TaskId>()
                 .ok()
@@ -498,8 +502,33 @@ mod tests {
         reloaded
             .last_fired
             .insert("stuck_doing:zzzzzz".into(), later);
-        reloaded.prune(&tree);
+        reloaded.prune(&tree, now.timestamp());
         assert!(!reloaded.last_fired.contains_key("stuck_doing:zzzzzz"));
+    }
+
+    #[test]
+    fn the_daily_digest_survives_prune_so_its_cooldown_holds() {
+        // The daemon prunes then take_due on every evaluation. A date-keyed
+        // digest used to be pruned each time and so fired on every tick.
+        let (tree, now) = fixture();
+        let digest = Nudge {
+            rule: Rule::WaitingDigest,
+            key: "waiting_digest:2026-09-29".into(),
+            task: None,
+            title: "Waiting on".into(),
+            message: "Waiting on 1 person".into(),
+        };
+        let mut log = NudgeLog::default();
+        let t0 = now.timestamp();
+        for tick in 0..5 {
+            let at = t0 + (tick * 300).seconds();
+            log.prune(&tree, at);
+            let due = log.take_due(std::slice::from_ref(&digest), at);
+            assert_eq!(due.len(), usize::from(tick == 0), "tick {tick}");
+        }
+        // Old digest keys are eventually dropped so the file stays small.
+        log.prune(&tree, t0 + (8 * 24 * 3600).seconds());
+        assert!(!log.last_fired.contains_key("waiting_digest:2026-09-29"));
     }
 
     #[test]

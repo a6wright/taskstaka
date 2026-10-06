@@ -92,7 +92,7 @@ impl Nudger {
                 return;
             };
             let mut log = NudgeLog::load(&self.log_path);
-            log.prune(store.tree());
+            log.prune(store.tree(), now.timestamp());
             let current = evaluate(store.tree(), &now, &self.cfg);
             let due = log.take_due(&current, now.timestamp());
             if let Err(e) = log.save(&self.log_path) {

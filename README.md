@@ -216,9 +216,18 @@ tasks rotting untouched > 14 days, a parent resurfacing, follow-ups due, too muc
 environment variable it must be `TASKSTAKA_NO_NOTIFY=true`).
 
 To turn the popups off or on without restarting: `taskstaka notifications off` (or `on`; with
-no argument it shows the setting), or the 🔔 switch at the bottom of the web sidebar. It is
-stored in `.taskstaka/settings.json`. Nudges still appear in the Nudges view. A parent that
-finishing a task puts straight in your hand (ADR 0010) does not send a "ready" popup.
+no argument it shows the setting), or the switch on the web **Settings** page. Nudges still
+appear in the Nudges view. A parent that finishing a task puts straight in your hand (ADR 0010)
+does not send a "ready" popup.
+
+**Settings and the notes folder.** Machine-level settings live in
+`~/.config/taskstaka/settings.json` (`$XDG_CONFIG_HOME` is honoured; `$TASKSTAKA_CONFIG_DIR`
+overrides both). They hold the notifications switch and the notes folder. The folder is
+chosen in this order: `--dir`, then `$TASKSTAKA_DIR`, then the saved setting, then `~/todo`.
+Change it from the Settings page: the daemon restarts on the new folder, copying your notes
+into it if it is empty or new, and leaves the old folder untouched. Choosing a folder that
+already holds taskstaka notes uses it as it is. From a terminal the same move is
+`taskstaka restart --to <folder>`. See ADR 0011.
 
 ## Other clients
 

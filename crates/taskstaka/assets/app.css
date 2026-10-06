@@ -194,5 +194,19 @@ button { cursor: pointer; }
 .pane .idtag { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 kbd { font-family: var(--mono); font-size: 11px; background: var(--bg-active); padding: 1px 5px; border-radius: 4px; color: var(--fg-2); }
 
-.sidefoot { margin-top: auto; padding: 0 4px; }
-.sidefoot .toggle { width: 100%; text-align: left; }
+
+.sidefoot { margin-top: auto; }
+.sidefoot a { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: var(--radius); color: var(--fg-2); }
+.sidefoot a:hover { background: var(--bg-hover); }
+.sidefoot a.active { background: var(--bg-active); color: var(--fg); }
+.sidefoot .ico { width: 16px; text-align: center; color: var(--muted); font-size: 13px; }
+.settings { margin: 16px 24px; display: flex; flex-direction: column; gap: 14px; max-width: 720px; }
+.setcard { border: 1px solid var(--line); background: var(--bg-side); border-radius: var(--radius); padding: 14px 16px; }
+.setcard h2 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+.setcard p { margin: 0 0 10px; color: var(--fg-2); font-size: 13px; }
+.setcard code { font-family: var(--mono); font-size: 12px; color: var(--fg); }
+.setrow { display: flex; gap: 8px; margin: 4px 0 10px; }
+.setrow input { flex: 1; min-width: 0; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 9px; font: 13px var(--mono); }
+.setrow input:focus { outline: 1px solid var(--accent); }
+.setnote { color: var(--muted); font-size: 12px; } .setnote.warn { color: var(--warn); } .setnote.error { color: var(--danger); }
+.toggle:disabled { opacity: .5; }

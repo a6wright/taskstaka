@@ -68,18 +68,49 @@ pub fn main() -> Result<()> {
                 }
             };
         }
-        Cmd::Restart => {
-            let was_running = Client::stop_and_wait(&dir)?;
+        Cmd::Restart { to } => {
             let port = cli.port.unwrap_or(crate::DEFAULT_PORT);
-            crate::client::spawn_daemon(&dir, port)?;
-            let c = Client::wait_for(&dir)?;
+            // Validate before stopping anything: a bad folder must not cost a restart.
+            let plan = match &to {
+                Some(t) => Some(crate::notes_dir::plan(&dir, &t.to_string_lossy())?),
+                None => None,
+            };
+            let was_running = Client::stop_and_wait(&dir)?;
+            let mut target = dir.clone();
+            if let Some(plan) = plan {
+                // The old daemon is stopped, so the copy is final. If it fails,
+                // bring the old one back rather than leave nothing running.
+                let moved = crate::notes_dir::apply(&dir, &plan).and_then(|n| {
+                    let mut settings = taskstaka_core::settings::Settings::load();
+                    settings.dir = Some(plan.target.clone());
+                    settings.save().context("saving the notes folder setting")?;
+                    Ok(n)
+                });
+                match moved {
+                    Ok(n) => {
+                        if plan.kind == crate::notes_dir::Kind::CopyInto {
+                            println!("copied {n} note(s) to {}", plan.target.display());
+                        }
+                        target = plan.target;
+                    }
+                    Err(e) => {
+                        crate::client::spawn_daemon(&dir, port)?;
+                        return Err(
+                            e.context("could not move the notes; the old folder is still in use")
+                        );
+                    }
+                }
+            }
+            crate::client::spawn_daemon(&target, port)?;
+            let c = Client::wait_for(&target)?;
             let h = c.health()?;
             println!(
-                "{} daemon at {}  pid {}  v{}",
+                "{} daemon at {}  pid {}  v{}  {}",
                 if was_running { "restarted" } else { "started" },
                 c.base(),
                 h.pid,
-                h.version
+                h.version,
+                target.display()
             );
             return Ok(());
         }
@@ -109,10 +140,10 @@ pub fn main() -> Result<()> {
         }
         Cmd::Notifications { state } => {
             use taskstaka_core::settings::Settings;
-            let mut settings = Settings::load(&dir);
+            let mut settings = Settings::load();
             if let Some(state) = state {
                 settings.notifications = state == "on";
-                settings.save(&dir).context("saving settings")?;
+                settings.save().context("saving settings")?;
             }
             println!(
                 "desktop notifications are {}",
@@ -208,7 +239,7 @@ pub fn run(b: &mut dyn Backend, cmd: Cmd, json: bool) -> Result<()> {
         Cmd::Init
         | Cmd::Serve { .. }
         | Cmd::Stop
-        | Cmd::Restart
+        | Cmd::Restart { .. }
         | Cmd::Notifications { .. }
         | Cmd::Status
         | Cmd::Tui { .. }

@@ -63,6 +63,8 @@ async fn shell_assets_and_api_from_one_origin() {
         "/waiting",
         "/someday",
         "/done",
+        "/nudges",
+        "/settings",
         "/t/abc123",
         "/?context=work",
     ] {
@@ -90,6 +92,7 @@ async fn shell_assets_and_api_from_one_origin() {
         "/api/v1/next?limit=0",
         "/api/v1/waiting",
         "/api/v1/nudges",
+        "/api/v1/settings",
         "/api/v1/tasks?include_closed=true",
     ] {
         let (status, ctype, _) = get(&a, &format!("{base}{path}"));

@@ -7,7 +7,7 @@
 const S = {
   view: 'outline', ctx: 'work', open: null,     // route
   stackId: null,                             // the leaf the Stack view is on
-  tree: [], next: null, waiting: [], nudges: [], all: [], settings: { notifications: true },
+  tree: [], next: null, waiting: [], nudges: [], all: [], settings: { notifications: true, dir: null, running_dir: '', restart_needed: false }, dirDraft: null,
   rev: 0, dirty: false, pendingRefresh: false, focus: null,
   showDone: false,                           // outline: show completed tasks
   showNotes: false,                          // outline: show each task's notes under it
@@ -33,6 +33,7 @@ const VIEWS = {
   someday: { ico: '💤', label: 'Someday' },
   done:    { ico: '✓', label: 'Done' },
   nudges:  { ico: '⚑', label: 'Nudges' },
+  settings: { ico: '⚙', label: 'Settings' },   // reached from the sidebar footer, not the nav list
 };
 
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -173,8 +174,8 @@ function renderSide() {
   $('#side').innerHTML = `
     <div class="brand"><span><img class="mark" src="/mark.png" alt="">taskstaka</span></div>
     <div class="ctxs">${['', 'work', 'personal'].map(c => `<a href="${urlFor({ ctx: c })}" data-ctx="${c}" class="${S.ctx === c ? 'active' : ''}">${c || 'all'}</a>`).join('')}</div>
-    <nav class="nav">${Object.entries(VIEWS).map(([k, v]) => `<a href="${urlFor({ view: k })}" data-view="${k}" class="${S.view === k ? 'active' : ''}"><span class="ico">${v.ico}</span>${v.label}<span class="count">${counts[k]}</span></a>`).join('')}</nav>
-    <div class="sidefoot"><button id="toggle-notify" class="toggle ${S.settings.notifications ? 'on' : ''}" title="desktop notifications for nudges; the Nudges view still shows them">🔔 notifications ${S.settings.notifications ? 'on' : 'off'}</button></div>
+    <nav class="nav">${Object.entries(VIEWS).filter(([k]) => k !== 'settings').map(([k, v]) => `<a href="${urlFor({ view: k })}" data-view="${k}" class="${S.view === k ? 'active' : ''}"><span class="ico">${v.ico}</span>${v.label}<span class="count">${counts[k]}</span></a>`).join('')}</nav>
+    <div class="sidefoot"><a href="${urlFor({ view: 'settings' })}" data-view="settings" class="${S.view === 'settings' ? 'active' : ''}"><span class="ico">⚙</span>Settings</a></div>
 `;
 }
 
@@ -198,10 +199,11 @@ function renderMain() {
   else if (S.view === 'someday') body = renderSomeday();
   else if (S.view === 'done') body = renderDone();
   else if (S.view === 'nudges') body = renderNudges();
+  else if (S.view === 'settings') body = renderSettings();
   const doneToggle = S.view === 'outline'
     ? `<button class="toggle ${S.showNotes ? 'on' : ''}" id="toggle-notes" title="show each task's notes beneath it">≡ notes</button><button class="toggle ${S.showDone ? 'on' : ''}" id="toggle-done" title="show completed tasks">✓ completed</button>` : '';
   $('#main').innerHTML = `
-    <div class="head"><h1>${v.label}</h1><span class="sum">${line}</span><span class="sp"></span>${doneToggle}<span class="sum">${S.ctx || 'all'}</span></div>
+    <div class="head"><h1>${v.label}</h1><span class="sum">${S.view === 'settings' ? '' : line}</span><span class="sp"></span>${doneToggle}<span class="sum">${S.view === 'settings' ? '' : (S.ctx || 'all')}</span></div>
     ${VIEW_HELP[S.view] ? `<p class="viewhelp">${esc(VIEW_HELP[S.view])}</p>` : ''}
     <div id="flash" class="flash" hidden></div>
     ${S.nudges.length && S.view !== 'waiting' ? `<div class="nudge">⚑ ${esc(S.nudges[0].message)}</div>` : ''}
@@ -538,6 +540,21 @@ document.addEventListener('click', async (e) => {
   const id = b.dataset.id || b.dataset.open || b.dataset.chase || b.dataset.reply || b.dataset.wait || b.dataset.addsub || b.dataset.delete;
   if (b.dataset.open) return go({ open: b.dataset.open });
   if (b.hasAttribute('data-close') || b.id === 'pane-toggle') return go({ open: null });
+  if (b.id === 'save-dir') {
+    const dir = ($('#set-dir') || {}).value || '', msg = $('#setmsg'), was = S.settings.running_dir;
+    b.disabled = true; msg.className = 'setnote'; msg.textContent = 'Saving…';
+    try {
+      const r = await api('PUT', '/api/v1/settings', { dir });
+      S.dirty = false;
+      if (r.restarting) {
+        msg.textContent = 'Restarting on the new folder…';
+        const now = await waitForNewDaemon(was);
+        S.dirDraft = null; S.settings = now; await load();
+        flash('Now using ' + now.running_dir, 'ok');
+      } else { S.dirDraft = null; S.settings = r; render(); flash('That is already the folder in use', ''); }
+    } catch (err) { msg.className = 'setnote error'; msg.textContent = err.message; b.disabled = false; }
+    return;
+  }
   if (b.id === 'toggle-notify') {
     try { S.settings = await api('PUT', '/api/v1/settings', { notifications: !S.settings.notifications }); } catch (err) { flash(err.message, 'error'); }
     return render();
@@ -777,6 +794,43 @@ function shiftStack(out) {
   }
 }
 
+// ---------- settings ----------
+function renderSettings() {
+  const st = S.settings;
+  const shown = S.dirDraft ?? st.dir ?? st.running_dir;
+  const differs = st.restart_needed
+    ? `<p class="setnote warn">The saved folder (<code>${esc(st.dir)}</code>) is not the one running. The next start uses it, unless <code>--dir</code> or <code>$TASKSTAKA_DIR</code> overrides it.</p>` : '';
+  return `<div class="settings">
+    <section class="setcard">
+      <h2>Notifications</h2>
+      <p>Desktop popups for nudges: follow-ups due, a story ready, tasks stuck in doing, and the daily Waiting on digest. Turning them off does not hide anything: nudges still show in the Nudges view.</p>
+      <button id="toggle-notify" class="toggle ${st.notifications ? 'on' : ''}">🔔 ${st.notifications ? 'on' : 'off'}</button>
+    </section>
+    <section class="setcard">
+      <h2>Notes folder</h2>
+      <p>Where your tasks are stored, one markdown file each. Running now: <code>${esc(st.running_dir)}</code></p>
+      <div class="setrow"><input id="set-dir" type="text" spellcheck="false" value="${esc(shown)}" placeholder="/home/you/notes"><button id="save-dir" class="toggle on">Save and restart</button></div>
+      <p class="setnote">Changing it restarts the daemon on the new folder. If the folder is empty or new, your notes are copied into it. The old folder is left exactly as it is, so nothing is deleted. A folder that already holds taskstaka notes is used as it is.</p>
+      ${differs}
+      <div id="setmsg" class="setnote"></div>
+    </section>
+  </div>`;
+}
+// Wait for the daemon to come back serving a different folder, then reload.
+async function waitForNewDaemon(oldDir) {
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    try { const r = await api('GET', '/api/v1/settings'); if (r.running_dir !== oldDir) return r; } catch (_) {}
+  }
+  throw new Error('the daemon did not come back within 30s; run `taskstaka status`');
+}
+document.addEventListener('input', (e) => { if (e.target.id === 'set-dir') { S.dirDraft = e.target.value; S.dirty = true; } });
+document.addEventListener('focusout', (e) => {
+  if (e.target.id !== 'set-dir') return;
+  S.dirty = false;
+  if (S.pendingRefresh) { S.pendingRefresh = false; load().catch(() => {}); }
+});
+
 // ---------- nudges ----------
 function renderNudges() {
   if (!S.nudges.length) return '<p class="empty">Nothing to nudge you about.</p>';
@@ -823,7 +877,7 @@ document.addEventListener('dragend', () => { dragId = null; clearDrop(); documen
 // ---------- live ----------
 (async function watch() {
   for (;;) {
-    try { const r = await api('GET', '/api/v1/changes?after=' + S.rev); if (r.rev > S.rev) { S.rev = r.rev; await load(); } }
+    try { const r = await api('GET', '/api/v1/changes?after=' + S.rev); if (r.rev !== S.rev) { S.rev = r.rev; await load(); } }
     catch (_) { await new Promise(r => setTimeout(r, 3000)); }
   }
 })();

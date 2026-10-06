@@ -5,12 +5,15 @@ use predicates::prelude::*;
 
 struct Env {
     dir: tempfile::TempDir,
+    /// Machine settings for this run, so tests never read or write the real ones.
+    cfg: tempfile::TempDir,
 }
 
 impl Env {
     fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let env = Env { dir };
+        let cfg = tempfile::tempdir().unwrap();
+        let env = Env { dir, cfg };
         env.cmd().arg("init").assert().success();
         env
     }
@@ -18,6 +21,7 @@ impl Env {
     fn cmd(&self) -> Command {
         let mut c = Command::cargo_bin("taskstaka").unwrap();
         c.env("TASKSTAKA_DIR", self.dir.path())
+            .env("TASKSTAKA_CONFIG_DIR", self.cfg.path())
             .env("TASKSTAKA_DIRECT", "1")
             .env_remove("TASKSTAKA_CONTEXT")
             .env_remove("TASKSTAKA_PORT");
@@ -167,12 +171,14 @@ fn flags_after_title_are_flags_not_title() {
 /// commands reuse it, `stop` shuts it down. Cleans up even on failure.
 struct DaemonEnv {
     dir: tempfile::TempDir,
+    cfg: tempfile::TempDir,
 }
 
 impl DaemonEnv {
     fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let env = DaemonEnv { dir };
+        let cfg = tempfile::tempdir().unwrap();
+        let env = DaemonEnv { dir, cfg };
         env.cmd().arg("init").assert().success();
         env
     }
@@ -180,6 +186,7 @@ impl DaemonEnv {
     fn cmd(&self) -> Command {
         let mut c = Command::cargo_bin("taskstaka").unwrap();
         c.env("TASKSTAKA_DIR", self.dir.path())
+            .env("TASKSTAKA_CONFIG_DIR", self.cfg.path())
             .env("TASKSTAKA_PORT", "0")
             .env("TASKSTAKA_NO_NOTIFY", "true")
             .env_remove("TASKSTAKA_DIRECT")
@@ -356,6 +363,64 @@ fn restart_swaps_the_daemon_process() {
         .stdout(predicate::str::contains("before restart"));
 }
 
+#[test]
+fn restart_to_moves_the_daemon_and_copies_the_notes() {
+    let env = DaemonEnv::new();
+    env.cmd().args(["add", "carry me over"]).assert().success();
+    let parent = tempfile::tempdir().unwrap();
+    let moved = parent.path().join("moved");
+
+    env.cmd()
+        .args(["restart", "--to"])
+        .arg(&moved)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("copied 1 note"));
+
+    // The old folder is untouched, the new one serves the task, and the
+    // setting points at it for the next start.
+    assert_eq!(
+        std::fs::read_dir(env.dir.path().join("notes"))
+            .unwrap()
+            .count(),
+        1
+    );
+    env.cmd()
+        .arg("--dir")
+        .arg(&moved)
+        .arg("ls")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("carry me over"));
+    let saved = std::fs::read_to_string(env.cfg.path().join("settings.json")).unwrap();
+    assert!(saved.contains("moved"), "{saved}");
+
+    // A folder that is not empty and not a taskstaka folder is refused
+    // before anything is stopped.
+    let junk = tempfile::tempdir().unwrap();
+    std::fs::write(junk.path().join("keep.txt"), "x").unwrap();
+    env.cmd()
+        .arg("--dir")
+        .arg(&moved)
+        .args(["restart", "--to"])
+        .arg(junk.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not empty"));
+    env.cmd()
+        .arg("--dir")
+        .arg(&moved)
+        .arg("ls")
+        .assert()
+        .success();
+    env.cmd()
+        .arg("--dir")
+        .arg(&moved)
+        .arg("stop")
+        .assert()
+        .success();
+}
+
 /// Two stores at once, neither naming a port: the second must not fail
 /// because the first (or the user's real daemon) owns 7407.
 #[test]
@@ -394,6 +459,7 @@ fn second_store_falls_back_to_a_free_port() {
 #[test]
 fn notifications_setting_persists_and_defaults_on() {
     let env = Env::new();
+    assert!(!env.cfg.path().join("settings.json").exists());
     env.cmd()
         .args(["notifications"])
         .assert()
@@ -409,4 +475,5 @@ fn notifications_setting_persists_and_defaults_on() {
         .assert()
         .success()
         .stdout(predicate::str::contains("notifications are off"));
+    assert!(env.cfg.path().join("settings.json").exists());
 }

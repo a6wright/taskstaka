@@ -539,24 +539,77 @@ async fn plan(
     )))
 }
 
-async fn get_settings(State(s): S) -> Json<Settings> {
-    Json(Settings::load(&s.dir))
+#[derive(Serialize)]
+struct SettingsView {
+    notifications: bool,
+    /// The folder saved in the machine settings (what the next start uses,
+    /// unless `--dir` or `$TASKSTAKA_DIR` overrides it).
+    dir: Option<String>,
+    /// The folder this daemon is serving right now.
+    running_dir: String,
+    /// The saved folder differs from the running one.
+    restart_needed: bool,
+}
+
+fn settings_view(s: &AppState) -> SettingsView {
+    let settings = Settings::load();
+    let saved = settings
+        .dir
+        .as_ref()
+        .map(|d| std::fs::canonicalize(d).unwrap_or_else(|_| d.clone()));
+    SettingsView {
+        notifications: settings.notifications,
+        restart_needed: saved.as_ref().is_some_and(|d| *d != s.dir),
+        dir: settings.dir.map(|d| d.display().to_string()),
+        running_dir: s.dir.display().to_string(),
+    }
+}
+
+async fn get_settings(State(s): S) -> Json<SettingsView> {
+    Json(settings_view(&s))
 }
 
 #[derive(Deserialize)]
 struct SettingsPatch {
     notifications: Option<bool>,
+    /// A new notes folder. The daemon restarts on it; see `notes_dir`.
+    dir: Option<String>,
 }
 
-async fn put_settings(State(s): S, Json(p): Json<SettingsPatch>) -> R<Settings> {
-    let mut settings = Settings::load(&s.dir);
+#[derive(Serialize)]
+struct SettingsResponse {
+    #[serde(flatten)]
+    view: SettingsView,
+    /// A restart onto the new folder has been started; the page should wait
+    /// for the daemon to come back.
+    restarting: bool,
+}
+
+async fn put_settings(State(s): S, Json(p): Json<SettingsPatch>) -> R<SettingsResponse> {
+    let mut restarting = false;
     if let Some(n) = p.notifications {
+        let mut settings = Settings::load();
         settings.notifications = n;
+        settings
+            .save()
+            .map_err(|e| ApiError::internal(format!("could not save settings: {e}")))?;
     }
-    settings
-        .save(&s.dir)
-        .map_err(|e| ApiError::internal(format!("could not save settings: {e}")))?;
+    if let Some(dir) = p.dir {
+        let plan = crate::notes_dir::plan(&s.dir, &dir)
+            .map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+        if plan.kind != crate::notes_dir::Kind::Unchanged {
+            let port = crate::client::DaemonInfo::read(&s.dir)
+                .map(|i| i.port)
+                .unwrap_or(crate::DEFAULT_PORT);
+            crate::client::spawn_restart_to(&s.dir, port, &plan.target)
+                .map_err(|e| ApiError::internal(format!("{e:#}")))?;
+            restarting = true;
+        }
+    }
     // Other open pages refetch and show the new state.
     s.bump();
-    Ok(Json(settings))
+    Ok(Json(SettingsResponse {
+        view: settings_view(&s),
+        restarting,
+    }))
 }

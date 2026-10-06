@@ -395,6 +395,31 @@ fn process_alive(pid: u32) -> bool {
 }
 
 /// Start `taskstaka serve` as a detached child and return immediately.
+/// Hand a directory change to a detached helper: it outlives this daemon,
+/// stops it, copies the notes, and starts a daemon on `target` (`restart --to`).
+pub fn spawn_restart_to(dir: &Path, port: u16, target: &Path) -> Result<()> {
+    let exe = std::env::current_exe().context("locating the taskstaka binary")?;
+    let mut cmd = std::process::Command::new(exe);
+    cmd.arg("--dir")
+        .arg(dir)
+        .arg("--port")
+        .arg(port.to_string())
+        .arg("restart")
+        .arg("--to")
+        .arg(target)
+        .env_remove("TASKSTAKA_DIRECT")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    cmd.spawn().context("starting the restart helper")?;
+    Ok(())
+}
+
 pub fn spawn_daemon(dir: &Path, port: u16) -> Result<()> {
     let exe = std::env::current_exe().context("locating the taskstaka binary")?;
     let mut cmd = std::process::Command::new(exe);

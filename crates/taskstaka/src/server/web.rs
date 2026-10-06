@@ -29,6 +29,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/someday", get(shell))
         .route("/done", get(shell))
         .route("/nudges", get(shell))
+        .route("/settings", get(shell))
         .route("/stack", get(shell))
         .route("/t/{id}", get(shell))
         .route("/favicon.ico", get(|| image("image/x-icon", FAVICON)))

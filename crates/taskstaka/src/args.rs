@@ -11,7 +11,7 @@ use crate::dates;
 #[derive(Parser, Debug)]
 #[command(name = "taskstaka", version, about, max_term_width = 100)]
 pub struct Cli {
-    /// Todo directory. Defaults to $TASKSTAKA_DIR, then ~/todo.
+    /// Todo directory. Defaults to $TASKSTAKA_DIR, then the saved setting, then ~/todo.
     #[arg(long, global = true, env = "TASKSTAKA_DIR")]
     pub dir: Option<PathBuf>,
 
@@ -184,7 +184,12 @@ pub enum Cmd {
     },
 
     /// Stop the daemon and start a fresh one (after installing a new build).
-    Restart,
+    Restart {
+        /// Start the new daemon on this directory instead (used when the
+        /// notes directory is changed from Settings).
+        #[arg(long)]
+        to: Option<PathBuf>,
+    },
 
     /// Desktop notifications: show the setting, or turn them `on` / `off`.
     /// Takes effect immediately; nudges still show in the panel.
@@ -329,7 +334,12 @@ pub fn parse_quiet(s: &str) -> Result<(u8, u8), String> {
     Ok((parse(a)?, parse(b)?))
 }
 
+/// The notes directory when neither `--dir` nor `$TASKSTAKA_DIR` says: the one
+/// saved in the machine settings, else `~/todo`.
 pub fn default_dir() -> PathBuf {
+    if let Some(d) = taskstaka_core::settings::Settings::load().dir {
+        return d;
+    }
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))

@@ -70,7 +70,6 @@ pub struct Nudger {
     pub cfg: NudgeConfig,
     pub notifier: Box<dyn Notifier>,
     log_path: PathBuf,
-    dir: PathBuf,
 }
 
 impl Nudger {
@@ -79,7 +78,6 @@ impl Nudger {
             cfg,
             notifier,
             log_path: state.dir.join(".taskstaka").join("nudges.json"),
-            dir: state.dir.clone(),
         }
     }
 
@@ -169,7 +167,7 @@ impl Nudger {
             return;
         }
         // Read per delivery so the setting applies without a restart.
-        if !Settings::load(&self.dir).notifications {
+        if !Settings::load().notifications {
             debug!("{} nudge(s) suppressed: notifications are off", due.len());
             return;
         }

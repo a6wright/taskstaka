@@ -29,6 +29,7 @@ impl Session {
             .env("TASKSTAKA_DIR", dir.path())
             .env("TASKSTAKA_PORT", "0")
             .env("TASKSTAKA_NO_NOTIFY", "true")
+            .env("TASKSTAKA_CONFIG_DIR", dir.path().join("config"))
             .env_remove("TASKSTAKA_DIRECT")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

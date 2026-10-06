@@ -7,6 +7,7 @@ pub mod cli;
 pub mod client;
 pub mod dates;
 pub mod mcp;
+pub mod notes_dir;
 pub mod render;
 pub mod server;
 pub mod setup;

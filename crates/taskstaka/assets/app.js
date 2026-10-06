@@ -171,7 +171,7 @@ function renderSide() {
   const done = S.all.filter(t => isClosed(t) && inCtx(t) && t.completed && (Date.now() - Date.parse(t.completed)) < 14 * 86400e3).length;
   const counts = { nudges: S.nudges.length || '', outline: '', next: sum.actionable ?? '', waiting: S.waiting.reduce((n, g) => n + g.items.length, 0) || '', someday: someday || '', done: done || '' };
   $('#side').innerHTML = `
-    <div class="brand"><span><span class="dot"></span>taskstaka</span></div>
+    <div class="brand"><span><img class="mark" src="/mark.png" alt="">taskstaka</span></div>
     <div class="ctxs">${['', 'work', 'personal'].map(c => `<a href="${urlFor({ ctx: c })}" data-ctx="${c}" class="${S.ctx === c ? 'active' : ''}">${c || 'all'}</a>`).join('')}</div>
     <nav class="nav">${Object.entries(VIEWS).map(([k, v]) => `<a href="${urlFor({ view: k })}" data-view="${k}" class="${S.view === k ? 'active' : ''}"><span class="ico">${v.ico}</span>${v.label}<span class="count">${counts[k]}</span></a>`).join('')}</nav>
     <div class="sidefoot"><button id="toggle-notify" class="toggle ${S.settings.notifications ? 'on' : ''}" title="desktop notifications for nudges; the Nudges view still shows them">🔔 notifications ${S.settings.notifications ? 'on' : 'off'}</button></div>

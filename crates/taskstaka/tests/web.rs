@@ -46,6 +46,17 @@ async fn shell_assets_and_api_from_one_origin() {
     let a = agent();
     let base = format!("http://{addr}");
 
+    // Brand images are served as binary with the right types.
+    for (path, ctype) in [
+        ("/favicon.ico", "image/x-icon"),
+        ("/apple-touch-icon.png", "image/png"),
+        ("/mark.png", "image/png"),
+    ] {
+        let res = a.get(&format!("{base}{path}")).call().unwrap();
+        assert_eq!(res.status().as_u16(), 200, "{path}");
+        assert_eq!(res.headers().get("content-type").unwrap(), ctype, "{path}");
+    }
+
     for path in [
         "/",
         "/next",

@@ -17,6 +17,9 @@ use super::AppState;
 
 const APP_JS: &str = include_str!("../../assets/app.js");
 const APP_CSS: &str = include_str!("../../assets/app.css");
+const FAVICON: &[u8] = include_bytes!("../../assets/favicon.ico");
+const TOUCH_ICON: &[u8] = include_bytes!("../../assets/apple-touch-icon.png");
+const MARK: &[u8] = include_bytes!("../../assets/mark.png");
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -28,6 +31,12 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/nudges", get(shell))
         .route("/stack", get(shell))
         .route("/t/{id}", get(shell))
+        .route("/favicon.ico", get(|| image("image/x-icon", FAVICON)))
+        .route(
+            "/apple-touch-icon.png",
+            get(|| image("image/png", TOUCH_ICON)),
+        )
+        .route("/mark.png", get(|| image("image/png", MARK)))
         .route("/app.js", get(js))
         .route("/app.css", get(css))
 }
@@ -74,6 +83,17 @@ async fn css() -> impl IntoResponse {
     )
 }
 
+/// Brand images change rarely and never need the no-cache the scripts get.
+async fn image(ctype: &'static str, bytes: &'static [u8]) -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, ctype),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        bytes,
+    )
+}
+
 const SHELL: &str = r#"<!doctype html>
 <html lang="en" data-theme="dark">
 <head>
@@ -81,6 +101,8 @@ const SHELL: &str = r#"<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <title>taskstaka</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="/app.css">

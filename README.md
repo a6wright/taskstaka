@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/brand/logo.png" alt="A pyramid of orange cubes with two tumbling off" width="260"></p>
+
 # taskstaka
 
 A "what needs action next" task server, backed by markdown.

@@ -95,17 +95,18 @@ fn story_is_hidden_while_blocked_and_comes_back_when_subtasks_close() {
         .lines()
         .find(|l| l.starts_with(&story))
         .expect("story listed");
+    // Finishing the last prerequisite in hand starts the story itself (ADR 0010).
     assert!(
-        first_line.contains("ready"),
-        "story should be in the resurfaced tier:\n{next}"
+        first_line.contains("in hand"),
+        "story should be in hand:\n{next}"
     );
     assert!(next.contains("ready: all prerequisites done"));
-    // It is the first row.
-    let rows: Vec<&str> = next
-        .lines()
-        .filter(|l| l.len() > 6 && l.as_bytes()[6] == b' ' && !l.starts_with(' '))
-        .collect();
-    assert!(rows[0].starts_with(&story), "{next}");
+    // It is the plate at the very top.
+    assert!(
+        next.lines()
+            .any(|l| l.contains("▶ in hand") && l.contains(&story)),
+        "{next}"
+    );
 }
 
 #[test]

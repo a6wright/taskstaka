@@ -367,6 +367,8 @@ impl Store {
             } => {
                 outcome.primary = Some(id.clone());
                 let before = self.get(&id)?.clone();
+                let was_in_hand =
+                    crate::action::in_hand(&self.tree, now, None).is_some_and(|t| t.id == id);
                 self.plan_set_status(
                     &id,
                     status,
@@ -387,6 +389,10 @@ impl Store {
                         &mut writes,
                         &mut outcome,
                     );
+                }
+                // Closing the task in hand puts the next one in hand (ADR 0010).
+                if status.is_closed() && was_in_hand {
+                    self.advance_hand(&before, now, &mut writes, &mut outcome);
                 }
             }
             Command::Edit(edit) => {
@@ -861,6 +867,77 @@ impl Store {
         Ok(())
     }
 
+    /// After the task in hand closes, start what comes next in the same story:
+    /// the parent if this was its last blocking child, else the next sibling
+    /// in outline order (descending to its first ready prerequisite). If the
+    /// story has nothing ready the hand stays empty.
+    fn advance_hand(
+        &self,
+        closed: &Task,
+        now: &Zoned,
+        writes: &mut Vec<Task>,
+        outcome: &mut Outcome,
+    ) {
+        let today = now.date();
+        let Some(pid) = &closed.parent else { return };
+        let resurfaced = outcome
+            .events
+            .iter()
+            .any(|e| matches!(e, Event::Resurfaced { id } if id == pid));
+        let next = if resurfaced {
+            self.tree
+                .get(pid)
+                .filter(|p| p.status == Status::Todo)
+                .map(|p| p.id.clone())
+        } else {
+            self.tree
+                .children(pid)
+                .filter(|s| s.id != closed.id)
+                .find_map(|s| self.first_ready_leaf(&s.id, today))
+        };
+        let Some(next) = next else { return };
+        if writes.iter().any(|w| w.id == next) {
+            return;
+        }
+        let Some(mut t) = self.tree.get(&next).cloned() else {
+            return;
+        };
+        let ts = now
+            .timestamp()
+            .round(jiff::Unit::Second)
+            .unwrap_or_else(|_| now.timestamp());
+        let line = format!("started: next after {}", closed.title);
+        journal(&mut t, now, None, &line);
+        t.status = Status::Doing;
+        t.started = Some(ts);
+        t.updated = ts;
+        outcome.events.push(Event::StatusChanged {
+            id: t.id.clone(),
+            from: Status::Todo,
+            to: Status::Doing,
+        });
+        writes.push(t);
+    }
+
+    /// The first todo task at or under `id` (outline order) that is actionable.
+    fn first_ready_leaf(&self, id: &TaskId, today: jiff::civil::Date) -> Option<TaskId> {
+        let t = self.tree.get(id)?;
+        if t.status != Status::Todo {
+            return None;
+        }
+        let mut blockers = self
+            .tree
+            .children(id)
+            .filter(|c| c.status.is_blocking())
+            .peekable();
+        if blockers.peek().is_none() {
+            return crate::action::derive(&self.tree, t, today)
+                .actionable
+                .then(|| t.id.clone());
+        }
+        blockers.find_map(|c| self.first_ready_leaf(&c.id, today))
+    }
+
     /// "Doing" and "blocked" cannot both be true: when a prerequisite lands
     /// under a task you are on, the task is paused back to `todo` with a note,
     /// and the new prerequisite is what is in hand.
@@ -1255,6 +1332,59 @@ mod tests {
         status(&mut store, &a, Status::Todo, &later).unwrap();
         assert_eq!(store.tree().get(&story).unwrap().status, Status::Done);
         assert_eq!(store.tree().get(&a).unwrap().status, Status::Todo);
+    }
+
+    #[test]
+    fn finishing_the_task_in_hand_starts_the_next_sibling_then_the_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::init(dir.path()).unwrap();
+        let story = add(&mut store, "story", None);
+        let a = add(&mut store, "a", Some(&story));
+        let b = add(&mut store, "b", Some(&story));
+        status(&mut store, &a, Status::Doing, &now()).unwrap();
+
+        let later = now() + 1.hour();
+        status(&mut store, &a, Status::Done, &later).unwrap();
+        let tb = store.tree().get(&b).unwrap();
+        assert_eq!(tb.status, Status::Doing);
+        assert!(tb.body.contains("started: next after a"));
+
+        let later = now() + 2.hours();
+        status(&mut store, &b, Status::Done, &later).unwrap();
+        let ts = store.tree().get(&story).unwrap();
+        assert_eq!(
+            ts.status,
+            Status::Doing,
+            "last child done starts the parent"
+        );
+        let hand = crate::action::in_hand(store.tree(), &later, None).unwrap();
+        assert_eq!(hand.id, story);
+    }
+
+    #[test]
+    fn auto_advance_only_when_the_closed_task_was_in_hand() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::init(dir.path()).unwrap();
+        let story = add(&mut store, "story", None);
+        let a = add(&mut store, "a", Some(&story));
+        let b = add(&mut store, "b", Some(&story));
+        // `a` was never started, so nothing is in hand to advance from.
+        status(&mut store, &a, Status::Done, &now()).unwrap();
+        assert_eq!(store.tree().get(&b).unwrap().status, Status::Todo);
+    }
+
+    #[test]
+    fn auto_advance_descends_to_the_siblings_first_prerequisite() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::init(dir.path()).unwrap();
+        let story = add(&mut store, "story", None);
+        let a = add(&mut store, "a", Some(&story));
+        let b = add(&mut store, "b", Some(&story));
+        let b1 = add(&mut store, "b1", Some(&b));
+        status(&mut store, &a, Status::Doing, &now()).unwrap();
+        status(&mut store, &a, Status::Done, &(now() + 1.hour())).unwrap();
+        assert_eq!(store.tree().get(&b1).unwrap().status, Status::Doing);
+        assert_eq!(store.tree().get(&b).unwrap().status, Status::Todo);
     }
 
     #[test]

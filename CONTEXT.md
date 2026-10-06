@@ -104,7 +104,7 @@ The ranked list of actionable tasks for a context. What `next` prints and the pa
 ### The hand
 
 **In hand**:
-The task you most recently started (`doing`) that is still open and unblocked. Nothing else is ever in hand; when there is no such task, the hand is empty. The in-hand task is the top plate on Next, with its notes: the one thing to go do.
+The task you most recently started (`doing`) that is still open and unblocked. Nothing else is ever in hand; when there is no such task, the hand is empty. Finishing the in-hand task starts the next one in the same story (the parent if it just became ready, else the next sibling); it never moves to another story. The in-hand task is the top plate on Next, with its notes: the one thing to go do.
 _Avoid_: current task, focus, active
 
 **Put back**:

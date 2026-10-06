@@ -158,12 +158,14 @@ two siblings share becomes a sibling placed first.
 | orphaned | `⚠` | reopened or added under a parent that was already finished; still yours to do |
 
 **The hand.** `start` takes a task in hand; it becomes the top plate with its notes.
-`done` and `put-back` empty the hand (the next most-recently-started task moves up, or
-nothing). Any prerequisite landing under a `doing` task — added, moved there, or reopened
+`put-back` empties the hand (the next most-recently-started task moves up, or nothing).
+`done` on the task in hand starts the next one in the same story: the parent if that was
+its last prerequisite, else the next sibling in outline order (ADR 0010). Any prerequisite landing under a `doing` task — added, moved there, or reopened
 — **pauses** it back to `todo` with a note, because a task cannot be both doing and
 blocked. *First I need to…* (`add -p <in-hand> --start`) is the **push**: the new task
-goes in hand and the one above pauses. The hand never climbs on its own — when you finish
-a leaf, the parent shows `↑ ready`, and you decide.
+goes in hand and the one above pauses. The hand stays inside the story: it never jumps to
+another story on its own. When there is nothing next in the story, the hand is empty and
+the parent shows `↑ ready`.
 
 **Waiting is a person, not a status.** A wait always has a follow-up date; `chase` records
 that you poked them and shortens the next one; `reply` records what came back

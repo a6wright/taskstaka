@@ -196,6 +196,11 @@ pub struct App {
     pub show_done: bool,
     /// The boxed detail pane under the list. Hidden until Space opens it.
     pub show_detail: bool,
+    /// Wheel scrolling: the box the list starts at, set by the mouse wheel
+    /// and cleared by any key. The selection does not move.
+    pub scroll_box: Option<usize>,
+    /// The box the list started at on the last draw (the wheel's base).
+    pub view_box: std::cell::Cell<usize>,
     /// Next: stories whose later list is unfolded.
     pub expanded: HashSet<TaskId>,
     pub rows: Vec<Row>,
@@ -216,6 +221,8 @@ impl App {
             view: View::Next,
             show_done: false,
             show_detail: false,
+            scroll_box: None,
+            view_box: std::cell::Cell::new(0),
             expanded: HashSet::new(),
             rows: Vec::new(),
             selected: 0,
@@ -570,7 +577,18 @@ impl App {
         }
     }
 
+    /// The wheel moves the view by a box, not the selection. `draw` clamps.
+    pub fn handle_wheel(&mut self, down: bool) {
+        let base = self.view_box.get();
+        self.scroll_box = Some(if down {
+            base + 1
+        } else {
+            base.saturating_sub(1)
+        });
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> Action {
+        self.scroll_box = None;
         match &mut self.mode {
             Mode::Help => {
                 self.mode = Mode::Normal;

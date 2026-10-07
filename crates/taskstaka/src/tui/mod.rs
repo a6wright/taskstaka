@@ -10,7 +10,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
 use jiff::Zoned;
-use ratatui::crossterm::event::{self, Event, KeyEventKind};
+use ratatui::crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind, MouseEventKind,
+};
+use ratatui::crossterm::execute;
 use taskstaka_core::view::tree_from_views;
 use taskstaka_core::{Context, Event as CoreEvent, Outcome, TaskId};
 
@@ -33,10 +36,22 @@ pub fn run(dir: &Path, port_hint: Option<u16>, ctx: Option<Context>) -> Result<(
     let (tx, rx) = mpsc::channel::<Msg>();
     spawn_watcher(client.clone(), rev, tx);
 
-    let mut terminal = ratatui::init();
+    let mut terminal = init_terminal();
     let result = event_loop(&mut terminal, &mut app, &client, &rx);
-    ratatui::restore();
+    restore_terminal();
     result
+}
+
+/// The wheel is captured so it can scroll the list; Shift-drag still selects text.
+fn init_terminal() -> ratatui::DefaultTerminal {
+    let t = ratatui::init();
+    let _ = execute!(std::io::stdout(), EnableMouseCapture);
+    t
+}
+
+fn restore_terminal() {
+    let _ = execute!(std::io::stdout(), DisableMouseCapture);
+    ratatui::restore();
 }
 
 fn spawn_watcher(client: Client, mut rev: u64, tx: mpsc::Sender<Msg>) {
@@ -113,6 +128,11 @@ fn event_loop(
                     Action::OpenEditor(id) => {
                         open_editor(terminal, app, client, &id)?;
                     }
+                },
+                Event::Mouse(m) => match m.kind {
+                    MouseEventKind::ScrollDown => app.handle_wheel(true),
+                    MouseEventKind::ScrollUp => app.handle_wheel(false),
+                    _ => {}
                 },
                 Event::Resize(_, _) => {}
                 _ => {}
@@ -196,12 +216,12 @@ fn open_editor(
     let prog = parts.next().unwrap_or("vi").to_string();
     let args: Vec<String> = parts.map(str::to_string).collect();
 
-    ratatui::restore();
+    restore_terminal();
     let status = std::process::Command::new(&prog)
         .args(&args)
         .arg(&path)
         .status();
-    *terminal = ratatui::init();
+    *terminal = init_terminal();
     terminal.clear()?;
 
     match status {

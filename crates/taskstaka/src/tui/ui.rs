@@ -901,7 +901,14 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 
-    let lines = window(disp, &spans, app.selected, area.height as usize);
+    let (lines, start_box) = window(
+        disp,
+        &spans,
+        app.selected,
+        area.height as usize,
+        app.scroll_box,
+    );
+    app.view_box.set(start_box);
     f.render_widget(Paragraph::new(lines), area);
 }
 
@@ -914,24 +921,26 @@ fn window(
     spans: &[(usize, usize)],
     selected: usize,
     visible: usize,
-) -> Vec<Line<'static>> {
+    scroll: Option<usize>,
+) -> (Vec<Line<'static>>, usize) {
     if disp.len() <= visible || spans.is_empty() {
         // Plain lists (Nudges) have no boxes: keep the selection in view.
         let sel_line = disp
             .iter()
             .position(|(i, _)| *i == Some(selected))
             .unwrap_or(0);
-        let start = if disp.len() > visible && sel_line >= visible {
-            sel_line + 1 - visible
-        } else {
-            0
+        let start = match scroll {
+            Some(n) if disp.len() > visible => n.min(disp.len() - visible),
+            _ if disp.len() > visible && sel_line >= visible => sel_line + 1 - visible,
+            _ => 0,
         };
-        return disp
+        let lines = disp
             .into_iter()
             .skip(start)
             .take(visible)
             .map(|(_, l)| l)
             .collect();
+        return (lines, start);
     }
     let sel_line = disp
         .iter()
@@ -955,10 +964,15 @@ fn window(
             .unwrap_or(sa)
     };
     let mut usable = visible - 1; // room for a "more below" marker
-    let mut start = pick(usable);
+    let mut start = match scroll {
+        Some(b) => spans[b.min(spans.len() - 1)].0,
+        None => pick(usable),
+    };
     if start > 0 {
         usable = visible - 2; // and one for "more above"
-        start = pick(usable);
+        if scroll.is_none() {
+            start = pick(usable);
+        }
     }
     // End at the bottom of the last box that fits whole.
     let limit = start + usable;
@@ -996,7 +1010,8 @@ fn window(
             dim,
         )));
     }
-    out
+    let start_box = spans.iter().position(|(a, _)| *a >= start).unwrap_or(0);
+    (out, start_box)
 }
 
 fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
@@ -1515,6 +1530,38 @@ mod tests {
         let out = render(&app, 90, 20);
         assert!(out.contains("more above"), "{out}");
         assert!(!out.contains("more below"), "{out}");
+    }
+
+    #[test]
+    fn the_wheel_scrolls_the_view_without_moving_the_selection() {
+        let mut app = tall_app();
+        let first = render(&app, 90, 20);
+        let sel = app.selected;
+        render(&app, 90, 20); // a draw records where the view starts
+        for _ in 0..3 {
+            app.handle_wheel(true);
+            render(&app, 90, 20);
+        }
+        let out = render(&app, 90, 20);
+        assert_ne!(out, first, "wheel down changed nothing");
+        assert!(out.contains("more above"), "{out}");
+        assert_eq!(app.selected, sel);
+        // Far past the end clamps instead of emptying the list.
+        for _ in 0..500 {
+            app.handle_wheel(true);
+            render(&app, 90, 20);
+        }
+        assert!(render(&app, 90, 20).contains('│'));
+        // Overshooting does not bank extra scrolling: a few ups come back.
+        for _ in 0..60 {
+            app.handle_wheel(false);
+            render(&app, 90, 20);
+        }
+        assert_eq!(render(&app, 90, 20), first);
+        // A key hands scrolling back to the selection.
+        app.handle_wheel(true);
+        press(&mut app, 'j');
+        assert_eq!(app.scroll_box, None);
     }
 
     #[test]

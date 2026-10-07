@@ -477,3 +477,22 @@ fn notifications_setting_persists_and_defaults_on() {
         .stdout(predicate::str::contains("notifications are off"));
     assert!(env.cfg.path().join("settings.json").exists());
 }
+
+#[test]
+fn quick_makes_a_root_task_with_project_and_a_wait() {
+    let env = Env::new();
+    env.cmd()
+        .args(["quick", "#devops", "renew", "the", "cert", "@Priya", "+3d"])
+        .assert()
+        .success();
+    env.cmd().args(["quick", "buy milk"]).assert().success();
+    env.cmd().args(["quick", "#x"]).assert().failure();
+    let out = env.cmd().args(["ls", "--json"]).output().unwrap();
+    let all: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let all = all.as_array().unwrap();
+    let cert = all.iter().find(|t| t["title"] == "renew the cert").unwrap();
+    assert_eq!(cert["project"], "devops");
+    assert_eq!(cert["waiting_on"], "Priya");
+    assert!(all.iter().all(|t| t.get("parent").is_none()));
+    assert!(all.iter().any(|t| t["title"] == "buy milk"));
+}

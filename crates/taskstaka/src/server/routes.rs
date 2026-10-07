@@ -33,6 +33,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/next", get(next))
         .route("/api/v1/plan", get(plan))
         .route("/api/v1/tasks", get(list_tasks).post(create_task))
+        .route("/api/v1/quick", post(quick_add))
         .route(
             "/api/v1/tasks/{id}",
             get(get_task).patch(patch_task).delete(delete_task),
@@ -221,6 +222,19 @@ async fn tree(State(s): S, Query(q): Query<TreeQuery>) -> R<Vec<TreeNode>> {
             .map(|r| TreeNode::build(tree, r, &now, q.include_closed))
             .collect(),
     ))
+}
+
+#[derive(Deserialize)]
+struct QuickBody {
+    text: String,
+    context: Option<Context>,
+}
+
+/// Quick capture: parse one line (see `quick.rs`) into a new root task.
+async fn quick_add(State(s): S, Json(b): Json<QuickBody>) -> R<Outcome> {
+    let add = crate::quick::parse(&b.text, b.context)
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
+    Ok(Json(apply(&s, Command::Add(add)).await?))
 }
 
 async fn create_task(State(s): S, Json(mut add): Json<AddTask>) -> R<Outcome> {

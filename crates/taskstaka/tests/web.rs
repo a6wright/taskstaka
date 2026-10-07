@@ -105,6 +105,29 @@ async fn shell_assets_and_api_from_one_origin() {
         .unwrap();
     assert_eq!(res.status().as_u16(), 415, "form bodies are refused");
 
+    // Quick capture: the bare page, and one line becomes a new root task.
+    let (status, ctype, html) = get(&a, &format!("{base}/quick"));
+    assert_eq!(status, 200);
+    assert!(ctype.starts_with("text/html") && html.contains("/api/v1/quick"));
+    let mut res = a
+        .post(format!("{base}/api/v1/quick"))
+        .send_json(serde_json::json!({"text": "#devops renew the cert @Priya +3d"}))
+        .unwrap();
+    assert_eq!(res.status().as_u16(), 200);
+    let out: serde_json::Value = res.body_mut().read_json().unwrap();
+    let id = out["primary"].as_str().unwrap().to_string();
+    let (_, _, task) = get(&a, &format!("{base}/api/v1/tasks/{id}"));
+    let task: serde_json::Value = serde_json::from_str(&task).unwrap();
+    assert_eq!(task["title"], "renew the cert");
+    assert_eq!(task["project_tag"]["name"], "devops");
+    assert_eq!(task["status"], "waiting");
+    assert!(task.get("parent").is_none(), "always a root");
+    let res = a
+        .post(format!("{base}/api/v1/quick"))
+        .send_json(serde_json::json!({"text": "   "}))
+        .unwrap();
+    assert_eq!(res.status().as_u16(), 400);
+
     // No forms remain.
     let res = a
         .post(format!("{base}/w/add"))

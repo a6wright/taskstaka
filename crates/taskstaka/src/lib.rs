@@ -8,6 +8,7 @@ pub mod client;
 pub mod dates;
 pub mod mcp;
 pub mod notes_dir;
+pub mod quick;
 pub mod render;
 pub mod server;
 pub mod setup;

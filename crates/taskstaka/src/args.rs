@@ -88,6 +88,16 @@ pub enum Cmd {
     /// Add a task. Words become the title; flags can go anywhere.
     Add(AddArgs),
 
+    /// Quick capture: a new root task from one line. `@Name [+3d]` at the end
+    /// waits on them; `#project` as the first or last word sets the project.
+    Quick {
+        /// The line to capture.
+        #[arg(required = true)]
+        text: Vec<String>,
+        #[arg(short, long, env = "TASKSTAKA_CONTEXT")]
+        context: Option<Context>,
+    },
+
     /// What do I have to do now? The task in hand, then each story as a
     /// stack: what you can do now and what is still required.
     Next(NextArgs),

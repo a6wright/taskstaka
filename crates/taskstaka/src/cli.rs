@@ -323,6 +323,12 @@ pub fn run(b: &mut dyn Backend, cmd: Cmd, json: bool) -> Result<()> {
             report(b, &out, json, &now)
         }
 
+        Cmd::Quick { text, context } => {
+            let add = crate::quick::parse(&text.join(" "), context)?;
+            let out = b.apply(Command::Add(add))?;
+            report(b, &out, json, &now)
+        }
+
         Cmd::Next(n) => next(b, n, json, &now),
 
         Cmd::Stack { id } => {

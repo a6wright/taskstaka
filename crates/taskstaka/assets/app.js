@@ -671,6 +671,7 @@ document.addEventListener('keydown', async (e) => {
   }
   const typing = e.target.closest('[contenteditable], input, textarea, select');
   if (e.key === 'Escape' && S.open && !typing) return go({ open: null });
+  if (e.key === 'n' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); return quickAdd(); }
   // ▶ with a row focused: start (or stop) it without opening the pane.
   if ((e.ctrlKey || e.metaKey) && e.key === '.' ) {
     const li = e.target.closest && e.target.closest('li.row');
@@ -889,6 +890,28 @@ document.addEventListener('dragend', () => { dragId = null; clearDrop(); documen
     catch (_) { await new Promise(r => setTimeout(r, 3000)); }
   }
 })();
+
+// ---------- quick add: `n` anywhere opens a one-line box; Enter adds a new root task ----------
+function quickAdd() {
+  if ($('#quick')) return $('#quick input').focus();
+  const box = document.createElement('div');
+  box.id = 'quick'; box.className = 'quick';
+  box.innerHTML = `<div class="quick-card"><input autocomplete="off" spellcheck="false" placeholder="Add a task…  (@Name waits on them · #project)"><div class="quick-hint">Enter adds it as a new root task · Esc closes</div></div>`;
+  document.body.appendChild(box);
+  const input = box.querySelector('input'), hint = box.querySelector('.quick-hint');
+  const close = () => box.remove();
+  box.addEventListener('mousedown', (e) => { if (e.target === box) close(); });
+  input.addEventListener('keydown', async (e) => {
+    if (e.key === 'Escape') return close();
+    if (e.key !== 'Enter' || !input.value.trim()) return;
+    e.preventDefault();
+    try {
+      await api('POST', '/api/v1/quick', { text: input.value, context: S.ctx || null });
+      close(); flash('added to the Outline', 'ok'); await load();
+    } catch (err) { hint.textContent = err.message; hint.classList.add('err'); }
+  });
+  input.focus();
+}
 
 routeFromUrl();
 load().catch(err => { flash('could not load: ' + err.message, 'error'); $('#main').innerHTML = '<p class="empty">Could not reach the daemon. Is it running? <code>taskstaka status</code></p>'; });

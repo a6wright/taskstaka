@@ -124,6 +124,15 @@ inherit it, several roots can share one, and each project gets its own colour, s
 pill beside *now*, *in hand* and on Outline roots in the web and the TUI. The agent skill
 reuses a matching project or creates one named for the repo.
 
+**Quick add.** One line becomes a new root task: `taskstaka quick "renew the cert #devops
+@Priya +3d"` (`@Name [date]` at the end waits on them; `#project` as the first or last word
+sets the project). In the web UI press `n` anywhere. For a hotkey from any app, bind your
+launcher to `http://127.0.0.1:7407/quick` (a bare one-box page; `?context=personal` picks
+the context) or to the command: on macOS a Raycast/Alfred hotkey or a Shortcuts action
+"Open URL"; on Linux a desktop keyboard shortcut running
+`xdg-open http://127.0.0.1:7407/quick` or `taskstaka quick "$(zenity --entry --text=Add)"`.
+taskstaka itself does not grab global keys.
+
 **Outline** is the tree (`⇧` + arrows rearrange, `A` adds under, `h` shows completed),
 **Waiting on** groups by person (`f` chase, `u` unblock when they reply), **Someday** is
 the parked outline (`u` revives), **Nudges** is the current set. `?` lists every key.

@@ -241,12 +241,14 @@ function hoverMeta(t) {
 }
 function rowHtml(t, d, depth, { editable = true, crumb = '', extra = '' } = {}) {
   const closed = isClosed(t);
-  const cls = ['row', editable ? '' : 'compact', closed ? 'closed' : '', t.status === 'someday' ? 'someday' : '', d && d.blocked_by > 0 ? 'blocked' : '', d && d.deferred_by && d.deferred_by !== t.id ? 'deferred' : '', S.open === t.id ? 'selected' : ''].join(' ');
+  // A root story's project leads its row, left of the title.
+  const lead = depth === 0 && editable && t.project_tag ? pill(t.project_tag) : '';
+  const cls = ['row', lead ? 'has-proj' : '', editable ? '' : 'compact', closed ? 'closed' : '', t.status === 'someday' ? 'someday' : '', d && d.blocked_by > 0 ? 'blocked' : '', d && d.deferred_by && d.deferred_by !== t.id ? 'deferred' : '', S.open === t.id ? 'selected' : ''].join(' ');
   return `<li class="${cls}" data-id="${t.id}" data-parent="${t.parent || ''}" data-depth="${depth}">
     ${editable ? `<span class="grip" draggable="true" title="drag to reorder or nest">⋮⋮</span>` : ''}
     <input type="checkbox" class="cb" ${closed ? 'checked' : ''} title="${closed ? 'reopen' : 'done'}">
-    <span class="title" ${editable ? 'contenteditable="true" spellcheck="false"' : ''}>${esc(t.title)}${crumb}</span>
-    <span class="meta">${depth === 0 && editable ? pill(t.project_tag) : ''}${chips(t, d)}${hoverMeta(t)}${extra}</span>
+    ${lead}<span class="title" ${editable ? 'contenteditable="true" spellcheck="false"' : ''}>${esc(t.title)}${crumb}</span>
+    <span class="meta">${chips(t, d)}${hoverMeta(t)}${extra}</span>
     ${editable && S.showNotes ? noteHtml(t) : ''}
   </li>`;
 }

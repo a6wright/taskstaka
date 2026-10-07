@@ -217,3 +217,5 @@ kbd { font-family: var(--mono); font-size: 11px; background: var(--bg-active); p
 .meta .proj { margin: 0 4px 0 0; }
 .rel .proj { margin-left: 8px; }
 .story-head .proj { margin: 0; }
+.row.has-proj { grid-template-columns: 22px auto minmax(0, 1fr) auto; }
+.row.has-proj > .proj { margin: 0 2px 0 0; }

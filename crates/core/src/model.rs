@@ -230,6 +230,13 @@ pub struct Task {
     pub chases: Vec<Timestamp>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+    /// The project this story belongs to; set on a root only, inherited by
+    /// everything under it (see `project.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    /// Palette index of the project's colour, chosen when it was first set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swatch: Option<u8>,
     /// Markdown body below the frontmatter. Not part of the YAML.
     #[serde(skip)]
     pub body: String,
@@ -256,6 +263,8 @@ impl Task {
             waiting_ref: None,
             chases: Vec::new(),
             tags: Vec::new(),
+            project: None,
+            swatch: None,
             body: String::new(),
         }
     }

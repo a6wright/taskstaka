@@ -682,6 +682,13 @@ impl Store {
         task.due = add.due;
         task.tags = add.tags;
         task.body = add.body;
+        if task.parent.is_none()
+            && let Some(p) = add.project.as_deref().filter(|p| !p.trim().is_empty())
+        {
+            let (name, swatch) = crate::project::assign(&self.tree, p, &task.id);
+            task.project = Some(name);
+            task.swatch = Some(swatch);
+        }
         if let Some(who) = add
             .waiting_on
             .as_deref()
@@ -1031,6 +1038,32 @@ impl Store {
         }
         changed |= edit.priority.apply_to(&mut t.priority);
         changed |= edit.due.apply_to(&mut t.due);
+        match edit.project {
+            Set::Keep => {}
+            _ if t.parent.is_some() => {
+                let root = self
+                    .tree
+                    .root_of(&t.id)
+                    .map(|r| format!("{} ({})", r.title, r.id))
+                    .unwrap_or_default();
+                return Err(StoreError::Validation(format!(
+                    "a project belongs to the root story and its subtasks inherit it; set it on {root}"
+                )));
+            }
+            Set::Clear => {
+                changed |= t.project.take().is_some();
+                t.swatch = None;
+            }
+            Set::To(p) => {
+                if p.trim().is_empty() {
+                    return Err(StoreError::Validation("project must not be empty".into()));
+                }
+                let (name, swatch) = crate::project::assign(&self.tree, &p, &t.id);
+                changed |= t.project.as_deref() != Some(name.as_str());
+                t.project = Some(name);
+                t.swatch = Some(swatch);
+            }
+        }
         if let Some(tags) = edit.tags {
             changed |= t.tags != tags;
             t.tags = tags;
@@ -1073,6 +1106,11 @@ impl Store {
             Some(b) => self.order_before(parent.as_ref(), &b, Some(id))?,
             None => self.order_for(parent.as_ref(), after.as_ref(), Some(id), t.order_key())?,
         });
+        if parent.is_some() {
+            // Under a story it inherits that story's project.
+            t.project = None;
+            t.swatch = None;
+        }
         t.parent = parent;
         Ok(t)
     }
@@ -1274,6 +1312,69 @@ mod tests {
             Some(&story)
         );
         assert_eq!(store.tree().get(&child).unwrap().context, Context::Work);
+    }
+
+    #[test]
+    fn a_project_lives_on_the_root_children_inherit_and_roots_can_share_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::init(dir.path()).unwrap();
+        let a = add(&mut store, "A", None);
+        let kid = add(&mut store, "kid", Some(&a));
+        let b = add(&mut store, "B", None);
+        let c = add(&mut store, "C", None);
+        let set = |store: &mut Store, id: &TaskId, p: &str| {
+            let mut e = EditTask::new(id.clone());
+            e.project = Set::To(p.into());
+            store.apply(Command::Edit(e), &now())
+        };
+        set(&mut store, &a, "devops").unwrap();
+        set(&mut store, &b, "DevOps").unwrap(); // same project, any case
+        set(&mut store, &c, "taskstaka").unwrap();
+        let tag = |store: &Store, id: &TaskId| crate::project::tag_of(store.tree(), id).unwrap();
+        assert_eq!(tag(&store, &kid).name, "devops");
+        assert_eq!(tag(&store, &b), tag(&store, &a));
+        assert_ne!(tag(&store, &c).color, tag(&store, &a).color);
+        // Not on a subtask: it says where to set it.
+        let err = set(&mut store, &kid, "x").unwrap_err().to_string();
+        assert!(
+            err.contains("root story") && err.contains(a.as_str()),
+            "{err}"
+        );
+        // Survives a reopen; clearing removes it from the whole story.
+        drop(store);
+        let mut store = Store::open(dir.path()).unwrap();
+        assert_eq!(tag(&store, &kid).name, "devops");
+        let mut e = EditTask::new(a.clone());
+        e.project = Set::Clear;
+        store.apply(Command::Edit(e), &now()).unwrap();
+        assert!(crate::project::tag_of(store.tree(), &kid).is_none());
+        // Adding a root with a project takes the next unused colour.
+        let out = store
+            .apply(
+                Command::Add(AddTask {
+                    title: "D".into(),
+                    project: Some("web".into()),
+                    ..Default::default()
+                }),
+                &now(),
+            )
+            .unwrap();
+        let d = out.primary.unwrap();
+        assert_ne!(tag(&store, &d).color, tag(&store, &c).color);
+        // Moving a root under a story drops its own project.
+        store
+            .apply(
+                Command::Move {
+                    id: d.clone(),
+                    parent: Some(c.clone()),
+                    after: None,
+                    before: None,
+                },
+                &now(),
+            )
+            .unwrap();
+        assert!(store.tree().get(&d).unwrap().project.is_none());
+        assert_eq!(tag(&store, &d).name, "taskstaka");
     }
 
     #[test]

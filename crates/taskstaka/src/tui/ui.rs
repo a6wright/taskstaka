@@ -10,6 +10,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Padding, Paragraph, Wrap};
 use taskstaka_core::action::{derive, is_agent_step};
+use taskstaka_core::project::{self, ProjectTag};
 use taskstaka_core::{Status, TaskId, Tier, humanize};
 
 use super::app::{App, MessageKind, Mode, NodeKind, Row, View};
@@ -210,14 +211,22 @@ fn draw_plate(f: &mut Frame, app: &App, area: Rect) {
     let mut lines: Vec<Line> = Vec::new();
 
     let since = humanize::since(t.started.unwrap_or(t.created), now);
-    lines.push(Line::from(vec![
-        Span::styled(" ▶ in hand  ", Style::default().fg(Color::Yellow).bold()),
+    let mut head = vec![Span::styled(
+        " ▶ in hand ",
+        Style::default().fg(Color::Yellow).bold(),
+    )];
+    if let Some(tag) = project_of(app, &t.id) {
+        head.push(pill_span(&tag));
+    }
+    head.extend([
+        Span::raw(" "),
         Span::styled(t.title.clone(), Style::default().bold()),
         Span::styled(
             format!("   started {since}"),
             Style::default().fg(Color::DarkGray),
         ),
-    ]));
+    ]);
+    lines.push(Line::from(head));
 
     let anc = app.tree.ancestors(&t.id);
     let path: Vec<&str> = anc.iter().rev().map(|a| a.title.as_str()).collect();
@@ -490,12 +499,12 @@ fn row_line(
         }
         Row::Gap => Line::from(""),
         Row::Node {
+            id,
             depth,
             title,
             state,
             kind,
             age_secs,
-            ..
         } => {
             let (mark, style) = match kind {
                 NodeKind::Free => ("☐", Style::default()),
@@ -513,16 +522,29 @@ fn row_line(
                 format!(" {state} ")
             };
             let mark_s = format!("{mark} ");
-            let fixed = 2 + cells(&indent) + cells(&mark_s) + cells(&state_s) + cells(&age);
+            let tag = if *depth == 0 {
+                project_of(app, id)
+            } else {
+                None
+            };
+            let pill_w = tag.as_ref().map_or(0, |t| cells(&pill_text(t)) + 1);
+            let fixed =
+                2 + cells(&indent) + cells(&mark_s) + cells(&state_s) + cells(&age) + pill_w;
             let title_room = width.saturating_sub(fixed);
             let title_style = match kind {
                 NodeKind::Free | NodeKind::Doing => Style::default(),
                 _ => Style::default().fg(Color::DarkGray),
             };
-            Line::from(vec![
+            let mut spans = vec![
                 Span::raw(cursor),
                 Span::raw(indent),
                 Span::styled(mark_s, style),
+            ];
+            if let Some(t) = &tag {
+                spans.push(pill_span(t));
+                spans.push(Span::raw(" "));
+            }
+            spans.extend([
                 Span::styled(
                     pad(&fit(title, title_room), title_room),
                     if selected {
@@ -533,7 +555,8 @@ fn row_line(
                 ),
                 Span::styled(state_s, style),
                 Span::styled(age, Style::default().fg(Color::DarkGray)),
-            ])
+            ]);
+            Line::from(spans)
         }
         Row::Person {
             name,
@@ -768,19 +791,48 @@ fn border_style() -> Style {
     Style::default().fg(Color::DarkGray)
 }
 
-/// `╭─ label ─────╮`, `width` cells wide.
-fn box_top(label: &str, width: usize) -> Line<'static> {
+/// The project's pill: its own colour as text on a dim wash of itself.
+fn pill_text(tag: &ProjectTag) -> String {
+    format!(" {} ", fit(&tag.name, 24))
+}
+
+fn pill_span(tag: &ProjectTag) -> Span<'static> {
+    let (r, g, b) = tag.rgb();
+    let wash = |c: u8| (u16::from(c) * 22 / 100) as u8;
+    Span::styled(
+        pill_text(tag),
+        Style::default()
+            .fg(Color::Rgb(r, g, b))
+            .bg(Color::Rgb(wash(r), wash(g), wash(b)))
+            .bold(),
+    )
+}
+
+/// The project of a task (its root's), for the pill.
+fn project_of(app: &App, id: &TaskId) -> Option<ProjectTag> {
+    project::tag_of(&app.tree, id)
+}
+
+/// `╭─ [project] label ─────╮`, `width` cells wide.
+fn box_top(label: &str, tag: Option<&ProjectTag>, width: usize) -> Line<'static> {
+    let pill_w = tag.map_or(0, |t| cells(&pill_text(t)) + 1);
     let label_s = if label.is_empty() {
         String::new()
     } else {
-        format!(" {} ", fit(label, width.saturating_sub(6)))
+        format!(" {} ", fit(label, width.saturating_sub(6 + pill_w)))
     };
-    let rule = "─".repeat(width.saturating_sub(3 + cells(&label_s)));
-    Line::from(vec![
-        Span::styled("╭─", border_style()),
-        Span::styled(label_s, Style::default().fg(Color::Gray).bold()),
-        Span::styled(format!("{rule}╮"), border_style()),
-    ])
+    let rule = "─".repeat(width.saturating_sub(3 + pill_w + cells(&label_s)));
+    let mut spans = vec![Span::styled("╭─", border_style())];
+    if let Some(t) = tag {
+        spans.push(Span::raw(" "));
+        spans.push(pill_span(t));
+    }
+    spans.push(Span::styled(
+        label_s,
+        Style::default().fg(Color::Gray).bold(),
+    ));
+    spans.push(Span::styled(format!("{rule}╮"), border_style()));
+    Line::from(spans)
 }
 
 fn box_bottom(width: usize) -> Line<'static> {
@@ -873,7 +925,13 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
         let last = all.len().saturating_sub(1);
         for (gi, g) in all.iter().enumerate() {
             let top = disp.len();
-            disp.push((None, box_top(&g.label, width)));
+            // On Next, a story's box carries its project; so does a lone task's.
+            let tag = match (app.view, g.base, g.rows.as_slice()) {
+                (View::Next, Some((_, Row::Story { id, .. })), _) => project_of(app, id),
+                (View::Next, None, [(_, Row::Item(it))]) => project_of(app, &it.id),
+                _ => None,
+            };
+            disp.push((None, box_top(&g.label, tag.as_ref(), width)));
             let content = |idx: usize, row: &Row, disp: &mut Vec<_>| {
                 let sel = idx == app.selected;
                 let mut line = row_line(app, row, sel, inner, in_hand.as_ref());
@@ -1534,6 +1592,59 @@ mod tests {
         let out = render(&app, 90, 20);
         assert!(out.contains("more above"), "{out}");
         assert!(!out.contains("more below"), "{out}");
+    }
+
+    /// Roots carry a project: each gets its own colour, shown in the Next
+    /// box, the in-hand plate and on the Outline root.
+    #[test]
+    fn projects_show_as_coloured_pills_on_next_the_plate_and_the_outline() {
+        let (mut tree, now) = super::super::app::tests::fixture();
+        let ids: Vec<_> = tree.roots().iter().map(|r| r.id.clone()).collect();
+        for (i, id) in ids.iter().enumerate() {
+            let mut t = tree.get(id).unwrap().clone();
+            t.project = Some(if i == 0 {
+                "alpha".into()
+            } else {
+                "beta".into()
+            });
+            t.swatch = Some(if i == 0 { 0 } else { 1 });
+            tree.insert(t);
+        }
+        let mut app = App::new(tree, None, now);
+        let colours = |app: &App, name: &str| -> Vec<Color> {
+            let mut term = Terminal::new(TestBackend::new(100, 30)).unwrap();
+            term.draw(|f| draw(f, app)).unwrap();
+            let buf = term.backend().buffer().clone();
+            let mut found = Vec::new();
+            for y in 0..buf.area.height {
+                let row: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+                if let Some(at) = row.find(name) {
+                    let x = row[..at].chars().count() as u16;
+                    found.push(buf[(x, y)].fg);
+                }
+            }
+            found
+        };
+        let orange = Color::Rgb(0xf9, 0x73, 0x16);
+        let blue = Color::Rgb(0x3b, 0x82, 0xf6);
+        for key in ['1', '2'] {
+            press(&mut app, key);
+            let out = render(&app, 100, 30);
+            assert!(
+                out.contains("alpha") || out.contains("beta"),
+                "{key}\n{out}"
+            );
+        }
+        press(&mut app, '2');
+        // The Outline root, then the Next box and the plate: own colour each.
+        assert_eq!(colours(&app, "beta"), vec![blue]);
+        press(&mut app, '1');
+        let on_next = colours(&app, "beta");
+        assert!(
+            !on_next.is_empty() && on_next.iter().all(|c| *c == blue),
+            "{on_next:?}"
+        );
+        assert!(colours(&app, "alpha").iter().all(|c| *c == orange));
     }
 
     #[test]

@@ -22,7 +22,11 @@ The chain of open prerequisites from a leaf up to its story — what finishing t
 
 **Story**:
 Informal name for a root task with subtasks. Not a type; just how people talk about the top of a tree.
-_Avoid_: epic, project
+_Avoid_: epic
+
+**Project**:
+A free-text, coloured label on a root story ("taskstaka", "devops"), inherited by everything under it; several roots may share one. Shown as a pill next to *now*, *in hand* and on Outline roots, so you can tell which piece of work a row belongs to. Not a filter and not a rank, and not a task type: just a label. The colour is chosen when the name first appears and stored on the root.
+_Avoid_: theme, epic, workspace
 
 **Context**:
 Which life a task belongs to: `work` or `personal`. A filter, never a rank. Determined by the root of the tree.

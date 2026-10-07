@@ -120,6 +120,9 @@ pub struct AddArgs {
     pub until: Option<String>,
     /// Link to the conversation (thread URL, message id).
     pub waiting_ref: Option<String>,
+    /// The project of a new ROOT story (e.g. the repo name). Ignored on
+    /// subtasks, which inherit it. Call `projects` first and reuse a match.
+    pub project: Option<String>,
 }
 
 #[derive(Deserialize, rmcp::schemars::JsonSchema)]
@@ -155,6 +158,9 @@ pub struct UpdateArgs {
     pub waiting_on: Option<String>,
     /// Link to the conversation.
     pub waiting_ref: Option<String>,
+    /// Set the project (root stories only; subtasks inherit it).
+    pub project: Option<String>,
+    pub clear_project: Option<bool>,
 }
 
 #[derive(Deserialize, rmcp::schemars::JsonSchema)]
@@ -283,6 +289,7 @@ impl TaskstakaMcp {
             waiting_on: a.waiting_on,
             until: parse_date(a.until)?,
             waiting_ref: a.waiting_ref,
+            project: a.project,
         };
         self.apply(Command::Add(add)).await
     }
@@ -306,7 +313,9 @@ impl TaskstakaMcp {
         .await
     }
 
-    #[tool(description = "Edit a task's title, context, priority, due date, tags or body.")]
+    #[tool(
+        description = "Edit a task's title, context, priority, due date, tags, body or project (project only on a root story)."
+    )]
     async fn update_task(
         &self,
         Parameters(a): Parameters<UpdateArgs>,
@@ -328,6 +337,11 @@ impl TaskstakaMcp {
             parse_date(a.due)?.map(Set::To).unwrap_or(Set::Keep)
         };
         edit.tags = a.tags;
+        edit.project = if a.clear_project.unwrap_or(false) {
+            Set::Clear
+        } else {
+            a.project.map(Set::To).unwrap_or(Set::Keep)
+        };
         edit.body = a.body;
         edit.waiting_on = a.waiting_on.map(Set::To).unwrap_or(Set::Keep);
         edit.waiting_ref = a.waiting_ref.map(Set::To).unwrap_or(Set::Keep);
@@ -360,6 +374,27 @@ impl TaskstakaMcp {
     async fn touch(&self, Parameters(a): Parameters<TouchArgs>) -> Result<String, ErrorData> {
         let id = self.resolve(&a.id).await?;
         self.apply(Command::Touch { id, note: a.note }).await
+    }
+
+    #[tool(
+        description = "The projects in use, each with its colour and the root stories under it. Check this before starting work: reuse a project that matches (same repo or area), otherwise add_task the new root with a new `project`."
+    )]
+    async fn projects(&self) -> Result<String, ErrorData> {
+        let views = self
+            .blocking(|c| c.tasks_filtered(None, None, false))
+            .await?;
+        let mut out: Vec<serde_json::Value> = Vec::new();
+        for v in views.iter().filter(|v| v.task.parent.is_none()) {
+            let Some(tag) = &v.project_tag else { continue };
+            let story = serde_json::json!({ "id": v.task.id, "title": v.task.title });
+            match out.iter_mut().find(|p| p["name"] == tag.name.as_str()) {
+                Some(p) => p["stories"].as_array_mut().unwrap().push(story),
+                None => out.push(serde_json::json!({
+                    "name": tag.name, "color": tag.color, "stories": [story]
+                })),
+            }
+        }
+        pretty(&out)
     }
 
     #[tool(

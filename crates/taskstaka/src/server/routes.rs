@@ -246,6 +246,8 @@ struct EditFields {
     waiting_on: Set<String>,
     #[serde(default)]
     waiting_ref: Set<String>,
+    #[serde(default)]
+    project: Set<String>,
 }
 
 async fn patch_task(State(s): S, Path(id): Path<String>, Json(f): Json<EditFields>) -> R<Outcome> {
@@ -260,6 +262,7 @@ async fn patch_task(State(s): S, Path(id): Path<String>, Json(f): Json<EditField
         body: f.body,
         waiting_on: f.waiting_on,
         waiting_ref: f.waiting_ref,
+        project: f.project,
     };
     Ok(Json(apply(&s, Command::Edit(edit)).await?))
 }

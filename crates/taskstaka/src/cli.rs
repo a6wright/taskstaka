@@ -490,6 +490,7 @@ fn add_task(a: AddArgs, title: String, parent: Option<TaskId>) -> AddTask {
         waiting_on: a.waiting_on,
         until: a.until,
         waiting_ref: a.waiting_ref,
+        project: a.project,
     }
 }
 
@@ -557,6 +558,11 @@ fn edit(b: &mut dyn Backend, e: EditArgs, json: bool, now: &Zoned) -> Result<()>
     };
     edit.waiting_on = e.waiting_on.map(Set::To).unwrap_or(Set::Keep);
     edit.waiting_ref = e.waiting_ref.map(Set::To).unwrap_or(Set::Keep);
+    edit.project = if e.no_project {
+        Set::Clear
+    } else {
+        e.project.map(Set::To).unwrap_or(Set::Keep)
+    };
     edit.tags = if e.tags.is_empty() {
         None
     } else {

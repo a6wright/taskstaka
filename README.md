@@ -118,6 +118,12 @@ The panel (`taskstaka tui`) has five pages (`1`–`5`, or `v` to cycle) that mat
 web's views — the web adds a **Done** page; in the panel, `h` shows completed tasks
 in the outline instead: **Next** shows the plate boxed at the top — `d` done, `p` put back, `i` *first I
 need to…*, `w` wait on someone — then each story as a stack (`l` unfolds the later list).
+**Projects.** A root story can carry a project (`taskstaka add --project devops "…"`,
+`taskstaka edit ID --project devops`, or the Project field in the web pane). Its subtasks
+inherit it, several roots can share one, and each project gets its own colour, shown as a
+pill beside *now*, *in hand* and on Outline roots in the web and the TUI. The agent skill
+reuses a matching project or creates one named for the repo.
+
 **Outline** is the tree (`⇧` + arrows rearrange, `A` adds under, `h` shows completed),
 **Waiting on** groups by person (`f` chase, `u` unblock when they reply), **Someday** is
 the parked outline (`u` revives), **Nudges** is the current set. `?` lists every key.

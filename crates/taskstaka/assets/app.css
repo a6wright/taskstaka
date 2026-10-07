@@ -210,3 +210,10 @@ kbd { font-family: var(--mono); font-size: 11px; background: var(--bg-active); p
 .setrow input:focus { outline: 1px solid var(--accent); }
 .setnote { color: var(--muted); font-size: 12px; } .setnote.warn { color: var(--warn); } .setnote.error { color: var(--danger); }
 .toggle:disabled { opacity: .5; }
+
+/* project pills: one colour per project, set inline as --pc */
+.proj { display: inline-flex; align-items: center; margin-left: 8px; padding: 0 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; letter-spacing: .01em; line-height: 18px; text-transform: none;
+  color: var(--pc); background: color-mix(in srgb, var(--pc) 16%, transparent); border: 1px solid color-mix(in srgb, var(--pc) 50%, transparent); vertical-align: middle; white-space: nowrap; }
+.meta .proj { margin: 0 4px 0 0; }
+.rel .proj { margin-left: 8px; }
+.story-head .proj { margin: 0; }

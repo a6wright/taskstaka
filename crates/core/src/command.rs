@@ -54,6 +54,9 @@ pub struct AddTask {
     /// Follow-up date for `waiting_on`; defaults per store config.
     pub until: Option<Date>,
     pub waiting_ref: Option<String>,
+    /// The project of a new root story. Ignored for subtasks, which inherit.
+    #[serde(default)]
+    pub project: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -73,6 +76,9 @@ pub struct EditTask {
     pub waiting_on: Set<String>,
     #[serde(default)]
     pub waiting_ref: Set<String>,
+    /// Root stories only; children inherit it.
+    #[serde(default)]
+    pub project: Set<String>,
 }
 
 impl EditTask {
@@ -88,6 +94,7 @@ impl EditTask {
             body: None,
             waiting_on: Set::Keep,
             waiting_ref: Set::Keep,
+            project: Set::Keep,
         }
     }
 }

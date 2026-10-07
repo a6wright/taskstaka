@@ -257,6 +257,9 @@ pub struct AddArgs {
     /// Conversation link for --waiting-on.
     #[arg(long = "ref", requires = "waiting_on")]
     pub waiting_ref: Option<String>,
+    /// Project of a new root story (subtasks inherit their root's).
+    #[arg(long)]
+    pub project: Option<String>,
     #[arg(required = true)]
     pub title: Vec<String>,
 }
@@ -303,6 +306,12 @@ pub struct EditArgs {
     /// Set the conversation link.
     #[arg(long = "ref")]
     pub waiting_ref: Option<String>,
+    /// Set the project (root stories only; subtasks inherit it).
+    #[arg(long, conflicts_with = "no_project")]
+    pub project: Option<String>,
+    /// Remove the project.
+    #[arg(long)]
+    pub no_project: bool,
 }
 
 impl EditArgs {
@@ -316,6 +325,8 @@ impl EditArgs {
             || !self.tags.is_empty()
             || self.waiting_on.is_some()
             || self.waiting_ref.is_some()
+            || self.project.is_some()
+            || self.no_project
     }
 }
 

@@ -21,6 +21,9 @@ pub struct TaskView {
     pub children: Vec<TaskId>,
     /// Root first, immediate parent last.
     pub ancestry: Vec<TaskId>,
+    /// The project this task belongs to (its root's), with its colour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_tag: Option<crate::project::ProjectTag>,
     /// Absolute path of the note; only the daemon knows it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<PathBuf>,
@@ -40,6 +43,7 @@ impl TaskView {
             derived: derive(tree, task, now.date()),
             children: tree.children(&task.id).map(|c| c.id.clone()).collect(),
             ancestry,
+            project_tag: crate::project::tag_of(tree, &task.id),
             path,
         }
     }

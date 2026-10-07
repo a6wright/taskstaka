@@ -142,6 +142,8 @@ async function act(fn, keep) {
 // ---------- lookups ----------
 const byId = (id) => S.all.find(t => t.id === id);
 const childrenOf = (id) => S.all.filter(t => t.parent === id).sort((a, b) => (a.order ?? Date.parse(a.created) / 1000) - (b.order ?? Date.parse(b.created) / 1000));
+// A project pill: the project's own colour, inherited from the root story.
+const pill = (tag) => tag ? `<span class="proj" style="--pc:${esc(tag.color)}" title="project: ${esc(tag.name)}">${esc(tag.name)}</span>` : '';
 const isClosed = (t) => t.status === 'done' || t.status === 'dropped';
 const recent = (iso) => iso && (Date.now() - Date.parse(iso)) < 86400e3;
 
@@ -244,7 +246,7 @@ function rowHtml(t, d, depth, { editable = true, crumb = '', extra = '' } = {}) 
     ${editable ? `<span class="grip" draggable="true" title="drag to reorder or nest">⋮⋮</span>` : ''}
     <input type="checkbox" class="cb" ${closed ? 'checked' : ''} title="${closed ? 'reopen' : 'done'}">
     <span class="title" ${editable ? 'contenteditable="true" spellcheck="false"' : ''}>${esc(t.title)}${crumb}</span>
-    <span class="meta">${chips(t, d)}${hoverMeta(t)}${extra}</span>
+    <span class="meta">${depth === 0 && editable ? pill(t.project_tag) : ''}${chips(t, d)}${hoverMeta(t)}${extra}</span>
     ${editable && S.showNotes ? noteHtml(t) : ''}
   </li>`;
 }
@@ -300,7 +302,7 @@ function renderNext() {
     parts.push(`<div class="story stack">`);
     let level = 0;
     if (p.now.length) {
-      parts.push(`<div class="plate now" style="--i:${level}"><div class="rel">now</div><ul class="rows">`);
+      parts.push(`<div class="plate now" style="--i:${level}"><div class="rel">now${pill((byId(p.id) || {}).project_tag)}</div><ul class="rows">`);
       for (const it of p.now) {
         const t = byId(it.id); if (!t) continue;
         const chain = [...it.ancestry].reverse().slice(0, -1).map(c => esc(c.title)).join(' → ');
@@ -325,7 +327,7 @@ function renderNext() {
       }
       level++;
     }
-    parts.push(`<div class="plate base" style="--i:${level}"><div class="story-head"><span class="rel">so that</span><a href="#" data-open="${p.id}" class="story-title">${esc(p.title)}</a><span class="story-meta">${meta.join(' · ')}</span></div></div>`);
+    parts.push(`<div class="plate base" style="--i:${level}"><div class="story-head"><span class="rel">so that</span>${pill((byId(p.id) || {}).project_tag)}<a href="#" data-open="${p.id}" class="story-title">${esc(p.title)}</a><span class="story-meta">${meta.join(' · ')}</span></div></div>`);
     parts.push('</div>');
   }
   return parts.join('');
@@ -423,6 +425,9 @@ function renderPane() {
         <label>priority</label><select data-prop="priority" data-id="${t.id}"><option value=""${sel(null, t.priority)}>normal</option><option value="high"${sel('high', t.priority)}>high</option><option value="low"${sel('low', t.priority)}>low</option></select>
         <label>due</label><input data-prop="due" data-id="${t.id}" value="${esc(t.due || '')}" placeholder="YYYY-MM-DD or +3d">
         <label>tags</label><input data-prop="tags" data-id="${t.id}" value="${esc((t.tags || []).join(', '))}" placeholder="comma, separated">
+        ${t.parent ? `<label>project</label><span class="ro">${t.project_tag ? pill(t.project_tag) + ' (set on the root story)' : 'none (set on the root story)'}</span>`
+          : `<label>project</label><input data-prop="project" data-id="${t.id}" list="project-names" value="${esc(t.project || '')}" placeholder="e.g. taskstaka, devops">
+        <datalist id="project-names">${[...new Set(S.all.map(x => x.project).filter(Boolean))].map(n => `<option value="${esc(n)}">`).join('')}</datalist>`}
         <label>parent</label><input data-prop="parent" data-id="${t.id}" value="${esc(t.parent || '')}" placeholder="id (blank = root)">
         <label>queued</label><span class="ro">${ago(t.created)} · touched ${ago(t.updated)}${t.started ? ' · doing ' + ago(t.started) : ''}</span>
         ${st === 'waiting' ? `
@@ -626,6 +631,7 @@ document.addEventListener('change', async (e) => {
     else if (prop === 'due') body = { due: v ? { to: await resolveDate(v).catch(err => { flash(err.message, 'error'); return undefined; }) } : 'clear' };
     else if (prop === 'tags') body = { tags: v ? v.split(',').map(x => x.trim()).filter(Boolean) : [] };
     else if (prop === 'context') body = { context: v };
+    else if (prop === 'project') body = { project: v ? { to: v } : 'clear' };
     else if (prop === 'waiting_on') body = { waiting_on: v ? { to: v } : 'keep' };
     else if (prop === 'waiting_ref') body = { waiting_ref: v ? { to: v } : 'keep' };
     else if (prop === 'parent') return act(() => api('POST', `/api/v1/tasks/${id}/move`, { parent: v || null }));
@@ -761,7 +767,7 @@ function renderPlate(t) {
   const unlocks = chain.length ? `<div class="unlocks">→ ${chain.map(c => `<a href="#" data-open="${c.id}">${esc(c.title)}</a>${isAgent(c) ? ' 🤖' : ''}`).join(' → ')}</div>` : '';
   return `
     <div class="plate top ${closed ? 'closed' : ''}">
-      <div class="rel">${closed ? 'done' : t.status === 'waiting' ? '✉ waiting on ' + esc(t.waiting_on || '') : d.blocked_by ? '▽ blocked — finish what is under it' : 'in hand'}</div>
+      <div class="rel">${closed ? 'done' : t.status === 'waiting' ? '✉ waiting on ' + esc(t.waiting_on || '') : d.blocked_by ? '▽ blocked — finish what is under it' : 'in hand'}${pill(t.project_tag)}</div>
       <h2 class="plate-title" contenteditable="true" spellcheck="false" data-title="${t.id}">${esc(t.title)}</h2>
       ${unlocks}
       <div class="meta">${chips(t, d)}${isAgent(t) ? '<span class="chip agent">🤖 agent</span>' : ''}</div>

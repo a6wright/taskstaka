@@ -770,7 +770,7 @@ function renderPlate(t) {
       <div class="rel">${closed ? 'done' : t.status === 'waiting' ? '✉ waiting on ' + esc(t.waiting_on || '') : d.blocked_by ? '▽ blocked — finish what is under it' : 'in hand'}${pill(t.project_tag)}</div>
       <h2 class="plate-title" contenteditable="true" spellcheck="false" data-title="${t.id}">${esc(t.title)}</h2>
       ${unlocks}
-      <div class="meta">${chips(t, d)}${isAgent(t) ? '<span class="chip agent">🤖 agent</span>' : ''}</div>
+      <div class="meta">${chips(t, d)}</div>
       <textarea class="notes plate-notes" data-notes="${t.id}" rows="${Math.min(12, Math.max(3, notes.split('\n').length + 1))}" placeholder="what exactly to do — the command, the link, the draft message">${esc(notes)}</textarea>
       <div class="actions">${acts.join('')}<button class="btn small" data-open="${t.id}">details</button></div>
       <div class="inline-form"><input class="first-title" placeholder="first I need to… (becomes in hand; this one pauses)"><button class="btn" data-first="prompt" data-id="${t.id}">push</button></div>

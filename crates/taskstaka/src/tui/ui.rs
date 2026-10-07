@@ -855,8 +855,12 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
     let mut disp: Vec<(Option<usize>, Line<'static>)> = Vec::new();
     // First and last line of each box in `disp`, for scrolling by whole boxes.
     let mut spans: Vec<(usize, usize)> = Vec::new();
-    if app.view == View::Nudges {
+    // Nudges and the Outline are one plain checklist, like the web's.
+    if matches!(app.view, View::Nudges | View::Outline) {
         for (i, row) in app.rows.iter().enumerate() {
+            if matches!(row, Row::Plate(_)) {
+                continue;
+            }
             let sel = i == app.selected;
             let mut line = row_line(app, row, sel, width, in_hand.as_ref());
             if sel {
@@ -1581,13 +1585,13 @@ mod tests {
         }
     }
 
-    /// Every border of every box is the same width, whatever the row holds
+    /// (Outline is a plain checklist, so it has no boxes.) Every border of every box is the same width, whatever the row holds
     /// (emoji, long titles, a selected row), or the right edge goes ragged.
     #[test]
     fn box_edges_line_up() {
         let (tree, now) = super::super::app::tests::fixture();
         let mut app = App::new(tree, None, now);
-        for key in ['1', '2', '3', '4'] {
+        for key in ['1', '3', '4'] {
             press(&mut app, key);
             for width in [60u16, 100] {
                 let out = render(&app, width, 30);

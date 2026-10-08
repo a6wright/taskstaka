@@ -122,7 +122,7 @@ Adding a prerequisite under the in-hand task because you learned you need it fir
 What happens to a `doing` task when a prerequisite lands under it: it goes back to `todo` with a journal line ("paused: first X"). A task cannot be both doing and blocked.
 
 **Plate**:
-One task on Next drawn as a card. The in-hand plate on top; per story, the *now* plate (every parallel stream you could work on, in outline order, unranked), the *later* plates (everything still required, nearest-to-doable first, each with why not yet), and the story at the base.
+One task on Next drawn as a card. The in-hand plate on top; per story, the *now* plate (every parallel stream you could work on, in outline order, unranked), the *later* plates (everything still required, nearest-to-doable first, each with why not yet), and the story at the base. Stories sit in outline order too, doable ones before stuck ones; finishing a row never moves its story (ADR 0013).
 
 ### Time
 

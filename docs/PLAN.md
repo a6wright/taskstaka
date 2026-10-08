@@ -262,6 +262,7 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 - **P9:** no form endpoints; the page is a single shell over the JSON API. Every re-render preserves the focused row/caret (the first Playwright run caught the live-update re-render stealing focus from the new-task box). Sidebar collapses via a chevron on its boundary or `\\`; `▶ start` lives on row hover and `Ctrl+.` toggles doing on a focused row.
 - **P13:** agent-tagged steps rank for the human after all (reversing the P8-era rule): a person still triggers the agent and checks the result, so hiding them hid work. The 🤖 chip is the signal.
 - **P13:** the sidebar no longer collapses (the toggle broke the layout and nobody wanted it); *nudges* is a page.
+- **P12/P13 (2026-10-07, ADR 0013):** stories on Next are in outline order, not ranked by their best row. Ranking them made the boxes swap places when the row carrying the rank was ticked. Tiers still badge rows and still order the flat `next` list.
 - **P6:** the daemon still binds `127.0.0.1` only, so "phone on the LAN" needs a `--bind` option — deferred to post-v1 alongside an auth token.
 
 ## Resume here

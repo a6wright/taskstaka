@@ -869,36 +869,36 @@ pub struct StoryPlan {
     pub stuck: Option<String>,
 }
 
-/// "What do I have to do now, and how much is left?" Stories are ordered by
-/// their best `now` row (the Next ranking, grouped); stuck stories follow.
+/// "What do I have to do now, and how much is left?" Stories keep their
+/// outline order (ADR 0013): finishing a row never moves its story, so the
+/// boxes on Next stay where the eye left them. Stories with something to do
+/// now come first; stuck stories follow, in the same order.
 pub fn plan(tree: &Tree, now: &Zoned, ctx: Option<Context>, cfg: &RankConfig) -> Vec<StoryPlan> {
     let today = now.date();
     let ts = now.timestamp();
     let items = needs_action(tree, now, ctx, cfg);
 
-    // Group actionable rows by story, in rank order of first appearance.
-    let mut order: Vec<TaskId> = Vec::new();
+    // Group actionable rows by story.
     let mut now_by_root: std::collections::HashMap<TaskId, Vec<NextItem>> = Default::default();
     for it in items {
         let root = tree
             .root_of(&it.id)
             .map(|r| r.id.clone())
             .unwrap_or(it.id.clone());
-        if !now_by_root.contains_key(&root) {
-            order.push(root.clone());
-        }
         now_by_root.entry(root).or_default().push(it);
     }
-    // Stories with open work but nothing actionable come after, in tree order.
-    for r in tree.roots() {
-        if r.status.is_open()
+    // Stories in outline order, never by rank: a row's tier badges it, it
+    // does not move its story. Those with something to do now first, then
+    // the ones with open work but nothing actionable.
+    let roots = tree.roots();
+    let doable = roots.iter().filter(|r| now_by_root.contains_key(&r.id));
+    let stuck = roots.iter().filter(|r| {
+        !now_by_root.contains_key(&r.id)
+            && r.status.is_open()
             && r.status != Status::Someday
             && in_context(tree, r, ctx)
-            && !order.contains(&r.id)
-        {
-            order.push(r.id.clone());
-        }
-    }
+    });
+    let order: Vec<TaskId> = doable.chain(stuck).map(|r| r.id.clone()).collect();
 
     // Outline position for every task, so `now` reads top-down like the tree:
     // siblings are parallel streams, nothing among them says "this one first".
@@ -1136,6 +1136,78 @@ mod plan_tests {
             "parked subtrees and closed stories are not plans"
         );
         assert!(plans[0].later.is_empty(), "a lone leaf has nothing later");
+    }
+
+    /// Reported 2026-10-07: ticking a row made the story boxes on Next swap
+    /// places. Stories were ordered by their best-ranked row, so finishing
+    /// the row that carried the rank re-ranked the story (ADR 0013).
+    #[test]
+    fn finishing_a_row_never_moves_its_story() {
+        let now: Zoned = "2026-09-29T15:00:00[UTC]".parse().unwrap();
+        let at = |h: i64| -> Timestamp { now.timestamp() - (h * 3600).seconds() };
+        let mk = |id: &str, title: &str, parent: Option<&str>, h: i64| {
+            let mut t = Task::new(id.parse::<TaskId>().unwrap(), title, Context::Work, at(h));
+            t.parent = parent.map(|p| p.parse().unwrap());
+            t
+        };
+        // Outline order: Homebrew first, then the shop. The shop has the
+        // higher-ranked rows (overdue, then doing); Homebrew only plain todos.
+        let mut overdue = mk("ebay00", "Get the eBay details", Some("shp000"), 30);
+        overdue.due = Some(now.date().checked_sub(2.days()).unwrap());
+        let mut doing = mk("adapt0", "Write the eBay adapter", Some("shp000"), 28);
+        doing.status = Status::Doing;
+        doing.started = Some(at(5));
+        let mut tasks = vec![
+            mk("brew00", "Get taskstaka on Homebrew", None, 100),
+            mk("rst000", "Install Rust", Some("brew00"), 90),
+            mk("c10ne0", "Clone the repo", Some("brew00"), 89),
+            mk("shp000", "Sell the collection", None, 80),
+            overdue,
+            doing,
+            mk("endpt0", "Register the endpoint", Some("shp000"), 20),
+        ];
+        let titles = |tree: &Tree| -> Vec<String> {
+            plan(tree, &now, None, &RankConfig::default())
+                .into_iter()
+                .map(|p| p.title)
+                .collect()
+        };
+        let before = titles(&Tree::from_tasks(tasks.clone()));
+        assert_eq!(
+            before,
+            ["Get taskstaka on Homebrew", "Sell the collection"],
+            "outline order, even though the shop holds the overdue and doing rows"
+        );
+
+        // Tick the overdue row, then the doing one: the boxes stay put.
+        for id in ["ebay00", "adapt0"] {
+            let t = tasks.iter_mut().find(|t| t.id.as_str() == id).unwrap();
+            t.status = Status::Done;
+            t.completed = Some(now.timestamp());
+            assert_eq!(
+                titles(&Tree::from_tasks(tasks.clone())),
+                before,
+                "after {id}"
+            );
+        }
+
+        // Only running out of doable rows moves a story: stuck ones go last.
+        let t = tasks
+            .iter_mut()
+            .find(|t| t.id.as_str() == "endpt0")
+            .unwrap();
+        t.status = Status::Waiting;
+        t.waiting_on = Some("Dave".into());
+        t.waiting_since = Some(now.timestamp());
+        t.until = Some(now.date().checked_add(2.days()).unwrap());
+        let plans = plan(
+            &Tree::from_tasks(tasks.clone()),
+            &now,
+            None,
+            &RankConfig::default(),
+        );
+        assert_eq!(plans[1].title, "Sell the collection");
+        assert_eq!(plans[1].stuck.as_deref(), Some("waiting on Dave"));
     }
 }
 

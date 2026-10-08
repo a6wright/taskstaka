@@ -23,8 +23,9 @@ parent is not in hand until you start it.
   not be both doing and blocked; this applies whether the prerequisite arrives from the
   plate, the outline (Tab), the CLI or an agent.
 - Siblings in a story's *now* plate are parallel streams in outline order with no ranking
-  among them: choosing is the user's, not the tool's. Tiers still order stories and
-  provide badges (overdue, ↑ ready, due soon).
+  among them: choosing is the user's, not the tool's. Tiers provide badges (overdue,
+  ↑ ready, due soon). *Amended by ADR 0013:* stories keep their outline order too;
+  tiers no longer order them.
 
 **Rejected:** auto-climbing the hand to the parent on completion (surprising when the
 parent has other open children, and it presumes the user wants to continue the same

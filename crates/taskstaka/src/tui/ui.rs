@@ -67,19 +67,24 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 }
 
-/// The in-hand plate sits above the list on Next: title, where it sits, the
-/// last few note lines, and the verbs. Zero when nothing is in hand.
+/// The plate sits above the list on Next: title, where it sits, the last
+/// few note lines, and the verbs. Zero when nothing is ready at all.
 fn plate_height(app: &App, area: Rect) -> u16 {
     if app.view != View::Next {
         return 0;
     }
-    let Some(t) = app.in_hand() else { return 0 };
+    let Some(t) = app.plate().map(|p| p.task) else {
+        return 0;
+    };
     let notes = note_lines(&t.body).len() as u16;
     // border + title + crumb + notes + verbs + border
     let crumb = u16::from(!app.tree.ancestors(&t.id).is_empty() || is_agent_step(t));
     let want = 2 + 1 + crumb + notes + 1;
-    // Header, spacer, footer and at least four list rows always stay.
-    let room = area.height.saturating_sub(HEADER + 1 + 1 + MIN_LIST);
+    // Header, spacer, footer and enough list for a small story box with
+    // both scroll markers always stay. When the plate box does not fit, the
+    // plate is drawn as the first list row instead.
+    const LIST_KEEPS: u16 = 7;
+    let room = area.height.saturating_sub(HEADER + 1 + 1 + LIST_KEEPS);
     if room < 4 {
         return 0;
     }
@@ -205,26 +210,39 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_plate(f: &mut Frame, app: &App, area: Rect) {
-    let Some(t) = app.in_hand() else { return };
+    let Some(plate) = app.plate() else { return };
+    let t = plate.task;
     let selected = matches!(app.selected_row(), Some(Row::Plate(id)) if *id == t.id);
     let now = app.now.timestamp();
     let mut lines: Vec<Line> = Vec::new();
 
-    let since = humanize::since(t.started.unwrap_or(t.created), now);
-    let mut head = vec![Span::styled(
-        " ▶ in hand ",
-        Style::default().fg(Color::Yellow).bold(),
-    )];
+    let state = if plate.in_hand {
+        format!(
+            "   started {}",
+            humanize::since(t.started.unwrap_or(t.created), now)
+        )
+    } else {
+        "   not started".to_string()
+    };
+    // The same cursor as a list row, so the selection reads the same way.
+    let mut head = vec![
+        Span::raw(if selected { "›" } else { " " }),
+        Span::styled(
+            if plate.in_hand {
+                " ▶ in hand "
+            } else {
+                " ▶ up next "
+            },
+            Style::default().fg(Color::Yellow).bold(),
+        ),
+    ];
     if let Some(tag) = project_of(app, &t.id) {
         head.push(pill_span(&tag));
     }
     head.extend([
         Span::raw(" "),
         Span::styled(t.title.clone(), Style::default().bold()),
-        Span::styled(
-            format!("   started {since}"),
-            Style::default().fg(Color::DarkGray),
-        ),
+        Span::styled(state, Style::default().fg(Color::DarkGray)),
     ]);
     lines.push(Line::from(head));
 
@@ -261,7 +279,11 @@ fn draw_plate(f: &mut Frame, app: &App, area: Rect) {
         }
     }
     lines.push(Line::from(Span::styled(
-        " d done · p put back · i first I need to… · w wait on someone",
+        if plate.in_hand {
+            " d done · p put back · i first I need to… · w wait on someone"
+        } else {
+            " s start · d done · i first I need to… · w wait on someone"
+        },
         Style::default().fg(Color::Yellow),
     )));
 
@@ -342,11 +364,30 @@ fn row_line(
     row: &Row,
     selected: bool,
     width: usize,
-    in_hand: Option<&TaskId>,
+    plate: Option<&(TaskId, bool)>,
 ) -> Line<'static> {
     let cursor = if selected { "› " } else { "  " };
     match row {
-        Row::Plate(_) => Line::from(""),
+        // Only drawn as a row when the window is too short for the plate box.
+        Row::Plate(id) => {
+            let label = match plate {
+                Some((_, true)) => "▶ in hand",
+                _ => "▶ up next",
+            };
+            let title = app
+                .tree
+                .get(id)
+                .map(|t| t.title.clone())
+                .unwrap_or_default();
+            Line::from(vec![
+                Span::raw(cursor),
+                Span::styled(
+                    format!("{label}  "),
+                    Style::default().fg(Color::Yellow).bold(),
+                ),
+                Span::styled(title, Style::default().bold()),
+            ])
+        }
         Row::Section(title) => Line::from(Span::styled(
             format!(" ── {title} "),
             Style::default()
@@ -355,10 +396,10 @@ fn row_line(
         )),
         Row::Item(it) => {
             let agent = app.tree.get(&it.id).is_some_and(is_agent_step);
-            let mut badge = if in_hand == Some(&it.id) {
-                "▶ in hand".to_string()
-            } else {
-                tier_badge(it.tier).to_string()
+            let mut badge = match plate {
+                Some((id, true)) if *id == it.id => "▶ in hand".to_string(),
+                Some((id, false)) if *id == it.id => "▶ up next".to_string(),
+                _ => tier_badge(it.tier).to_string(),
             };
             if agent {
                 badge = if badge.is_empty() {
@@ -385,7 +426,7 @@ fn row_line(
             let age = age_cell(it.queued_secs);
             let fixed = 4 + cells(&badge_s) + cells(&age);
             let title_room = width.saturating_sub(fixed);
-            let style = if in_hand == Some(&it.id) {
+            let style = if plate.is_some_and(|(id, _)| *id == it.id) {
                 Style::default().fg(Color::Yellow)
             } else {
                 tier_style(it.tier)
@@ -901,12 +942,28 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let in_hand = app.in_hand().map(|t| t.id.clone());
+    let plate = app.plate().map(|p| (p.task.id.clone(), p.in_hand));
     let inner = width.saturating_sub(4);
     // (row index, line): rows are one line each; borders and gaps have no row.
     let mut disp: Vec<(Option<usize>, Line<'static>)> = Vec::new();
     // First and last line of each box in `disp`, for scrolling by whole boxes.
     let mut spans: Vec<(usize, usize)> = Vec::new();
+    // A window too short for the plate box: the plate is the first list row,
+    // so the selection on it is still visible and the list keeps its boxes.
+    if plate_height(app, f.area()) == 0 {
+        for (i, row) in app.rows.iter().enumerate() {
+            if matches!(row, Row::Plate(_)) {
+                let sel = i == app.selected;
+                let mut line = row_line(app, row, sel, width, plate.as_ref());
+                if sel {
+                    line = line.style(Style::default().bg(SELECTED_BG));
+                }
+                disp.push((Some(i), line));
+                // A one-line box, so the scroller keeps it in view.
+                spans.push((disp.len() - 1, disp.len() - 1));
+            }
+        }
+    }
     // Nudges and the Outline are one plain checklist, like the web's.
     if matches!(app.view, View::Nudges | View::Outline) {
         for (i, row) in app.rows.iter().enumerate() {
@@ -914,7 +971,7 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
                 continue;
             }
             let sel = i == app.selected;
-            let mut line = row_line(app, row, sel, width, in_hand.as_ref());
+            let mut line = row_line(app, row, sel, width, plate.as_ref());
             if sel {
                 line = line.style(Style::default().bg(SELECTED_BG));
             }
@@ -934,7 +991,7 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
             disp.push((None, box_top(&g.label, tag.as_ref(), width)));
             let content = |idx: usize, row: &Row, disp: &mut Vec<_>| {
                 let sel = idx == app.selected;
-                let mut line = row_line(app, row, sel, inner, in_hand.as_ref());
+                let mut line = row_line(app, row, sel, inner, plate.as_ref());
                 let pad_to = inner.saturating_sub(line_cells(&line));
                 line.spans.push(Span::raw(" ".repeat(pad_to)));
                 if sel {
@@ -1285,7 +1342,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
             " j / k, ↑ / ↓     move        g / G   first / last     l   fold / unfold later",
         ),
         Line::from(" d                done        x       drop             o   reopen"),
-        Line::from(" s                start (takes it in hand)   p   put back (empties the hand)"),
+        Line::from(" s                start (takes it in hand)   p   put back (another comes up)"),
         Line::from(" i                first I need to… — a prerequisite under the selection;"),
         Line::from(
             "                  from the task in hand it goes in hand and pauses the one above",

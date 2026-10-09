@@ -325,6 +325,46 @@ pub fn in_hand<'a>(tree: &'a Tree, now: &Zoned, ctx: Option<Context>) -> Option<
         .max_by_key(|t| t.started.unwrap_or(t.created))
 }
 
+/// What the top plate on Next shows (CONTEXT: The plate).
+#[derive(Clone, Copy, Debug)]
+pub struct Plate<'a> {
+    pub task: &'a Task,
+    /// `true`: the task in hand (started). `false`: up next, a ready row
+    /// nobody has started; the plate offers *start* instead of *put back*.
+    pub in_hand: bool,
+}
+
+/// The plate is never empty while something is ready (ADR 0014): the task
+/// in hand, else *up next* — the first ready row in Next order, preferring
+/// rows never started, so putting a task back brings up another one instead
+/// of the same one again.
+pub fn plate<'a>(
+    tree: &'a Tree,
+    now: &Zoned,
+    ctx: Option<Context>,
+    cfg: &RankConfig,
+) -> Option<Plate<'a>> {
+    if let Some(task) = in_hand(tree, now, ctx) {
+        return Some(Plate {
+            task,
+            in_hand: true,
+        });
+    }
+    let ids: Vec<TaskId> = plan(tree, now, ctx, cfg)
+        .into_iter()
+        .flat_map(|p| p.now)
+        .map(|i| i.id)
+        .collect();
+    let rows = || ids.iter().filter_map(|id| tree.get(id));
+    rows()
+        .find(|t| t.started.is_none())
+        .or_else(|| rows().next())
+        .map(|task| Plate {
+            task,
+            in_hand: false,
+        })
+}
+
 pub fn summary(tree: &Tree, now: &Zoned, ctx: Option<Context>) -> Summary {
     let today = now.date();
     let mut s = Summary::default();
@@ -1295,5 +1335,63 @@ mod in_hand_tests {
         let tree = Tree::from_tasks(tasks);
         assert_eq!(in_hand(&tree, &now, None).unwrap().id.as_str(), "bbb000");
         assert!(in_hand(&tree, &now, Some(Context::Work)).is_none());
+    }
+
+    /// ADR 0014: the plate is never empty while something is ready.
+    #[test]
+    fn plate_falls_back_to_the_first_never_started_ready_row() {
+        let now: Zoned = "2026-09-29T15:00:00[UTC]".parse().unwrap();
+        let at = |h: i64| -> Timestamp { now.timestamp() - (h * 3600).seconds() };
+        let mk = |id: &str, title: &str, parent: Option<&str>, h: i64| {
+            let mut t = Task::new(id.parse::<TaskId>().unwrap(), title, Context::Work, at(h));
+            t.parent = parent.map(|p| p.parse().unwrap());
+            t
+        };
+        let cfg = RankConfig::default();
+        let mut tasks = vec![
+            mk("brew00", "Get taskstaka on Homebrew", None, 100),
+            mk("rst000", "Install Rust", Some("brew00"), 90),
+            mk("c10ne0", "Clone the repo", Some("brew00"), 89),
+            mk("t3st00", "Test on macOS", Some("brew00"), 88),
+        ];
+        let who = |tasks: &[Task]| -> (String, bool) {
+            let tree = Tree::from_tasks(tasks.iter().cloned());
+            let p = plate(&tree, &now, None, &cfg).expect("something is ready");
+            (p.task.title.clone(), p.in_hand)
+        };
+        assert_eq!(
+            who(&tasks),
+            ("Install Rust".into(), false),
+            "nothing started: the first ready row, up next"
+        );
+
+        // Start it: in hand. Put it back: the next never-started row is up.
+        tasks[1].status = Status::Doing;
+        tasks[1].started = Some(at(1));
+        assert_eq!(who(&tasks), ("Install Rust".into(), true));
+        tasks[1].status = Status::Todo;
+        assert_eq!(
+            who(&tasks),
+            ("Clone the repo".into(), false),
+            "put back: another one comes up, not the same one"
+        );
+        tasks[2].started = Some(at(1));
+        assert_eq!(who(&tasks), ("Test on macOS".into(), false));
+        tasks[3].started = Some(at(1));
+        assert_eq!(
+            who(&tasks),
+            ("Install Rust".into(), false),
+            "everything was put back once: round again from the top"
+        );
+
+        // Nothing ready at all: no plate.
+        for t in tasks.iter_mut().skip(1) {
+            t.status = Status::Done;
+            t.completed = Some(now.timestamp());
+        }
+        tasks[0].status = Status::Done;
+        tasks[0].completed = Some(now.timestamp());
+        let tree = Tree::from_tasks(tasks.clone());
+        assert!(plate(&tree, &now, None, &cfg).is_none());
     }
 }

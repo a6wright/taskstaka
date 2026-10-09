@@ -745,17 +745,25 @@ function insertDraftUnder(id) {
 
 // ---------- Stack: one chain, inverted, the leaf on top ----------
 // In hand = the task you most recently started that is still open and not
-// blocked. Nothing else is ever in hand: put it back, wait on someone, or
-// push a prerequisite under it, and the plate moves on.
-// Same rule as core::action::in_hand: doing, actionable (unblocked and not
-// under a waiting/parked ancestor), most recently started. Never pinned, so
-// every client agrees on what is in hand.
+// blocked. Same rule as core::action::in_hand: doing, actionable (unblocked
+// and not under a waiting/parked ancestor), most recently started. Never
+// pinned, so every client agrees on what is in hand.
+// The plate is never empty while something is ready (core::action::plate,
+// ADR 0014): with nothing in hand it shows what is *up next* — the first
+// ready row in Next order, preferring rows never started, so putting a
+// task back brings up another one rather than the same one again.
 function pickStackTask() {
   const eligible = (t) => t && t.status === 'doing' && !!(t.derived && t.derived.actionable) && inCtx(t);
   const doing = S.all.filter(eligible).sort((a, b) => Date.parse(b.started || b.created) - Date.parse(a.started || a.created));
-  S.stackId = doing[0] ? doing[0].id : null;
-  return doing[0] || null;
+  let pick = doing[0] || null;
+  if (!pick) {
+    const ready = (S.plan || []).flatMap(p => p.now).map(i => byId(i.id)).filter(Boolean);
+    pick = ready.find(t => !t.started) || ready[0] || null;
+  }
+  S.stackId = pick ? pick.id : null;
+  return pick;
 }
+const inHandOf = (t) => t.status === 'doing';
 function renderPlate(t) {
   const d = t.derived || {};
   const notes = (t.body || '').split('\n').filter(l => !isJournalLine(l)).join('\n').trim();
@@ -763,14 +771,15 @@ function renderPlate(t) {
   const acts = [];
   if (!closed) {
     acts.push(`<button class="btn primary" data-status="done" data-id="${t.id}" data-cascade="1">✓ done</button>`);
-    acts.push(`<button class="btn" data-status="todo" data-id="${t.id}" title="not now — back into the deck">put back</button>`);
+    if (inHandOf(t)) acts.push(`<button class="btn" data-status="todo" data-id="${t.id}" title="not now — the next ready task comes up">put back</button>`);
+    else acts.push(`<button class="btn" data-status="doing" data-id="${t.id}" title="take it in hand">▶ start</button>`);
   }
   const chain = []; let p = t.parent && byId(t.parent); const seen = new Set();
   while (p && !seen.has(p.id)) { seen.add(p.id); chain.push(p); p = p.parent && byId(p.parent); }
   const unlocks = chain.length ? `<div class="unlocks">→ ${chain.map(c => `<a href="#" data-open="${c.id}">${esc(c.title)}</a>${isAgent(c) ? ' 🤖' : ''}`).join(' → ')}</div>` : '';
   return `
     <div class="plate top ${closed ? 'closed' : ''}">
-      <div class="rel">${closed ? 'done' : t.status === 'waiting' ? '✉ waiting on ' + esc(t.waiting_on || '') : d.blocked_by ? '▽ blocked — finish what is under it' : 'in hand'}${pill(t.project_tag)}</div>
+      <div class="rel">${closed ? 'done' : t.status === 'waiting' ? '✉ waiting on ' + esc(t.waiting_on || '') : d.blocked_by ? '▽ blocked — finish what is under it' : inHandOf(t) ? 'in hand' : 'up next'}${pill(t.project_tag)}</div>
       <h2 class="plate-title" contenteditable="true" spellcheck="false" data-title="${t.id}">${esc(t.title)}</h2>
       ${unlocks}
       <div class="meta">${chips(t, d)}</div>

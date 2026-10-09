@@ -335,10 +335,16 @@ pub fn run(b: &mut dyn Backend, cmd: Cmd, json: bool) -> Result<()> {
             let tree = b.tree()?;
             let target = match id {
                 Some(id) => Some(b.resolve(&id)?),
-                None => taskstaka_core::action::in_hand(&tree, &now, None).map(|t| t.id.clone()),
+                None => taskstaka_core::action::plate(
+                    &tree,
+                    &now,
+                    None,
+                    &taskstaka_core::RankConfig::default(),
+                )
+                .map(|p| p.task.id.clone()),
             };
             let Some(id) = target else {
-                println!("nothing in hand — start something from `taskstaka next`");
+                println!("nothing in hand and nothing ready — add something with `taskstaka add`");
                 return Ok(());
             };
             let t = tree.get(&id).context("task vanished")?;
@@ -591,7 +597,7 @@ fn next(b: &mut dyn Backend, n: NextArgs, json: bool, now: &Zoned) -> Result<()>
         return Ok(());
     }
     println!("{}", render::summary_line(&s));
-    let hand = taskstaka_core::action::in_hand(&tree, now, ctx);
+    let hand = taskstaka_core::action::plate(&tree, now, ctx, &RankConfig::default());
     if !plans.is_empty() || hand.is_some() {
         println!();
         print!(

@@ -217,16 +217,25 @@ function check(cond, what) {
   check((await orchardRow.locator('.chip.doing').count()) === 0, 'the task above it is paused (no longer doing)');
   await page.locator('a[data-view="next"]').click(); await settle();
   await page.locator('.plate.top button[data-status="done"]').click(); await settle();
-  const handAfterDone = await page.locator('.plate.top .plate-title').textContent().catch(() => '');
-  check(handAfterDone !== 'Find the car keys' && handAfterDone !== 'Drive to the orchard', `ticking leaves the hand to the next started task, not the parent ("${handAfterDone || 'empty'}")`);
+  // ADR 0010: finishing the task in hand starts the parent it just unblocked.
+  check((await page.locator('.plate.top .plate-title').textContent()) === 'Drive to the orchard', 'ticking the last prerequisite puts its parent in hand');
+  check((await page.locator('.plate.top .rel').textContent()).startsWith('in hand'), 'the parent reads "in hand"');
   const nowTitles = await page.locator('.plate.now .rows .title').allTextContents();
-  check(nowTitles.some(x => x.startsWith('Drive to the orchard')), `the unblocked parent is back among the now rows (${nowTitles.map(x => x.split('→')[0].trim()).join(' | ')})`);
-  const driveRow = page.locator('.plate.now li.row', { hasText: 'Drive to the orchard' }).first();
-  await driveRow.hover(); await driveRow.locator('button.rowbtn.start').click(); await settle();
-  check((await page.locator('.plate.top .plate-title').textContent()) === 'Drive to the orchard', 'start puts it in hand');
+  check(nowTitles.some(x => x.startsWith('Drive to the orchard')), `the unblocked parent is among the now rows (${nowTitles.map(x => x.split('→')[0].trim()).join(' | ')})`);
   await page.locator('.plate.top button[data-status="todo"]').click(); await settle();
   const handAfterPutBack = await page.locator('.plate.top .plate-title').textContent().catch(() => '');
-  check(handAfterPutBack !== 'Drive to the orchard', `put back takes it out of the hand ("${handAfterPutBack || 'empty'}")`);
+  check(handAfterPutBack && handAfterPutBack !== 'Drive to the orchard', `put back takes it out of the hand and the plate stays filled ("${handAfterPutBack || 'empty'}")`);
+  // ADR 0014: the plate is never empty while something is ready. Put back
+  // everything started; the plate then shows what is up next and offers start.
+  for (let i = 0; i < 6 && (await page.locator('.plate.top .rel').textContent()).startsWith('in hand'); i++) {
+    await page.locator('.plate.top button[data-status="todo"]').click(); await settle();
+  }
+  const upNext = await page.locator('.plate.top .plate-title').textContent().catch(() => '');
+  check((await page.locator('.plate.top .rel').textContent().catch(() => '')).startsWith('up next'), `with nothing in hand the plate shows what is up next ("${upNext || 'empty'}")`);
+  check(upNext && upNext !== 'Drive to the orchard', 'up next prefers a task never picked up over one put back');
+  check((await page.locator('.plate.top button[data-status="doing"]').count()) === 1 && (await page.locator('.plate.top button[data-status="todo"]').count()) === 0, 'the up-next plate offers start, not put back');
+  await page.locator('.plate.top button[data-status="doing"]').click(); await settle();
+  check((await page.locator('.plate.top .plate-title').textContent()) === upNext && (await page.locator('.plate.top .rel').textContent()).startsWith('in hand'), 'start from the plate takes it in hand');
   await page.locator('a[data-view="outline"]').click(); await settle();
 
   console.log('someday is an outline you can refine');

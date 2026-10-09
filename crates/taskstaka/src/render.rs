@@ -3,7 +3,7 @@
 use std::fmt::Write;
 
 use jiff::Zoned;
-use taskstaka_core::action::{StoryPlan, Summary, derive, is_agent_step};
+use taskstaka_core::action::{Plate, StoryPlan, Summary, derive, is_agent_step};
 use taskstaka_core::humanize;
 use taskstaka_core::{NextItem, Status, Task, TaskId, Tier, Tree};
 
@@ -59,7 +59,7 @@ pub fn summary_line(s: &Summary) -> String {
 pub fn now_rows(
     tree: &Tree,
     items: &[NextItem],
-    in_hand: Option<&TaskId>,
+    plate: Option<(&TaskId, bool)>,
     explain: bool,
     show_context: bool,
 ) -> String {
@@ -76,10 +76,10 @@ pub fn now_rows(
         .unwrap_or(0)
         .clamp(10, 64);
     for it in items {
-        let mut badge = if in_hand == Some(&it.id) {
-            "▶ in hand".to_string()
-        } else {
-            tier_badge(it.tier).to_string()
+        let mut badge = match plate {
+            Some((id, true)) if *id == it.id => "▶ in hand".to_string(),
+            Some((id, false)) if *id == it.id => "▶ up next".to_string(),
+            _ => tier_badge(it.tier).to_string(),
         };
         if tree.get(&it.id).is_some_and(is_agent_step) {
             badge = if badge.is_empty() {
@@ -332,10 +332,15 @@ fn note_lines(body: &str, n: usize) -> Vec<&str> {
     lines.into_iter().skip(skip).collect()
 }
 
-/// The in-hand plate: the one thing to go do, with its notes and the four
-/// verbs that move it. Shared by `next` and `stack`.
+/// The plate: the task in hand, or what is up next (ADR 0014), with its
+/// notes and the verbs that move it. Shared by `next` and `stack`.
 pub fn plate(tree: &Tree, t: &Task, now: &Zoned) -> String {
     let mut out = String::new();
+    let label = if t.status == Status::Doing {
+        "▶ in hand"
+    } else {
+        "▶ up next"
+    };
     let ts = now.timestamp();
     let d = derive(tree, t, now.date());
     let state = if t.status.is_closed() {
@@ -357,7 +362,7 @@ pub fn plate(tree: &Tree, t: &Task, now: &Zoned) -> String {
     } else {
         ""
     };
-    let _ = writeln!(out, "▶ in hand  {}  {}   {state}{agent}", t.id, t.title);
+    let _ = writeln!(out, "{label}  {}  {}   {state}{agent}", t.id, t.title);
     let chain = tree.ancestors(&t.id);
     if chain.is_empty() {
         let _ = writeln!(out, "           a story of its own");
@@ -376,10 +381,16 @@ pub fn plate(tree: &Tree, t: &Task, now: &Zoned) -> String {
     for l in notes {
         let _ = writeln!(out, "           ≡ {l}");
     }
+    let second = if t.status == Status::Doing {
+        "reopen {id} (put back)"
+    } else {
+        "start {id}"
+    };
     let _ = writeln!(
         out,
-        "           done {id} · reopen {id} (put back) · add -p {id} --start \"first I need to…\" · wait {id} WHO",
-        id = t.id
+        "           done {id} · {second} · add -p {id} --start \"first I need to…\" · wait {id} WHO",
+        id = t.id,
+        second = second.replace("{id}", t.id.as_str())
     );
     out
 }
@@ -431,12 +442,13 @@ pub struct PlanOpts {
     pub show_context: bool,
 }
 
-/// `taskstaka next`: the plate in hand, then each story as a stack — what
-/// you can do now, and `… N later` (what is still required, and why not yet).
+/// `taskstaka next`: the plate (in hand, or up next), then each story as a
+/// stack — what you can do now, and `… N later` (what is still required,
+/// and why not yet).
 pub fn plan_text(
     tree: &Tree,
     plans: &[StoryPlan],
-    in_hand: Option<&Task>,
+    plate_task: Option<Plate<'_>>,
     now: &Zoned,
     opts: PlanOpts,
 ) -> String {
@@ -448,11 +460,11 @@ pub fn plan_text(
     } = opts;
     let limit = if limit == 0 { usize::MAX } else { limit };
     let mut out = String::new();
-    if let Some(t) = in_hand {
-        out.push_str(&plate(tree, t, now));
+    if let Some(p) = plate_task {
+        out.push_str(&plate(tree, p.task, now));
         out.push('\n');
     }
-    let hand_id = in_hand.map(|t| &t.id);
+    let hand_id = plate_task.map(|p| (&p.task.id, p.in_hand));
     for (shown, p) in plans.iter().enumerate() {
         if shown >= limit {
             let _ = writeln!(out, "… and {} more stories (use -n)", plans.len() - shown);

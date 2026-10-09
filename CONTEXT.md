@@ -108,12 +108,15 @@ The ranked list of actionable tasks for a context. What `next` prints and the pa
 ### The hand
 
 **In hand**:
-The task you most recently started (`doing`) that is still open and unblocked. Nothing else is ever in hand; when there is no such task, the hand is empty. Finishing the in-hand task starts the next one in the same story (the parent if it just became ready, else the next sibling); it never moves to another story. The in-hand task is the top plate on Next, with its notes: the one thing to go do.
+The task you most recently started (`doing`) that is still open and unblocked. Nothing else is ever in hand; when there is no such task, the hand is empty and the plate shows what is *up next* instead. Finishing the in-hand task starts the next one in the same story (the parent if it just became ready, else the next sibling); it never moves to another story. The in-hand task is the top plate on Next, with its notes: the one thing to go do.
 _Avoid_: current task, focus, active
 
 **Put back**:
-Taking the in-hand task out of your hand without finishing it (`doing` → `todo`). The hand moves to the next most-recently-started task, or empties.
+Taking the in-hand task out of your hand without finishing it (`doing` → `todo`). The hand moves to the next most-recently-started task, or empties; the plate then shows what is up next.
 _Avoid_: stop, pause (see below), cancel
+
+**Up next**:
+What the plate shows when nothing is in hand: the first ready row in Next order that was never started, else the first ready row (ADR 0014). Computed, never stored; nothing is started for you. Putting a task back brings up a different one. The plate reads "up next" and offers *start* instead of *put back*.
 
 **Push**:
 Adding a prerequisite under the in-hand task because you learned you need it first. The new task starts in hand; the task above it pauses.
@@ -122,7 +125,7 @@ Adding a prerequisite under the in-hand task because you learned you need it fir
 What happens to a `doing` task when a prerequisite lands under it: it goes back to `todo` with a journal line ("paused: first X"). A task cannot be both doing and blocked.
 
 **Plate**:
-One task on Next drawn as a card. The in-hand plate on top; per story, the *now* plate (every parallel stream you could work on, in outline order, unranked), the *later* plates (everything still required, nearest-to-doable first, each with why not yet), and the story at the base. Stories sit in outline order too, doable ones before stuck ones; finishing a row never moves its story (ADR 0013).
+One task on Next drawn as a card. The top plate (in hand, else up next; empty only when nothing is ready); per story, the *now* plate (every parallel stream you could work on, in outline order, unranked), the *later* plates (everything still required, nearest-to-doable first, each with why not yet), and the story at the base. Stories sit in outline order too, doable ones before stuck ones; finishing a row never moves its story (ADR 0013).
 
 ### Time
 

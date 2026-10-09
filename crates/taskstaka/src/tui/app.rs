@@ -8,8 +8,8 @@ use jiff::Zoned;
 use jiff::civil::Date;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use taskstaka_core::action::{
-    LaterItem, NextItem, PersonGroup, RankConfig, Summary, WaitingItem, derive, in_hand,
-    is_agent_step, plan, summary, waiting_on,
+    LaterItem, NextItem, PersonGroup, Plate, RankConfig, Summary, WaitingItem, derive, in_hand,
+    is_agent_step, plan, plate, summary, waiting_on,
 };
 use taskstaka_core::nudge::Nudge;
 use taskstaka_core::{Command, Context, Status, Task, TaskId, Tree};
@@ -58,7 +58,7 @@ pub enum NodeKind {
 }
 
 pub enum Row {
-    /// The task in hand: the most recently started, open, unblocked task.
+    /// The top plate: the task in hand, else what is up next.
     Plate(TaskId),
     /// A story's base line on Next.
     Story {
@@ -252,6 +252,11 @@ impl App {
         in_hand(&self.tree, &self.now, self.ctx)
     }
 
+    /// The top plate: the task in hand, else what is up next (ADR 0014).
+    pub fn plate(&self) -> Option<Plate<'_>> {
+        plate(&self.tree, &self.now, self.ctx, &RankConfig::default())
+    }
+
     /// Recompute rows for the current view, keeping the selection on the
     /// same task where possible.
     pub fn rebuild(&mut self) {
@@ -273,8 +278,8 @@ impl App {
     /// The plate, then each story as a stack: now rows, a folded later line.
     fn next_rows(&self) -> Vec<Row> {
         let mut rows = Vec::new();
-        if let Some(t) = self.in_hand() {
-            rows.push(Row::Plate(t.id.clone()));
+        if let Some(p) = self.plate() {
+            rows.push(Row::Plate(p.task.id.clone()));
         }
         let stories = plan(&self.tree, &self.now, self.ctx, &RankConfig::default());
         let last = stories.len().saturating_sub(1);
@@ -742,11 +747,11 @@ impl App {
                 None => Action::None,
             },
             // Push: "first I need to…" — a prerequisite under the selected
-            // task. From the task in hand it starts in hand and the store
-            // pauses the task above.
+            // task. From the plate it starts in hand and the store pauses
+            // the task above.
             KeyCode::Char('i') => match sel {
                 Some(id) => {
-                    let in_hand = self.in_hand().is_some_and(|t| t.id == id);
+                    let in_hand = self.plate().is_some_and(|p| p.task.id == id);
                     self.prompt(PromptKind::Add {
                         parent: Some(id),
                         status: in_hand.then_some(Status::Doing),

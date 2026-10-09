@@ -109,7 +109,8 @@ e3xv3s  ☐ Email platform-eng to approve the zone                   ▶ in hand
         … 4 later: Ask Priya about wildcard certs (✉ Priya · 1h), Create the zone (🤖 Claude · after Log in: gcloud auth login), +2   (--later)
 ```
 
-The plate on top is the task in hand. Under it, each story is a stack: the rows you can
+The plate on top is the task in hand, or, with nothing started, what is *up next*: the
+first ready row you have not picked up yet (ADR 0014). Under it, each story is a stack: the rows you can
 do right now (independent streams, in the order you wrote them), then `… N later` —
 everything still required and *why not yet*. `--later` expands it; `--explain` gives the
 reason under each row.
@@ -171,18 +172,21 @@ two siblings share becomes a sibling placed first.
 | resurfaced | `↑ ready` | its last prerequisite just closed and you haven't touched it since — *the moment every flat list loses* |
 | follow-up | `✉ follow up` | a wait whose date has arrived; the action is to chase |
 | in hand | `▶ in hand` | the most recently started task that is open and unblocked — the one thing to go do |
+| up next | `▶ up next` | with nothing in hand: the first ready row you have not picked up yet; the plate offers `start` |
 | agent step | `🤖` | Claude's to perform; still listed for you, because you prompt it and check it |
 | orphaned | `⚠` | reopened or added under a parent that was already finished; still yours to do |
 
 **The hand.** `start` takes a task in hand; it becomes the top plate with its notes.
-`put-back` empties the hand (the next most-recently-started task moves up, or nothing).
+`put-back` empties the hand (the next most-recently-started task moves up); with nothing
+started, the plate shows what is *up next* — the first ready row you have not picked up
+yet, so putting a task back brings up a different one.
 `done` on the task in hand starts the next one in the same story: the parent if that was
 its last prerequisite, else the next sibling in outline order (ADR 0010). Any prerequisite landing under a `doing` task — added, moved there, or reopened
 — **pauses** it back to `todo` with a note, because a task cannot be both doing and
 blocked. *First I need to…* (`add -p <in-hand> --start`) is the **push**: the new task
 goes in hand and the one above pauses. The hand stays inside the story: it never jumps to
-another story on its own. When there is nothing next in the story, the hand is empty and
-the parent shows `↑ ready`.
+another story on its own. When there is nothing next in the story, the hand is empty, the
+parent shows `↑ ready`, and the plate shows what is up next.
 
 **Waiting is a person, not a status.** A wait always has a follow-up date; `chase` records
 that you poked them and shortens the next one; `reply` records what came back

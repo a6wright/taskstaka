@@ -24,6 +24,8 @@ git, Drive, whatever — the files are yours.
 
 ## Install
 
+Docs, install and help: **https://taskstaka.com**.
+
 Homebrew (macOS and Linux; builds from source, a few minutes):
 
 ```
@@ -354,6 +356,9 @@ Answered items resurface in `next`; chases move the counts; you get a notificati
 - `crates/taskstaka` — the binary: CLI, daemon, TUI, MCP bridge, web UI, `setup`.
 - `crates/tray` — `taskstaka-tray`: the menu bar item and the global hotkey. OS-facing and
   HTTP-only; never imports the daemon (ADR 0015).
+- `crates/site` — `taskstaka-site`: taskstaka.com (and later the sync service). Markdown
+  pages under `content/`, animated SVG diagrams, screenshots from `shots.js`; one container
+  on Cloud Run (`Dockerfile`).
 - `docs/PLAN.md` — design and phase status. `docs/adr/` — why the non-obvious decisions.
   `CONTEXT.md` — the vocabulary.
 

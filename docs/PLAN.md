@@ -246,6 +246,7 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 | ✅ | **P22 tray + hotkey** (ADR 0015) | `crates/tray` → `taskstaka-tray`: tao event loop (Accessory policy, no Dock icon), tray-icon status item with the plate title (`▶` in hand, `○` up next, `taskstaka · offline`), muda menu from a pure `MenuSpec` (Done / Put back / Start, up to 10 *now* rows → `/t/{id}`, Quick add, Open, Quit), global-hotkey `alt+space` → the Spotlight-style quick-add panel (tao window + wry webview over `/quick?panel=1`, toggled by the key, hidden by Esc/blur/an add); the menu shows the plate's notes before its actions; title only on macOS (the mark as a template mask looked wrong), the mark on Linux; follows `/api/v1/changes` like the TUI, auto-starts the daemon on launch, waits after an explicit stop. Linux gets a placeholder icon (AppIndicator), not built here. | `menu.rs`, `actions.rs`, `hotkey.rs` unit tests (14); manual on macOS 27: bare binary shows the item, title follows start/add/put back/done/stop within a second |
 | ✅ | **P23 setup macos** | `taskstaka setup macos [--no-tray] [--hotkey K] [--uninstall] [--dry-run]`: writes `dev.taskstaka` and `dev.taskstaka.tray` LaunchAgents (absolute binary paths, `RunAtLoad`, `KeepAlive {SuccessfulExit:false}`, `PATH`, logs in `~/Library/Logs`, no `TASKSTAKA_DIR`), `bootout` + `bootstrap gui/<uid>`; rerun after `cargo install`. README launchd section rewritten around it. | `setup_macos.rs` unit tests (plist content, escaping, missing tray → note, dry run, uninstall) with a fake launchctl; `tests/cli.rs` dry run; manual: both agents running, logs written |
 | ✅ | **P24 release + Homebrew tap** | Repo public; tags `v0.1.0`–`v0.1.2` (0.1.2: the Spotlight-style quick-add panel, notes in the menu, responsive web) with GitHub releases; tap `a6wright/homebrew-taskstaka` with `Formula/taskstaka.rb`: source tarball + sha256, `depends_on "rust" => :build`, installs `taskstaka` and (macOS) `taskstaka-tray` from the workspace, `service` block running `taskstaka serve` with `keep_alive crashed: true` (so `taskstaka stop` sticks; label `sh.brew.taskstaka` is recognised by `service.rs`), caveats pointing at `brew services start` / `taskstaka setup macos` / `setup claude`. | `brew install --build-from-source a6wright/taskstaka/taskstaka`, `brew test`, `brew audit --strict`; `brew services start` → `taskstaka status` names the Homebrew supervisor |
+| ✅ | **P25 taskstaka.com** (2026-10-10) | `crates/site` → `taskstaka-site`: axum + pulldown-cmark render `content/{index,install,help,changelog}.md` at startup into a hand-built shell with stable heading anchors; the app's palette with the logo orange `#e87818` as the accent; three animated inline SVG diagrams (tree, stack, resurfaced) with reduced-motion stills; screenshots of a demo tree captured by `shots.js`; `/healthz`, `$PORT`, 404 page, trailing-slash redirect limited to known pages (open-redirect finding fixed). Built by Cloud Build from `crates/site/Dockerfile`, deployed to Cloud Run `taskstaka-site` (project `taskstaka`, us-central1), domain mapping for `taskstaka.com` + `www`. | `crates/site` unit tests (anchors, shell, diagrams) and `tests/site.rs` (routes, assets, redirect safety, HEAD); headless shots at 1280/390 read by eye; `curl` of the Cloud Run URL |
 | | post-v1 | see the candidate list under **Resume here** | |
 
 ### Deviations from the original plan (recorded as they happen)
@@ -273,16 +274,19 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 
 ## Resume here
 
-**P1–P24 complete** (2026-10-10). `cargo fmt`, `clippy --all-targets`, `cargo test` (163 tests)
-are clean at head. taskstaka runs on macOS 27: the daemon and the menu bar item
-(`taskstaka-tray`, ADR 0015) are launchd agents installed by `taskstaka setup macos`, `⌥Space`
-opens quick add, and `stop`/`restart`/`status` go through launchd when it owns the daemon.
-The HTTP client is its own crate (`crates/client`); `GET /api/v1/plate` serves the plate.
-Homebrew: `brew install a6wright/taskstaka/taskstaka` from the tap `a6wright/homebrew-taskstaka`
-(source build; formula at `v0.1.2`).
+**P1–P25 complete** (2026-10-10/11). `cargo fmt`, `clippy --all-targets`, `cargo test` are
+clean at head. taskstaka runs on macOS 27 with the menu bar item, the `⌥Space` quick-add
+panel and launchd agents; `brew install a6wright/taskstaka/taskstaka` installs 0.1.2 from the
+tap. **taskstaka.com** is `crates/site` on Cloud Run; the domain mapping is created and the
+DNS records (plus the Search Console verification TXT) are the user's step at Namecheap —
+see the *Launch taskstaka.com* story in the user's own taskstaka tree.
 
 **Next, roughly in order of pain:**
 
+0. **Deploy automation** — a GitHub Action with Workload Identity Federation that runs the
+   tests, builds `crates/site/Dockerfile` in Cloud Build and deploys `taskstaka-site` on
+   every push to `main`; a second job that bumps the Homebrew formula on `v*` tags (needs a
+   `HOMEBREW_TAP_TOKEN` secret); `content/changelog.md` regenerated from GitHub releases.
 1. **Linux tray** — build `crates/tray` on Ubuntu (`libgtk-3-dev libappindicator3-dev`), a real
    icon instead of the placeholder square, systemd user units from a `setup linux`, and
    systemd awareness in `service.rs`. Wayland has no global hotkey yet (global-hotkey is X11

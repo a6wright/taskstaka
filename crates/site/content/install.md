@@ -9,7 +9,7 @@ brew install a6wright/taskstaka/taskstaka
 taskstaka init                 # creates ~/todo (or $TASKSTAKA_DIR)
 ```
 
-That is all a first run needs. `taskstaka add "Renew the cert"` then `taskstaka next`; the daemon starts itself on the first command.
+`taskstaka add "Renew the cert"` then `taskstaka next`; the daemon starts itself on the first command.
 
 ## From source
 
@@ -24,7 +24,7 @@ taskstaka init
 
 ## macOS menu bar and ⌥Space
 
-The menu bar item shows the task in hand, its notes, and what you can do now. <kbd>⌥Space</kbd> drops a Spotlight-style quick-add panel over whatever you are doing: type, Enter, it is gone.
+The menu bar item shows the task in hand, its notes, and what you can do now. <kbd>⌥Space</kbd> drops a Spotlight-style quick-add panel over whatever you are doing: type, press Enter, and the panel closes.
 
 ```
 cargo install --path crates/tray      # taskstaka-tray (Homebrew installed it for you)

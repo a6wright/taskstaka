@@ -2,15 +2,15 @@
 
 ## The model
 
-**A task is one thing to do.** It has a title, a context (`work` or `personal`), one stored status, and a parent if it has one. Every task is a markdown note in `~/todo/notes/`; `~/todo/index.md` is the generated tree, readable in Obsidian.
+**A task** is one thing to do. It has a title, a context (`work` or `personal`), one stored status, and a parent if it has one. Every task is a markdown note in `~/todo/notes/`; `~/todo/index.md` is the generated tree, readable in Obsidian.
 
-**Nesting means "first this."** A subtask is a prerequisite: something that must finish before its parent can. *To bake an apple pie from scratch you must first invent the universe*, so "invent the universe" goes under "bake the pie". Break work down from the end result backwards; you do the deepest open leaf first.
+**Nesting** means "first this." A subtask is a prerequisite: something that must finish before its parent can. *To bake an apple pie from scratch you must first invent the universe*, so "invent the universe" goes under "bake the pie". Break work down from the end result backwards; you do the deepest open leaf first.
 
 <!-- diagram:tree -->
 
-**Siblings mean "and also this."** Everything under one parent is independent and can be in flight at once; the parent finishes when all of them do. Siblings do not depend on each other. If you want to write "after the one above", nest it instead.
+**Siblings** mean "and also this." Everything under one parent is independent and can be in flight at once; the parent finishes when all of them do. Siblings do not depend on each other. If you want to write "after the one above", nest it instead.
 
-**You store what you said; taskstaka computes the rest.** A task with open subtasks is **blocked** (`▽`) and stays out of your way. Its last subtask closes and it comes back **resurfaced** (`↑ ready`) at the top of Next. In a flat list you had to remember to go back for it.
+You store a status; taskstaka computes the rest. A task with open subtasks is **blocked** (`▽`) and stays out of your way. Its last subtask closes and it comes back **resurfaced** (`↑ ready`) at the top of Next. In a flat list you had to remember to go back for it.
 
 <!-- diagram:resurfaced -->
 
@@ -18,9 +18,9 @@
 
 <!-- diagram:stack -->
 
-**The hand.** `start` takes a task in hand. `done` on it starts the next one in the same story: the parent if that was its last prerequisite, else the next sibling. `put-back` empties the hand and a different ready task comes up. *First I need to…* pushes a new prerequisite straight into your hand and pauses the one above it.
+**The hand** holds the task you are on. `start` takes a task in hand. `done` on it starts the next one in the same story: the parent if that was its last prerequisite, else the next sibling. `put-back` empties the hand and a different ready task comes up. *First I need to…* pushes a new prerequisite straight into your hand and pauses the one above it.
 
-**Waiting on a person.** Each wait carries a follow-up date (two days by default). `chase` records that you poked them and shortens the next one. `reply` records what came back: answered, declined, partial, or redirected to someone else. `unblock` means they answered and the task is back in your hand. A story stuck on a person shows `✉ Bo · 4d`: who, and for how long. At 9:00 you get one digest of the people you are waiting on.
+**Waiting** is on a person, and each wait carries a follow-up date (two days by default). `chase` records that you poked them and shortens the next one. `reply` records what came back: answered, declined, partial, or redirected to someone else. `unblock` means they answered and the task is back in your hand. A story stuck on a person shows `✉ Bo · 4d`: who, and for how long. At 9:00 you get one digest of the people you are waiting on.
 
 **Someday** parks a task: it does not block its parent and does not rank, but the parent cannot close until it is done or dropped.
 

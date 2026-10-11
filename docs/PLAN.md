@@ -281,7 +281,7 @@ tap. **https://taskstaka.com** (and `www`) is live: `crates/site` on Cloud Run, 
 mappings created 2026-10-11, DNS at Namecheap (4 A + 4 AAAA at the apex, `www` CNAME to
 `ghs.googlehosted.com`), Google-managed certificate. Deploys itself: `.github/workflows/deploy-site.yml` runs on every push to
 `main` that touches the site (Cloud Build then Cloud Run, keyless auth via Workload Identity;
-one-time setup in `scripts/gcp-deploy-setup.sh`). No test gate in front of it yet.
+one-time setup done 2026-10-11, kept out of the repo). No test gate in front of it yet.
 
 **Next, roughly in order of pain:**
 

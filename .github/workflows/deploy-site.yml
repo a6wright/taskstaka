@@ -1,8 +1,9 @@
 # Deploys taskstaka.com (crates/site) to Cloud Run on every push to main.
 # Auth is keyless: Workload Identity Federation, pool "github" in project
 # taskstaka, limited to this repository. The two repo variables are
-# GCP_WIF_PROVIDER and GCP_DEPLOY_SA. No test gate yet; add one in front of
-# the build step when CI exists.
+# GCP_WIF_PROVIDER and GCP_DEPLOY_SA; the GCP side (service account
+# github-deploy, pool github) was set up by hand. No test gate yet; add one
+# in front of the build step when CI exists.
 name: Deploy taskstaka.com
 
 on:

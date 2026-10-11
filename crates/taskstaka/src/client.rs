@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
-use taskstaka_core::view::NextResponse;
+use taskstaka_core::view::{NextResponse, PlateView};
 use taskstaka_core::{Command, Context, Outcome, TaskId, TaskView};
 use ureq::Agent;
 
@@ -266,6 +266,12 @@ impl Client {
 
     pub fn nudges(&self) -> Result<Vec<taskstaka_core::nudge::Nudge>> {
         self.get("/api/v1/nudges")
+    }
+
+    /// The plate: the task in hand, else up next; `None` when nothing is ready.
+    pub fn plate(&self, context: Option<Context>) -> Result<Option<PlateView>> {
+        let q = context.map(|c| format!("?context={c}")).unwrap_or_default();
+        self.get(&format!("/api/v1/plate{q}"))
     }
 
     pub fn plan(&self, context: Option<Context>) -> Result<Vec<taskstaka_core::action::StoryPlan>> {

@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use taskstaka_core::action::{RankConfig, needs_action, summary};
 use taskstaka_core::command::{AddTask, EditTask, Set};
 use taskstaka_core::settings::Settings;
-use taskstaka_core::view::{NextResponse, TreeNode};
+use taskstaka_core::view::{NextResponse, PlateView, TreeNode};
 use taskstaka_core::{Command, Context, Outcome, Priority, Status, TaskId, TaskView};
 
 use super::AppState;
@@ -32,6 +32,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/health", get(health))
         .route("/api/v1/next", get(next))
         .route("/api/v1/plan", get(plan))
+        .route("/api/v1/plate", get(plate))
         .route("/api/v1/tasks", get(list_tasks).post(create_task))
         .route("/api/v1/quick", post(quick_add))
         .route(
@@ -554,6 +555,29 @@ async fn plan(
         q.context,
         &RankConfig::default(),
     )))
+}
+
+/// The plate: the task in hand, else up next (ADR 0014). One rule for every client.
+async fn plate(State(s): S, Query(q): Query<PlanQuery>) -> R<Option<PlateView>> {
+    let store = s
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal("store mutex poisoned"))?;
+    let now = Zoned::now();
+    let tree = store.tree();
+    Ok(Json(
+        taskstaka_core::action::plate(tree, &now, q.context, &RankConfig::default()).map(|p| {
+            PlateView {
+                in_hand: p.in_hand,
+                task: TaskView::build(
+                    tree,
+                    p.task,
+                    &now,
+                    store.path_of(&p.task.id).map(|p| p.to_path_buf()),
+                ),
+            }
+        }),
+    ))
 }
 
 #[derive(Serialize)]

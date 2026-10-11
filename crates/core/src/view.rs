@@ -56,6 +56,16 @@ impl TaskView {
     }
 }
 
+/// What the top of Next shows, on the wire (CONTEXT: The plate, ADR 0014):
+/// the task in hand, else *up next*. `None` only when nothing is ready.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PlateView {
+    /// `true`: the task in hand (started). `false`: up next, never started
+    /// or put back; the plate offers *start* instead of *put back*.
+    pub in_hand: bool,
+    pub task: TaskView,
+}
+
 /// A `Tree` rebuilt from views; what a client works with locally.
 pub fn tree_from_views(views: Vec<TaskView>) -> Tree {
     Tree::from_tasks(views.into_iter().map(TaskView::into_task))

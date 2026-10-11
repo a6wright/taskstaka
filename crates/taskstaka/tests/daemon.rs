@@ -249,3 +249,42 @@ async fn next_limit_zero_means_unlimited() {
     client.shutdown().unwrap();
     handle.await.unwrap().unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn plate_endpoint_follows_the_hand_and_is_never_empty() {
+    let (_dir, client, handle) = start().await;
+
+    // Nothing ready at all: the plate is empty.
+    assert!(client.plate(None).unwrap().is_none());
+
+    let a = add(&client, "Renew the cert", None);
+    let b = add(&client, "Write the memo", None);
+
+    // Nothing started: up next is the first ready row in outline order.
+    let p = client.plate(None).unwrap().expect("plate");
+    assert!(!p.in_hand);
+    assert_eq!(p.task.task.id.as_str(), a);
+
+    // Starting a task takes it in hand.
+    set(&client, &b, Status::Doing);
+    let p = client.plate(None).unwrap().expect("plate");
+    assert!(p.in_hand);
+    assert_eq!(p.task.task.id.as_str(), b);
+    assert_eq!(p.task.task.status, Status::Doing);
+
+    // Put back: the plate offers another ready row, preferring never started.
+    set(&client, &b, Status::Todo);
+    let p = client.plate(None).unwrap().expect("plate");
+    assert!(!p.in_hand);
+    assert_eq!(p.task.task.id.as_str(), a);
+
+    // Context filter applies.
+    assert!(
+        client
+            .plate(Some(taskstaka_core::Context::Personal))
+            .unwrap()
+            .is_none()
+    );
+
+    handle.abort();
+}

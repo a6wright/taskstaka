@@ -2,8 +2,9 @@
 # Auth is keyless: Workload Identity Federation, pool "github" in project
 # taskstaka, limited to this repository. The two repo variables are
 # GCP_WIF_PROVIDER and GCP_DEPLOY_SA; the GCP side (service account
-# github-deploy, pool github) was set up by hand. No test gate yet; add one
-# in front of the build step when CI exists.
+# github-deploy, pool github) was set up by hand. The deploy job waits for
+# the test job: fmt, clippy and cargo test over the workspace, minus the tray
+# crate (OS-facing, not built on Linux yet).
 name: Deploy taskstaka.com
 
 on:
@@ -32,7 +33,23 @@ env:
   IMAGE: us-central1-docker.pkg.dev/taskstaka/site/taskstaka-site
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --exclude taskstaka-tray --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --workspace --exclude taskstaka-tray
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -393,11 +393,20 @@ fn port_in_use(port: u16) -> bool {
     .is_ok()
 }
 
-/// Best-effort liveness check by pid. On non-Linux platforms we cannot tell
-/// cheaply and assume the process is gone once its port has closed.
+/// Liveness check by pid: `/proc` on Linux, `kill -0` on the other unixes
+/// (macOS has no `/proc`). Elsewhere we cannot tell cheaply and assume the
+/// process is gone once its port has closed.
 fn process_alive(pid: u32) -> bool {
     if cfg!(target_os = "linux") {
         std::path::Path::new(&format!("/proc/{pid}")).exists()
+    } else if cfg!(unix) {
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
     } else {
         false
     }
@@ -429,8 +438,31 @@ pub fn spawn_restart_to(dir: &Path, port: u16, target: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The daemon binary to start: `$TASKSTAKA_BIN`, else the running executable
+/// when it is `taskstaka` itself, else a `taskstaka` beside it (the tray is
+/// installed next to the CLI), else whatever `taskstaka` `PATH` finds.
+pub fn daemon_exe() -> Result<PathBuf> {
+    let current = std::env::current_exe().context("locating the taskstaka binary")?;
+    Ok(daemon_exe_from(current, std::env::var_os("TASKSTAKA_BIN")))
+}
+
+fn daemon_exe_from(current: PathBuf, override_: Option<std::ffi::OsString>) -> PathBuf {
+    if let Some(bin) = override_.filter(|b| !b.is_empty()) {
+        return PathBuf::from(bin);
+    }
+    let name = current.file_stem().and_then(|n| n.to_str()).unwrap_or("");
+    if name == "taskstaka" {
+        return current;
+    }
+    let sibling = current.with_file_name(format!("taskstaka{}", std::env::consts::EXE_SUFFIX));
+    if sibling.exists() {
+        return sibling;
+    }
+    PathBuf::from("taskstaka")
+}
+
 pub fn spawn_daemon(dir: &Path, port: u16) -> Result<()> {
-    let exe = std::env::current_exe().context("locating the taskstaka binary")?;
+    let exe = daemon_exe()?;
     let mut cmd = std::process::Command::new(exe);
     cmd.arg("serve")
         .arg("--dir")
@@ -448,4 +480,46 @@ pub fn spawn_daemon(dir: &Path, port: u16) -> Result<()> {
     }
     cmd.spawn().context("spawning the daemon")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn daemon_exe_override_wins() {
+        let got = daemon_exe_from(
+            PathBuf::from("/opt/x/taskstaka-tray"),
+            Some(std::ffi::OsString::from("/custom/taskstaka")),
+        );
+        assert_eq!(got, PathBuf::from("/custom/taskstaka"));
+    }
+
+    #[test]
+    fn daemon_exe_is_itself_when_it_is_taskstaka() {
+        let got = daemon_exe_from(PathBuf::from("/opt/x/taskstaka"), None);
+        assert_eq!(got, PathBuf::from("/opt/x/taskstaka"));
+    }
+
+    #[test]
+    fn daemon_exe_prefers_the_sibling_beside_another_binary() {
+        let dir = tempfile::tempdir().unwrap();
+        let sibling = dir.path().join("taskstaka");
+        std::fs::write(&sibling, b"").unwrap();
+        let got = daemon_exe_from(dir.path().join("taskstaka-tray"), None);
+        assert_eq!(got, sibling);
+    }
+
+    #[test]
+    fn daemon_exe_falls_back_to_path_lookup_without_a_sibling() {
+        let dir = tempfile::tempdir().unwrap();
+        let got = daemon_exe_from(dir.path().join("taskstaka-tray"), None);
+        assert_eq!(got, PathBuf::from("taskstaka"));
+    }
+
+    #[test]
+    fn process_alive_sees_this_process_and_not_a_bogus_pid() {
+        assert!(process_alive(std::process::id()));
+        assert!(!process_alive(u32::MAX - 7));
+    }
 }

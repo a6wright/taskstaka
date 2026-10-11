@@ -1,5 +1,5 @@
 <svg class="d-res" viewBox="0 0 720 250" role="img" aria-labelledby="d-res-title" xmlns="http://www.w3.org/2000/svg">
-<title id="d-res-title">When the last subtask closes, the story comes back to the top of Next, flagged ready.</title>
+<title id="d-res-title">The last subtask closes and the story comes back to the top of Next, flagged ready.</title>
 <style>
 .d-res { font-family: inherit; font-size: 15px; }
 .d-res .head { fill: var(--muted, #8a8d94); font-size: 11px; letter-spacing: .08em; }

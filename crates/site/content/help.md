@@ -2,32 +2,32 @@
 
 ## The model
 
-**A task is one thing to do.** It has a title, a context (`work` or `personal`), one stored status, and optionally a parent. Every task is a markdown note in `~/todo/notes/`; `~/todo/index.md` is the generated tree, readable in Obsidian.
+**A task is one thing to do.** It has a title, a context (`work` or `personal`), one stored status, and a parent if it has one. Every task is a markdown note in `~/todo/notes/`; `~/todo/index.md` is the generated tree, readable in Obsidian.
 
-**Nesting means "first this."** A subtask is a prerequisite: something that must finish before its parent can. *To bake an apple pie from scratch you must first invent the universe*, so "invent the universe" goes under "bake the pie". Break work down from the end result backwards; the deepest open leaf is what you do first.
+**Nesting means "first this."** A subtask is a prerequisite: something that must finish before its parent can. *To bake an apple pie from scratch you must first invent the universe*, so "invent the universe" goes under "bake the pie". Break work down from the end result backwards; you do the deepest open leaf first.
 
 <!-- diagram:tree -->
 
-**Siblings mean "and also this."** Everything under one parent is independent and can be in flight at once; the parent finishes when all of them do. Siblings never depend on each other. If you want to write "after the one above", nest it instead.
+**Siblings mean "and also this."** Everything under one parent is independent and can be in flight at once; the parent finishes when all of them do. Siblings do not depend on each other. If you want to write "after the one above", nest it instead.
 
-**You store what you said; taskstaka computes the rest.** A task with open subtasks is **blocked** (`▽`) and stays out of your way. When its last subtask closes it comes back **resurfaced** (`↑ ready`) at the top of Next. That is the moment every flat list loses.
+**You store what you said; taskstaka computes the rest.** A task with open subtasks is **blocked** (`▽`) and stays out of your way. Its last subtask closes and it comes back **resurfaced** (`↑ ready`) at the top of Next. In a flat list you had to remember to go back for it.
 
 <!-- diagram:resurfaced -->
 
-**Next** answers one question: what do I have to do now? The plate on top is the task **in hand**, the one you most recently started, with its notes. With nothing started it shows what is **up next**: the first ready row you have not picked up yet. Under the plate, each story is a stack: the rows you can do right now, then `… N later`, everything still required and why not yet.
+**Next** is what you have to do now. The plate on top is the task **in hand**, the last one you started, with its notes. With nothing started it shows what is **up next**: the first ready row you have not picked up yet. Under the plate, each story is a stack: the rows you can do right now, then `… N later`, everything still required and why not yet.
 
 <!-- diagram:stack -->
 
 **The hand.** `start` takes a task in hand. `done` on it starts the next one in the same story: the parent if that was its last prerequisite, else the next sibling. `put-back` empties the hand and a different ready task comes up. *First I need to…* pushes a new prerequisite straight into your hand and pauses the one above it.
 
-**Waiting is a person, not a status.** A wait always has a follow-up date (two days by default). `chase` records that you poked them and shortens the next one. `reply` records what came back: answered, declined, partial, or redirected to someone else. `unblock` means they answered and the task is back in your hand. A story stuck on a person says `✉ Bo · 4d`, not "blocked by 1", and at 9:00 you get one digest of everyone you are waiting on.
+**Waiting on a person.** Each wait carries a follow-up date (two days by default). `chase` records that you poked them and shortens the next one. `reply` records what came back: answered, declined, partial, or redirected to someone else. `unblock` means they answered and the task is back in your hand. A story stuck on a person shows `✉ Bo · 4d`: who, and for how long. At 9:00 you get one digest of the people you are waiting on.
 
 **Someday** parks a task: it does not block its parent and does not rank, but the parent cannot close until it is done or dropped.
 
 | Stored status | means |
 |---|---|
 | `todo` / `doing` | not started / started |
-| `waiting` | on a person, always with a follow-up date |
+| `waiting` | on a person, with a follow-up date |
 | `someday` | parked |
 | `done` / `dropped` | closed |
 
@@ -36,9 +36,9 @@
 | `▽` | blocked: has open prerequisites below it |
 | `✉ Priya · 3d · 2×` | waiting on a person, for how long, how many chases |
 | `☐` | actionable: open, unblocked, not parked, yours to do |
-| `↑ ready` | resurfaced: its last prerequisite just closed |
+| `↑ ready` | resurfaced: its last prerequisite closed |
 | `▶ in hand` / `▶ up next` | the plate |
-| `🤖` | an agent's step; still listed, because you prompt it and check it |
+| `🤖` | an agent's step, listed because you prompt it and check the result |
 
 ## The CLI
 
@@ -62,7 +62,7 @@ taskstaka tui                                   # the always-on panel
 taskstaka status · stop · restart
 ```
 
-Ids are six characters; any unique prefix works. `--json` on anything gives machine output. Context is a filter, never a rank: `next -c work`.
+Ids are six characters; any unique prefix works. `--json` on anything gives machine output. Context filters and does not rank: `next -c work`.
 
 ## The web
 
@@ -74,7 +74,7 @@ Ids are six characters; any unique prefix works. `--json` on anything gives mach
 
 ## The TUI
 
-`taskstaka tui` is the always-on panel, with five views on <kbd>1</kbd>–<kbd>5</kbd>: Next, Outline, Waiting on, Someday, Nudges. On Next the plate is boxed at the top: <kbd>d</kbd> done, <kbd>p</kbd> put back, <kbd>i</kbd> first I need to…, <kbd>w</kbd> wait on someone, <kbd>l</kbd> unfolds a story's later list. In the Outline <kbd>⇧</kbd> with the arrows rearranges, <kbd>A</kbd> adds under, <kbd>h</kbd> shows completed. Waiting on groups by person: <kbd>f</kbd> chase, <kbd>u</kbd> unblock. <kbd>?</kbd> lists every key. It refreshes live as other surfaces change the tree.
+`taskstaka tui` is the always-on panel, with five views on <kbd>1</kbd>–<kbd>5</kbd>: Next, Outline, Waiting on, Someday, Nudges. On Next the plate sits in a box at the top: <kbd>d</kbd> done, <kbd>p</kbd> put back, <kbd>i</kbd> first I need to…, <kbd>w</kbd> wait on someone, <kbd>l</kbd> unfolds a story's later list. In the Outline <kbd>⇧</kbd> with the arrows rearranges, <kbd>A</kbd> adds under, <kbd>h</kbd> shows completed. Waiting on groups by person: <kbd>f</kbd> chase, <kbd>u</kbd> unblock. <kbd>?</kbd> lists the keys. It refreshes live as other surfaces change the tree.
 
 ## The menu bar
 
@@ -82,7 +82,7 @@ On macOS, `taskstaka-tray` shows the plate in the menu bar: `▶ title` for the 
 
 ## Agents
 
-`taskstaka setup claude` gives Claude Code the MCP server and a skill that turns any multi-step plan into tasks: your manual steps with the exact command or draft message in the notes, its own steps tagged `agent` and closed as it goes, and anything that depends on a person already waiting on them. The MCP tools are `plan`, `next`, `waiting`, `list_tasks`, `tree`, `get_task`, `add_task`, `set_status`, `update_task`, `move_task`, `touch`, `chase`, `record_reply`, `projects` and `nudges`. Nothing sends messages on your behalf: agents draft, you send.
+`taskstaka setup claude` gives Claude Code the MCP server and a skill that turns any multi-step plan into tasks: your manual steps with the exact command or draft message in the notes, its own steps tagged `agent` and closed as it goes, and anything that depends on a person created waiting on them. The MCP tools are `plan`, `next`, `waiting`, `list_tasks`, `tree`, `get_task`, `add_task`, `set_status`, `update_task`, `move_task`, `touch`, `chase`, `record_reply`, `projects` and `nudges`. The agent drafts any message into the task's notes; you send it.
 
 A daily routine with a messages MCP alongside it:
 

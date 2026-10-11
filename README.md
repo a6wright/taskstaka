@@ -24,9 +24,18 @@ git, Drive, whatever — the files are yours.
 
 ## Install
 
+Homebrew (macOS and Linux; builds from source, a few minutes):
+
+```
+brew install a6wright/taskstaka/taskstaka
+taskstaka init                 # creates ~/todo (or $TASKSTAKA_DIR)
+```
+
+From a checkout:
+
 ```
 cargo install --path crates/taskstaka
-taskstaka init                 # creates ~/todo (or $TASKSTAKA_DIR)
+taskstaka init
 ```
 
 On a Mac, add the menu bar item and keep both running across logins:

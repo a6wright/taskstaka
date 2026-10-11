@@ -245,6 +245,7 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 | ✅ | **P21 macOS pass** (2026-10-10) | Runs on macOS 27: `cargo install`, `init`, daemon auto-start, web, osascript notifications. `GET /api/v1/plate` serves the plate (ADR 0014) for HTTP-only clients. The HTTP client moved to `crates/client` (`taskstaka-client`); `daemon_exe()` lets other binaries start the daemon; `process_alive` uses `kill -0` off Linux. `service.rs`: `stop`/`restart`/`status` detect a launchd agent that owns the daemon (`dev.taskstaka`, `homebrew.mxcl.taskstaka`, matched by pid or by the default folder) and `kickstart` it instead of spawning a second one. | `tests/daemon.rs` plate test (empty → up next → in hand → put back prefers never started); `service.rs` unit tests with a fake launchctl; `status --json` carries `supervisor`; manual: stop stays down, restart kickstarts under launchd |
 | ✅ | **P22 tray + hotkey** (ADR 0015) | `crates/tray` → `taskstaka-tray`: tao event loop (Accessory policy, no Dock icon), tray-icon status item with the plate title (`▶` in hand, `○` up next, `taskstaka · offline`), muda menu from a pure `MenuSpec` (Done / Put back / Start, up to 10 *now* rows → `/t/{id}`, Quick add, Open, Quit), global-hotkey `alt+space` → `/quick` in the browser; follows `/api/v1/changes` like the TUI, auto-starts the daemon on launch, waits after an explicit stop. Linux gets a placeholder icon (AppIndicator), not built here. | `menu.rs`, `actions.rs`, `hotkey.rs` unit tests (14); manual on macOS 27: bare binary shows the item, title follows start/add/put back/done/stop within a second |
 | ✅ | **P23 setup macos** | `taskstaka setup macos [--no-tray] [--hotkey K] [--uninstall] [--dry-run]`: writes `dev.taskstaka` and `dev.taskstaka.tray` LaunchAgents (absolute binary paths, `RunAtLoad`, `KeepAlive {SuccessfulExit:false}`, `PATH`, logs in `~/Library/Logs`, no `TASKSTAKA_DIR`), `bootout` + `bootstrap gui/<uid>`; rerun after `cargo install`. README launchd section rewritten around it. | `setup_macos.rs` unit tests (plist content, escaping, missing tray → note, dry run, uninstall) with a fake launchctl; `tests/cli.rs` dry run; manual: both agents running, logs written |
+| ✅ | **P24 release + Homebrew tap** | Repo public; tag `v0.1.0` with a GitHub release; tap `a6wright/homebrew-taskstaka` with `Formula/taskstaka.rb`: source tarball + sha256, `depends_on "rust" => :build`, installs `taskstaka` and (macOS) `taskstaka-tray` from the workspace, `service` block running `taskstaka serve` with `keep_alive crashed: true` (so `taskstaka stop` sticks; label `homebrew.mxcl.taskstaka` is recognised by `service.rs`), caveats pointing at `brew services start` / `taskstaka setup macos` / `setup claude`. | `brew install --build-from-source a6wright/taskstaka/taskstaka`, `brew test`, `brew audit --strict`; `brew services start` → `taskstaka status` names the Homebrew supervisor |
 | | post-v1 | see the candidate list under **Resume here** | |
 
 ### Deviations from the original plan (recorded as they happen)
@@ -272,34 +273,31 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 
 ## Resume here
 
-**P1–P14 complete** (2026-10-04). `cargo fmt`, `clippy --all-targets`, `cargo test` (86
-tests at that date) and the Playwright scenario (`cd e2e && npm test`) are clean at head.
-CLI, TUI and web all show the same thing: the task in hand, then each story as a stack.
-Two code-review passes on 2026-10-04 (`/code-review` on the README, then a whole-repo
-correctness pass) landed as commits `2660c13` and `6195106`. The notable fixes: reopening or
-reviving a prerequisite pauses a doing parent (`2660c13`); `started` is *this* start so the
-hand's recency is right after a put-back; in hand requires *actionable* (not under a
-waiting/parked ancestor); the mtime guard covers every note a command rewrites, not just the
-target; `/tasks?context=` follows the root like everything else; `serve --detach`/`restart`
-no longer race a second daemon; the web Waiting page has its chase button back (all
-`6195106`).
+**P1–P24 complete** (2026-10-10). `cargo fmt`, `clippy --all-targets`, `cargo test` (163 tests)
+are clean at head. taskstaka runs on macOS 27: the daemon and the menu bar item
+(`taskstaka-tray`, ADR 0015) are launchd agents installed by `taskstaka setup macos`, `⌥Space`
+opens quick add, and `stop`/`restart`/`status` go through launchd when it owns the daemon.
+The HTTP client is its own crate (`crates/client`); `GET /api/v1/plate` serves the plate.
+Homebrew: `brew install a6wright/taskstaka/taskstaka` from the tap `a6wright/homebrew-taskstaka`
+(source build; tagged `v0.1.0`).
 
-**Next, in the user's words:** "getting osx tested and then getting it on brew." Recorded
-in the store as *Get taskstaka on Homebrew* with *Test taskstaka on macOS* nested under it.
-What that needs:
+**Next, roughly in order of pain:**
 
-1. **macOS pass** — `cargo install`, `init`, `tui`, web, desktop notifications, the launchd
-   plist in the README, the daemon lock and detached start (see the P1 and P4 deviations
-   below for how those are built). Expect small fixes, not design changes.
-2. **Release artefacts** — start with a tagged release and let the formula build from the
-   source tarball (`depends_on "rust" => :build`; slow install, but no CI to maintain and it
-   works for both Mac architectures). Needs the repo public, or a token for a private one.
-   Prebuilt tarballs come later, once someone other than the author installs it:
-   tagged release with prebuilt tarballs (`cargo-dist` or a GitHub
-   Actions matrix for `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`).
-3. **Tap** — `homebrew-taskstaka` with a formula pointing at the tarball + sha256, a
-   `brew services` plist (`service do run [opt_bin/"taskstaka", "serve"]`), and `taskstaka
-   setup claude` mentioned in the caveats.
+1. **Linux tray** — build `crates/tray` on Ubuntu (`libgtk-3-dev libappindicator3-dev`), a real
+   icon instead of the placeholder square, systemd user units from a `setup linux`, and
+   systemd awareness in `service.rs`. Wayland has no global hotkey yet (global-hotkey is X11
+   only); fall back to the launcher recipes there.
+2. **Deferred from the 2026-10-10 review** (all small): `setup macos --no-daemon` for brew
+   users (today a `dev.taskstaka` agent is installed beside `homebrew.mxcl.taskstaka` and one
+   exits at login); check the notes folder is initialised before loading the daemon agent;
+   `restart` under launchd ignores `--port` silently; `open_page` runs discovery on the UI
+   thread with no visible failure; `Effect::Open` should carry a path, not a URL;
+   `default_dir()` is duplicated in the tray and belongs in `taskstaka-client`; unused
+   `anyhow`/`serde` in the tray manifest; uid from `HOME`'s owner; the
+   `status_json_reports_the_supervisor` test shells out to the real `launchctl`; ADR 0015's
+   frontmatter says `amends: 0003` while the body says 0003 holds.
+3. **Prebuilt bottles** (`cargo-dist` → tap) once someone other than the author installs it.
+4. **Native quick-add popover** in the tray (`wry`) if the browser tab for `⌥Space` grates.
 
 Candidate features after that (the one list; the phase table's *post-v1* row points
 here), roughly by how much they change daily use:

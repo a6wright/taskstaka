@@ -20,6 +20,9 @@ const CONTENT: [(&str, &str, &str); 4] = [
     ),
 ];
 
+/// The page paths, in nav order; the only strings a redirect may point at.
+pub const PATHS: [&str; 4] = ["/", "/install", "/help", "/changelog"];
+
 pub fn all() -> Vec<Page> {
     CONTENT
         .iter()

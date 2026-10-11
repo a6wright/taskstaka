@@ -52,11 +52,16 @@ async fn page_response(html: Arc<str>) -> Response {
         .into_response()
 }
 
-/// `/install/` → `/install`; anything else unknown is the 404 page.
+/// `/install/` → `/install`; anything else unknown is the 404 page. Only a
+/// page path we serve is ever put in `Location`, never the request's own
+/// text, so `//evil.com/` cannot turn into an off-site redirect.
 async fn fallback(uri: Uri) -> Response {
     let path = uri.path();
     if path.len() > 1 && path.ends_with('/') {
-        return Redirect::permanent(path.trim_end_matches('/')).into_response();
+        let bare = path.trim_end_matches('/');
+        if let Some(page) = pages::PATHS.iter().find(|p| **p == bare) {
+            return Redirect::permanent(page).into_response();
+        }
     }
     (StatusCode::NOT_FOUND, Html(pages::not_found())).into_response()
 }

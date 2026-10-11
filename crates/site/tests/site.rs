@@ -95,6 +95,20 @@ async fn a_trailing_slash_redirects_to_the_bare_path_and_case_is_strict() {
         status, 404,
         "paths are case-sensitive; the links on the site are lowercase"
     );
+    // Only our own pages are redirected: a request path is never echoed into
+    // Location, so `//evil.com/` cannot become an off-site redirect.
+    for path in ["//evil.com/", "/nope/", "/%2F%2Fevil.com/"] {
+        let res = agent
+            .get(format!("{base}{path}"))
+            .config()
+            .http_status_as_error(false)
+            .max_redirects(0)
+            .build()
+            .call()
+            .unwrap();
+        assert_eq!(res.status().as_u16(), 404, "{path}");
+        assert!(res.headers().get("location").is_none(), "{path}");
+    }
     handle.abort();
 }
 

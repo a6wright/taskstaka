@@ -29,6 +29,13 @@ cargo install --path crates/taskstaka
 taskstaka init                 # creates ~/todo (or $TASKSTAKA_DIR)
 ```
 
+On a Mac, add the menu bar item and keep both running across logins:
+
+```
+cargo install --path crates/tray   # taskstaka-tray
+taskstaka setup macos              # launchd agents for the daemon and the tray; ⌥Space = quick add
+```
+
 ## Updating and running
 
 Day to day the daemon starts itself; you rarely think about it.
@@ -37,7 +44,9 @@ Rebuild and install after pulling changes:
 
 ```
 cargo install --path crates/taskstaka
+cargo install --path crates/tray   # if you use the menu bar item
 taskstaka restart              # the old daemon keeps running old code until you do this
+taskstaka setup macos          # macOS: reloads the tray agent too
 ```
 
 Any command will also warn `the daemon started before this binary was built` until you
@@ -66,7 +75,7 @@ Daemon controls:
 taskstaka status | stop | restart
 taskstaka serve --port 7407 --quiet 22-8 --no-notify
 systemctl --user restart taskstaka                    # if you installed the unit below
-launchctl kickstart -k gui/$(id -u)/dev.taskstaka     # macOS
+launchctl print gui/$(id -u)/dev.taskstaka            # macOS: what launchd thinks (restart/stop already go through it)
 ```
 
 If a command says the directory is locked, a daemon is running: drop `--direct`, or stop it.
@@ -127,12 +136,19 @@ reuses a matching project or creates one named for the repo.
 
 **Quick add.** One line becomes a new root task: `taskstaka quick "renew the cert #devops
 @Priya +3d"` (`@Name [date]` at the end waits on them; `#project` as the first or last word
-sets the project). In the web UI press `n` anywhere. For a hotkey from any app, bind your
-launcher to `http://127.0.0.1:7407/quick` (a bare one-box page; `?context=personal` picks
-the context) or to the command: on macOS a Raycast/Alfred hotkey or a Shortcuts action
-"Open URL"; on Linux a desktop keyboard shortcut running
-`xdg-open http://127.0.0.1:7407/quick` or `taskstaka quick "$(zenity --entry --text=Add)"`.
-taskstaka itself does not grab global keys.
+sets the project). In the web UI press `n` anywhere. From any app, the **tray** binds a
+global hotkey (`⌥Space` by default) that opens `http://127.0.0.1:7407/quick`, a bare one-box
+page (`?context=personal` picks the context). Without the tray, bind your launcher to that URL
+or to the command: on macOS a Raycast/Alfred hotkey or a Shortcuts action "Open URL"; on Linux
+a desktop keyboard shortcut running `xdg-open http://127.0.0.1:7407/quick` or
+`taskstaka quick "$(zenity --entry --text=Add)"`. The daemon itself never grabs keys.
+
+**Menu bar (macOS).** `taskstaka-tray` shows the plate in the menu bar — `▶ title` for the
+task in hand, `○ title` for *up next* — and its menu lists what you can do now: *Done*, *Put
+back* or *Start* for the plate, each *now* row (opens the task), *Quick add… ⌥Space*, *Open
+taskstaka*. It is a separate process that only talks HTTP to the daemon (ADR 0015);
+`taskstaka setup macos` installs it as a launchd agent. `taskstaka-tray --hotkey
+ctrl+alt+space` (or `setup macos --hotkey …`) picks another key; `--context work` filters.
 
 **Outline** is the tree (`⇧` + arrows rearrange, `A` adds under, `h` shows completed),
 **Waiting on** groups by person (`f` chase, `u` unblock when they reply), **Someday** is
@@ -216,18 +232,15 @@ WantedBy=default.target
 ```
 `systemctl --user enable --now taskstaka`
 
-**launchd (macOS)** — `~/Library/LaunchAgents/dev.taskstaka.plist`
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>Label</key><string>dev.taskstaka</string>
-  <key>ProgramArguments</key><array><string>/Users/you/.cargo/bin/taskstaka</string><string>serve</string></array>
-  <key>EnvironmentVariables</key><dict><key>TASKSTAKA_DIR</key><string>/Users/you/todo</string></dict>
-  <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
-</dict></plist>
-```
-`launchctl load ~/Library/LaunchAgents/dev.taskstaka.plist`
+**launchd (macOS)** — `taskstaka setup macos` writes and loads two agents in
+`~/Library/LaunchAgents/`: `dev.taskstaka` (the daemon) and `dev.taskstaka.tray` (the menu
+bar item; `--no-tray` skips it). Both run at login and are restarted only if they crash, so
+`taskstaka stop` and the tray's *Quit* stick. They carry no `TASKSTAKA_DIR`: the folder comes
+from Settings (below). `stop`, `restart` and `status` know when launchd owns the daemon and go
+through `launchctl` instead of starting a second one. Logs land in `~/Library/Logs/taskstaka.log`
+and `taskstaka-tray.log`; `--uninstall` unloads and deletes both; `--dry-run` shows the plists.
+Homebrew users can run the daemon with `brew services start taskstaka` instead (label
+`homebrew.mxcl.taskstaka`, recognised the same way) and add the tray with `taskstaka setup macos`.
 
 Nudges (desktop notifications) fire for: stuck in *doing* > 2 days, nothing actionable,
 tasks rotting untouched > 14 days, a parent resurfacing, follow-ups due, too much WIP.
@@ -273,7 +286,8 @@ already holds taskstaka notes uses it as it is. From a terminal the same move is
   on?" or just start a piece of work.
 - **Obsidian:** open `~/todo` as a vault. `index.md` is the tree; each note is a task.
   Read-only in v1 — the daemon overwrites `index.md`, and notes it writes win.
-- **Hotkey:** bind a key to a one-line prompt that runs `taskstaka add`.
+- **Hotkey without the tray:** bind a key to a one-line prompt that runs `taskstaka add`
+  (the tray's own ⌥Space is described under *Quick add*).
   - macOS, Raycast script command:
     ```bash
     #!/bin/bash
@@ -324,7 +338,11 @@ Answered items resurface in `next`; chases move the counts; you get a notificati
 
 - `crates/core` — `taskstaka-core`: model, frontmatter, tree, store, the needs-action
   computation, nudge rules. Sync, no framework deps, unit-tested with an injected clock.
-- `crates/taskstaka` — the binary: CLI, daemon, TUI, MCP bridge, web UI.
+- `crates/client` — `taskstaka-client`: the blocking HTTP client every surface uses to reach
+  the daemon (discovery, auto-start, endpoints).
+- `crates/taskstaka` — the binary: CLI, daemon, TUI, MCP bridge, web UI, `setup`.
+- `crates/tray` — `taskstaka-tray`: the menu bar item and the global hotkey. OS-facing and
+  HTTP-only; never imports the daemon (ADR 0015).
 - `docs/PLAN.md` — design and phase status. `docs/adr/` — why the non-obvious decisions.
   `CONTEXT.md` — the vocabulary.
 

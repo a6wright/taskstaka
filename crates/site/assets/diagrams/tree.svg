@@ -9,17 +9,17 @@
 .d-tree .edge { fill: none; stroke: var(--line, #24262b); stroke-width: 1.6; stroke-dasharray: 160; }
 .d-tree .box { fill: none; stroke: var(--muted, #8a8d94); stroke-width: 1.3; }
 .d-tree .story, .d-tree .c1, .d-tree .c2, .d-tree .c3, .d-tree .e1, .d-tree .e2, .d-tree .e3, .d-tree .blk { animation-duration: 8s; animation-iteration-count: infinite; animation-timing-function: cubic-bezier(.2, .7, .2, 1); }
-.d-tree .c1 { animation-name: c1; } .d-tree .c2 { animation-name: c2; } .d-tree .c3 { animation-name: c3; }
-.d-tree .e1 { animation-name: e1; } .d-tree .e2 { animation-name: e2; } .d-tree .e3 { animation-name: e3; }
-.d-tree .story { animation-name: story; } .d-tree .blk { animation-name: blk; }
-@keyframes c1 { 0%, 14% { opacity: 0; transform: translate(0, 10px); } 22%, 90% { opacity: 1; transform: translate(0, 0); } 100% { opacity: 0; } }
-@keyframes c2 { 0%, 26% { opacity: 0; transform: translate(0, 10px); } 34%, 90% { opacity: 1; transform: translate(0, 0); } 100% { opacity: 0; } }
-@keyframes c3 { 0%, 38% { opacity: 0; transform: translate(0, 10px); } 46%, 90% { opacity: 1; transform: translate(0, 0); } 100% { opacity: 0; } }
-@keyframes e1 { 0%, 12% { stroke-dashoffset: 160; } 22%, 90% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 160; } }
-@keyframes e2 { 0%, 24% { stroke-dashoffset: 160; } 34%, 90% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 160; } }
-@keyframes e3 { 0%, 36% { stroke-dashoffset: 160; } 46%, 90% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 160; } }
-@keyframes story { 0%, 14% { opacity: 1; } 22%, 90% { opacity: .5; } 100% { opacity: 1; } }
-@keyframes blk { 0%, 16% { opacity: 0; } 24%, 90% { opacity: 1; } 100% { opacity: 0; } }
+.d-tree .c1 { animation-name: tr-c1; } .d-tree .c2 { animation-name: tr-c2; } .d-tree .c3 { animation-name: tr-c3; }
+.d-tree .e1 { animation-name: tr-e1; } .d-tree .e2 { animation-name: tr-e2; } .d-tree .e3 { animation-name: tr-e3; }
+.d-tree .story { animation-name: tr-story; } .d-tree .blk { animation-name: tr-blk; }
+@keyframes tr-c1 { 0%, 14% { opacity: 0; transform: translate(0, 10px); } 22%, 90% { opacity: 1; transform: translate(0, 0); } 100% { opacity: 0; } }
+@keyframes tr-c2 { 0%, 26% { opacity: 0; transform: translate(0, 10px); } 34%, 90% { opacity: 1; transform: translate(0, 0); } 100% { opacity: 0; } }
+@keyframes tr-c3 { 0%, 38% { opacity: 0; transform: translate(0, 10px); } 46%, 90% { opacity: 1; transform: translate(0, 0); } 100% { opacity: 0; } }
+@keyframes tr-e1 { 0%, 12% { stroke-dashoffset: 160; } 22%, 90% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 160; } }
+@keyframes tr-e2 { 0%, 24% { stroke-dashoffset: 160; } 34%, 90% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 160; } }
+@keyframes tr-e3 { 0%, 36% { stroke-dashoffset: 160; } 46%, 90% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 160; } }
+@keyframes tr-story { 0%, 14% { opacity: 1; } 22%, 90% { opacity: .5; } 100% { opacity: 1; } }
+@keyframes tr-blk { 0%, 16% { opacity: 0; } 24%, 90% { opacity: 1; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .d-tree * { animation: none !important; } .d-tree .story { opacity: .5; } }
 </style>
 <!-- the story -->

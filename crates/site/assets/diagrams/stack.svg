@@ -13,22 +13,22 @@
 .d-stack .tick { fill: none; stroke: var(--ok, #4cc38a); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .d-stack .ease { animation-timing-function: cubic-bezier(.2, .7, .2, 1); }
 .d-stack .p1, .d-stack .p2, .d-stack .p3, .d-stack .base, .d-stack .t1, .d-stack .t2, .d-stack .t3, .d-stack .b2, .d-stack .b3, .d-stack .glow { animation-duration: 11s; animation-iteration-count: infinite; animation-timing-function: cubic-bezier(.2, .7, .2, 1); }
-.d-stack .p1 { animation-name: p1; } .d-stack .p2 { animation-name: p2; } .d-stack .p3 { animation-name: p3; }
-.d-stack .t1 { animation-name: t1; } .d-stack .t2 { animation-name: t2; } .d-stack .t3 { animation-name: t3; }
-.d-stack .b2 { animation-name: b2; } .d-stack .b3 { animation-name: b3; } .d-stack .glow { animation-name: glow; }
+.d-stack .p1 { animation-name: st-p1; } .d-stack .p2 { animation-name: st-p2; } .d-stack .p3 { animation-name: st-p3; }
+.d-stack .t1 { animation-name: st-t1; } .d-stack .t2 { animation-name: st-t2; } .d-stack .t3 { animation-name: st-t3; }
+.d-stack .b2 { animation-name: st-b2; } .d-stack .b3 { animation-name: st-b3; } .d-stack .glow { animation-name: st-glow; }
 /* plate 1: in hand from the start; ticked at 12%, gone by 18% */
-@keyframes p1 { 0%, 12% { transform: translate(0, 0); opacity: 1; } 18%, 100% { transform: translate(-48px, 0); opacity: 0; } }
-@keyframes t1 { 0%, 11% { opacity: 0; } 12.5%, 100% { opacity: 1; } }
+@keyframes st-p1 { 0%, 12% { transform: translate(0, 0); opacity: 1; } 18%, 100% { transform: translate(-48px, 0); opacity: 0; } }
+@keyframes st-t1 { 0%, 11% { opacity: 0; } 12.5%, 100% { opacity: 1; } }
 /* plate 2: moves up into hand at 18–24%, ticked at 42%, gone by 48% */
-@keyframes p2 { 0%, 18% { transform: translate(0, 0); opacity: 1; } 24%, 42% { transform: translate(0, -62px); opacity: 1; } 48%, 100% { transform: translate(-48px, -62px); opacity: 0; } }
-@keyframes b2 { 0%, 25% { opacity: 0; } 27%, 100% { opacity: 1; } }
-@keyframes t2 { 0%, 41% { opacity: 0; } 42.5%, 100% { opacity: 1; } }
+@keyframes st-p2 { 0%, 18% { transform: translate(0, 0); opacity: 1; } 24%, 42% { transform: translate(0, -62px); opacity: 1; } 48%, 100% { transform: translate(-48px, -62px); opacity: 0; } }
+@keyframes st-b2 { 0%, 25% { opacity: 0; } 27%, 100% { opacity: 1; } }
+@keyframes st-t2 { 0%, 41% { opacity: 0; } 42.5%, 100% { opacity: 1; } }
 /* plate 3: up twice, ticked at 72%, gone by 78% */
-@keyframes p3 { 0%, 18% { transform: translate(0, 0); } 24%, 48% { transform: translate(0, -62px); } 54%, 72% { transform: translate(0, -124px); opacity: 1; } 78%, 100% { transform: translate(-48px, -124px); opacity: 0; } }
-@keyframes b3 { 0%, 55% { opacity: 0; } 57%, 100% { opacity: 1; } }
-@keyframes t3 { 0%, 71% { opacity: 0; } 72.5%, 100% { opacity: 1; } }
+@keyframes st-p3 { 0%, 18% { transform: translate(0, 0); } 24%, 48% { transform: translate(0, -62px); } 54%, 72% { transform: translate(0, -124px); opacity: 1; } 78%, 100% { transform: translate(-48px, -124px); opacity: 0; } }
+@keyframes st-b3 { 0%, 55% { opacity: 0; } 57%, 100% { opacity: 1; } }
+@keyframes st-t3 { 0%, 71% { opacity: 0; } 72.5%, 100% { opacity: 1; } }
 /* the story: lights up once nothing is left under it, holds, then the loop restarts */
-@keyframes glow { 0%, 80% { opacity: 0; } 83%, 96% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes st-glow { 0%, 80% { opacity: 0; } 83%, 96% { opacity: 1; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
   .d-stack * { animation: none !important; }
   .d-stack .t1, .d-stack .t2, .d-stack .t3, .d-stack .b2, .d-stack .b3, .d-stack .glow { opacity: 0; }
@@ -61,7 +61,7 @@
 <!-- the story at the base -->
 <g class="base">
   <rect class="plate" x="120" y="236" width="480" height="52" rx="10"/>
-  <text class="so" x="140" y="258">so that</text>
+  <text class="so" x="140" y="266">so that</text>
   <text class="label" x="202" y="268">Ship the new site</text>
   <g class="glow">
     <rect x="120" y="236" width="480" height="52" rx="10" fill="none" stroke="var(--accent, #e87818)" stroke-width="2"/>

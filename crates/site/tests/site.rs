@@ -122,6 +122,8 @@ async fn assets_have_types_and_cache_headers() {
         ("/mark.png", "image/png"),
         ("/favicon.ico", "image/x-icon"),
         ("/apple-touch-icon.png", "image/png"),
+        ("/shots/next.png", "image/png"),
+        ("/shots/outline.png", "image/png"),
     ] {
         let res = agent.get(format!("{base}{path}")).call().unwrap();
         assert_eq!(res.status().as_u16(), 200, "{path}");

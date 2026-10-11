@@ -32,4 +32,14 @@ pub const ASSETS: &[Asset] = &[
         content_type: "image/png",
         bytes: include_bytes!("../../taskstaka/assets/apple-touch-icon.png"),
     },
+    Asset {
+        path: "/shots/next.png",
+        content_type: "image/png",
+        bytes: include_bytes!("../assets/shots/next.png"),
+    },
+    Asset {
+        path: "/shots/outline.png",
+        content_type: "image/png",
+        bytes: include_bytes!("../assets/shots/outline.png"),
+    },
 ];

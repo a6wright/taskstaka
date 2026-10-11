@@ -148,10 +148,26 @@ pub fn main() -> Result<()> {
             skip_skill,
             skip_mcp,
             skip_claude_md,
+            no_tray,
+            hotkey,
+            uninstall,
             dry_run,
         } => {
+            if target == "macos" {
+                let opts = crate::setup_macos::MacosSetup {
+                    no_tray,
+                    hotkey,
+                    uninstall,
+                    dry_run,
+                };
+                let report = crate::setup_macos::install(&opts)?;
+                print!("{}", crate::setup_macos::describe(&report, &opts));
+                return Ok(());
+            }
             if target != "claude" {
-                bail!("unknown setup target {target:?}; try `taskstaka setup claude`");
+                bail!(
+                    "unknown setup target {target:?}; try `taskstaka setup claude` or `taskstaka setup macos`"
+                );
             }
             let opts = crate::setup::ClaudeSetup {
                 project,

@@ -59,9 +59,10 @@ pub enum Cmd {
     /// Speak MCP on stdin/stdout for agents (Claude Code, Claude Desktop).
     Mcp,
 
-    /// Install the Claude Code integration: the taskstaka skill and the MCP server.
+    /// Install an integration: `claude` (skill + MCP server) or `macos`
+    /// (launchd agents for the daemon and the menu bar item).
     Setup {
-        /// What to set up (only `claude` for now).
+        /// What to set up: `claude` or `macos`.
         target: String,
         /// Install into this project (.claude/skills, MCP scope project) instead of your home.
         #[arg(long)]
@@ -73,6 +74,15 @@ pub enum Cmd {
         /// Do not add the taskstaka section to ~/.claude/CLAUDE.md (or ./CLAUDE.md with --project).
         #[arg(long)]
         skip_claude_md: bool,
+        /// macos: leave the menu bar item out.
+        #[arg(long)]
+        no_tray: bool,
+        /// macos: the tray's global key for quick add.
+        #[arg(long, default_value = "alt+space")]
+        hotkey: String,
+        /// macos: unload and delete the agents instead.
+        #[arg(long)]
+        uninstall: bool,
         /// Show what would be done without writing anything.
         #[arg(long)]
         dry_run: bool,

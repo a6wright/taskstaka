@@ -506,3 +506,24 @@ fn status_json_reports_the_supervisor() {
         .success()
         .stdout(predicate::str::contains("\"supervisor\":null"));
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn setup_macos_dry_run_describes_both_agents_without_writing() {
+    let home = tempfile::tempdir().unwrap();
+    let out = Command::cargo_bin("taskstaka")
+        .unwrap()
+        .env("HOME", home.path())
+        .args(["setup", "macos", "--dry-run", "--hotkey", "ctrl+alt+space"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(text.contains("would install daemon"), "{text}");
+    assert!(text.contains("dev.taskstaka.plist"), "{text}");
+    assert!(!home.path().join("Library/LaunchAgents").exists());
+}

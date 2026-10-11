@@ -162,3 +162,15 @@ The generated `index.md` tree. Derived, overwritten on every change; never edite
 
 **Vault**:
 The todo directory as Obsidian sees it. Read-only in v1.
+
+### Surfaces
+
+**Daemon**:
+The one process that owns the notes and serves them over HTTP on localhost. Every other surface is a client of it.
+
+**Tray**:
+The menu bar item (macOS) or system tray item (Linux): the plate's title in the bar, a menu of what you can do now, and the global **hotkey** that opens quick add. A separate process, `taskstaka-tray`, that only speaks HTTP to the daemon; the OS-specific code lives there and nowhere else.
+_Avoid_: widget, applet, status bar app
+
+**Hotkey**:
+The system-wide key the tray registers for quick add (`alt+space` unless told otherwise). Opens the `/quick` page; nothing else in taskstaka grabs keys.

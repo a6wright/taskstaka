@@ -9,7 +9,9 @@ A "what needs action next" task server backed by markdown. Read these before cha
 ## Layout
 
 - `crates/core` (`taskstaka-core`) — sync, framework-free: model, frontmatter, tree, store, `action.rs` (the product), nudges. **No tokio/axum/ratatui here**; that is enforced by it being a separate package.
-- `crates/taskstaka` — the one binary: CLI, daemon, TUI, MCP bridge, web.
+- `crates/client` (`taskstaka-client`) — the blocking HTTP client every surface uses to reach the daemon (discovery, auto-start, endpoints).
+- `crates/taskstaka` — the main binary: CLI, daemon, TUI, MCP bridge, web, `setup`, launchd awareness (`service.rs`).
+- `crates/tray` (`taskstaka-tray`) — the menu bar / system tray item and the global hotkey. OS-facing and HTTP-only: depends on `client` and `core`, never on the daemon (ADR 0015). Pure parts (`menu.rs`, `actions.rs`, `hotkey.rs`) are unit-tested; the event loop is verified by hand.
 
 ## Conventions
 

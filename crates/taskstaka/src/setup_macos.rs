@@ -26,6 +26,7 @@ pub struct MacosSetup {
     pub dry_run: bool,
 }
 
+#[derive(Debug)]
 pub struct Report {
     /// `None` on uninstall when there was nothing to remove.
     pub daemon_plist: Option<PathBuf>,
@@ -147,9 +148,26 @@ pub fn install_in(
         std::fs::write(&path, xml).with_context(|| format!("writing {}", path.display()))?;
         // Reload so a rerun after `cargo install` picks up the new binary.
         let _ = lc.bootout(label);
-        lc.bootstrap(&path)?;
+        bootstrap_with_retry(lc, &path)?;
     }
     Ok(report)
+}
+
+/// launchctl answers "Bootstrap failed: 5: Input/output error" when the job
+/// just booted out is still winding down; a few short retries cover it.
+fn bootstrap_with_retry(lc: &dyn Launchctl, plist: &Path) -> Result<()> {
+    const ATTEMPTS: u32 = 6;
+    let mut last = None;
+    for i in 0..ATTEMPTS {
+        match lc.bootstrap(plist) {
+            Ok(()) => return Ok(()),
+            Err(e) => last = Some(e),
+        }
+        if i + 1 < ATTEMPTS && !cfg!(test) {
+            std::thread::sleep(std::time::Duration::from_millis(400));
+        }
+    }
+    Err(last.expect("at least one attempt")).with_context(|| format!("loading {}", plist.display()))
 }
 
 /// A LaunchAgent plist. `interactive` marks a GUI job (the tray).
@@ -260,6 +278,9 @@ mod tests {
     #[derive(Default)]
     struct Fake {
         calls: RefCell<Vec<String>>,
+        /// How many bootstraps still fail (launchctl's "Bootstrap failed: 5"
+        /// right after a bootout).
+        flaky: std::cell::Cell<u32>,
     }
 
     impl Launchctl for Fake {
@@ -275,6 +296,10 @@ mod tests {
                 "bootstrap {}",
                 plist.file_name().unwrap().to_string_lossy()
             ));
+            if self.flaky.get() > 0 {
+                self.flaky.set(self.flaky.get() - 1);
+                anyhow::bail!("Bootstrap failed: 5: Input/output error");
+            }
             Ok(())
         }
         fn bootout(&self, label: &str) -> anyhow::Result<()> {
@@ -398,6 +423,35 @@ mod tests {
             home.path().join("Library/Logs").is_dir(),
             "log folder exists so launchd can write"
         );
+    }
+
+    #[test]
+    fn bootstrap_right_after_bootout_is_retried() {
+        let home = tempfile::tempdir().unwrap();
+        let (_b, exe) = bins(false);
+        let lc = Fake {
+            flaky: std::cell::Cell::new(2),
+            ..Default::default()
+        };
+        install_in(home.path(), &exe, &lc, &opts()).unwrap();
+        let calls = lc.calls.borrow();
+        assert_eq!(
+            calls.iter().filter(|c| c.starts_with("bootstrap")).count(),
+            3,
+            "{calls:?}"
+        );
+    }
+
+    #[test]
+    fn a_bootstrap_that_keeps_failing_is_an_error() {
+        let home = tempfile::tempdir().unwrap();
+        let (_b, exe) = bins(false);
+        let lc = Fake {
+            flaky: std::cell::Cell::new(99),
+            ..Default::default()
+        };
+        let err = install_in(home.path(), &exe, &lc, &opts()).unwrap_err();
+        assert!(format!("{err:#}").contains("Bootstrap failed"), "{err:#}");
     }
 
     #[test]

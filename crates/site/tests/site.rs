@@ -141,3 +141,48 @@ async fn assets_have_types_and_cache_headers() {
     );
     handle.abort();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn content_has_the_install_command_anchors_and_placeholders() {
+    let (base, handle) = start().await;
+    let (_, _, home) = get(&base, "/");
+    assert!(
+        home.contains("brew install a6wright/taskstaka/taskstaka"),
+        "install command on the home page"
+    );
+    assert!(home.contains("/shots/next.png"));
+    let (_, _, install) = get(&base, "/install");
+    for id in [
+        "homebrew",
+        "from-source",
+        "macos-menu-bar-and-space",
+        "claude-code",
+        "always-on",
+        "updating",
+    ] {
+        assert!(
+            install.contains(&format!(r#"id="{id}""#)),
+            "install anchor {id}"
+        );
+    }
+    let (_, _, help) = get(&base, "/help");
+    for id in [
+        "the-model",
+        "the-cli",
+        "the-web",
+        "the-tui",
+        "the-menu-bar",
+        "agents",
+    ] {
+        assert!(help.contains(&format!(r#"id="{id}""#)), "help anchor {id}");
+    }
+    assert!(
+        help.contains("<svg")
+            || help.contains("<!-- diagram:stack -->")
+            || help.contains("<!-- diagram:tree -->"),
+        "diagram placeholder or SVG present"
+    );
+    let (_, _, log) = get(&base, "/changelog");
+    assert!(log.contains("0.1.2") && log.contains("0.1.0"));
+    handle.abort();
+}

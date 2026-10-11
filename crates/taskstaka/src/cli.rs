@@ -13,6 +13,15 @@ use crate::backend::{Backend, Direct, Http};
 use crate::client::{Client, DaemonInfo};
 use crate::{render, server};
 
+/// Bring the daemon up for `dir`: kick the launchd agent when one owns it,
+/// else spawn our own detached daemon.
+fn start_daemon(sup: &crate::service::Supervisor, dir: &std::path::Path, port: u16) -> Result<()> {
+    match sup.label() {
+        Some(label) => crate::service::Launchctl::kickstart(&crate::service::System, label),
+        None => crate::client::spawn_daemon(dir, port),
+    }
+}
+
 pub fn main() -> Result<()> {
     let cli = Cli::parse();
     // Canonical, so `./todo`, a trailing slash or a symlink all name the
@@ -57,8 +66,15 @@ pub fn main() -> Result<()> {
         Cmd::Stop => {
             return match Client::discover(&dir) {
                 Some(c) => {
+                    let pid = c.health().ok().map(|h| h.pid);
+                    let sup = crate::service::detect(&dir, &default_dir(), pid);
                     c.shutdown()?;
                     println!("asked the daemon at {} to stop", c.base());
+                    if let Some(label) = sup.label() {
+                        println!(
+                            "it is a launchd agent ({label}); it stays down until `taskstaka restart` or login"
+                        );
+                    }
                     Ok(())
                 }
                 None => {
@@ -75,6 +91,10 @@ pub fn main() -> Result<()> {
                 Some(t) => Some(crate::notes_dir::plan(&dir, &t.to_string_lossy())?),
                 None => None,
             };
+            let pid = Client::discover(&dir)
+                .and_then(|c| c.health().ok())
+                .map(|h| h.pid);
+            let sup = crate::service::detect(&dir, &default_dir(), pid);
             let was_running = Client::stop_and_wait(&dir)?;
             let mut target = dir.clone();
             if let Some(plan) = plan {
@@ -94,23 +114,29 @@ pub fn main() -> Result<()> {
                         target = plan.target;
                     }
                     Err(e) => {
-                        crate::client::spawn_daemon(&dir, port)?;
+                        start_daemon(&sup, &dir, port)?;
                         return Err(
                             e.context("could not move the notes; the old folder is still in use")
                         );
                     }
                 }
             }
-            crate::client::spawn_daemon(&target, port)?;
+            // Under launchd the agent is kicked instead of spawning our own
+            // daemon, so it stays supervised (and the setting it just saved
+            // is what it reads on the way up).
+            start_daemon(&sup, &target, port)?;
             let c = Client::wait_for(&target)?;
             let h = c.health()?;
             println!(
-                "{} daemon at {}  pid {}  v{}  {}",
+                "{} daemon at {}  pid {}  v{}  {}{}",
                 if was_running { "restarted" } else { "started" },
                 c.base(),
                 h.pid,
                 h.version,
-                target.display()
+                target.display(),
+                sup.label()
+                    .map(|l| format!("  (launchd {l})"))
+                    .unwrap_or_default()
             );
             return Ok(());
         }
@@ -156,19 +182,23 @@ pub fn main() -> Result<()> {
                 Some(c) => {
                     let h = c.health()?;
                     let stale = c.is_stale();
+                    let sup = crate::service::detect(&dir, &default_dir(), Some(h.pid));
                     if json {
                         println!(
                             "{}",
-                            serde_json::json!({"running": true, "url": c.base(), "pid": h.pid, "version": h.version, "rev": h.rev, "dir": h.todo_dir, "stale": stale})
+                            serde_json::json!({"running": true, "url": c.base(), "pid": h.pid, "version": h.version, "rev": h.rev, "dir": h.todo_dir, "stale": stale, "supervisor": sup.label()})
                         );
                     } else {
                         println!(
-                            "running  {}  pid {}  v{}  rev {}  {}{}",
+                            "running  {}  pid {}  v{}  rev {}  {}{}{}",
                             c.base(),
                             h.pid,
                             h.version,
                             h.rev,
                             h.todo_dir.display(),
+                            sup.label()
+                                .map(|l| format!("  launchd {l}"))
+                                .unwrap_or_default(),
                             if stale {
                                 "  (stale: started before this binary was built — run `taskstaka restart`)"
                             } else {
@@ -179,10 +209,22 @@ pub fn main() -> Result<()> {
                     Ok(())
                 }
                 None => {
+                    let sup = crate::service::detect(&dir, &default_dir(), None);
                     if json {
-                        println!("{}", serde_json::json!({"running": false, "dir": dir}));
+                        println!(
+                            "{}",
+                            serde_json::json!({"running": false, "dir": dir, "supervisor": sup.label()})
+                        );
                     } else {
-                        println!("not running  ({})", dir.display());
+                        println!(
+                            "not running  ({}){}",
+                            dir.display(),
+                            sup.label()
+                                .map(|l| format!(
+                                    "  launchd {l} loaded; `taskstaka restart` starts it"
+                                ))
+                                .unwrap_or_default()
+                        );
                     }
                     Ok(())
                 }

@@ -496,3 +496,13 @@ fn quick_makes_a_root_task_with_project_and_a_wait() {
     assert!(all.iter().all(|t| t.get("parent").is_none()));
     assert!(all.iter().any(|t| t["title"] == "buy milk"));
 }
+
+#[test]
+fn status_json_reports_the_supervisor() {
+    let env = DaemonEnv::new();
+    env.cmd()
+        .args(["--json", "status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"supervisor\":null"));
+}

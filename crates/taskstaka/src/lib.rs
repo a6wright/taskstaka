@@ -12,6 +12,7 @@ pub mod notes_dir;
 pub mod quick;
 pub mod render;
 pub mod server;
+pub mod service;
 pub mod setup;
 pub mod tui;
 

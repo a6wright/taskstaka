@@ -160,8 +160,10 @@ keyboard shortcut running `xdg-open http://127.0.0.1:7407/quick` or
 for the task in hand, `○ title` for *up next* — and its menu reads top to bottom like the plate:
 the title, its notes (so you see what to do at a glance), then *Done* and *Put back* or
 *Start*, each *now* row (opens the task), *Quick add… ⌥Space*, *Open taskstaka*. It is a separate process that only talks HTTP to the daemon (ADR 0015);
-`taskstaka setup macos` installs it as a launchd agent. `taskstaka-tray --hotkey
-ctrl+alt+space` (or `setup macos --hotkey …`) picks another key; `--context work` filters.
+`taskstaka setup macos` installs it as a launchd agent; `taskstaka tray start` brings it
+back after *Quit*, `tray stop` takes it down until login, `tray status` says who runs it.
+`taskstaka-tray --hotkey ctrl+alt+space` (or `setup macos --hotkey …`) picks another key;
+`--context work` filters.
 
 **Outline** is the tree (`⇧` + arrows rearrange, `A` adds under, `h` shows completed),
 **Waiting on** groups by person (`f` chase, `u` unblock when they reply), **Someday** is
@@ -248,7 +250,8 @@ WantedBy=default.target
 **launchd (macOS)** — `taskstaka setup macos` writes and loads two agents in
 `~/Library/LaunchAgents/`: `dev.taskstaka` (the daemon) and `dev.taskstaka.tray` (the menu
 bar item; `--no-tray` skips it). Both run at login and are restarted only if they crash, so
-`taskstaka stop` and the tray's *Quit* stick. They carry no `TASKSTAKA_DIR`: the folder comes
+`taskstaka stop` and the tray's *Quit* stick (`taskstaka tray start` brings the item back).
+They carry no `TASKSTAKA_DIR`: the folder comes
 from Settings (below). `stop`, `restart` and `status` know when launchd owns the daemon and go
 through `launchctl` instead of starting a second one. Logs land in `~/Library/Logs/taskstaka.log`
 and `taskstaka-tray.log`; `--uninstall` unloads and deletes both; `--dry-run` shows the plists.

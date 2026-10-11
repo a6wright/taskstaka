@@ -31,7 +31,7 @@ cargo install --path crates/tray      # taskstaka-tray (Homebrew installed it fo
 taskstaka setup macos                 # launchd agents for the daemon and the tray
 ```
 
-`taskstaka setup macos --hotkey ctrl+alt+space` picks another key. `--no-tray` installs the daemon agent only. `--uninstall` stops and removes both. Logs go to `~/Library/Logs/taskstaka.log` and `taskstaka-tray.log`.
+`taskstaka setup macos --hotkey ctrl+alt+space` picks another key. `--no-tray` installs the daemon agent only. `--uninstall` stops and removes both. `taskstaka tray start`, `stop` and `status` control the item afterwards, through launchd. Logs go to `~/Library/Logs/taskstaka.log` and `taskstaka-tray.log`.
 
 ## Claude Code
 

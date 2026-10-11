@@ -24,7 +24,6 @@ concurrency:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   PROJECT: taskstaka
@@ -51,6 +50,9 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 

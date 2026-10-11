@@ -60,6 +60,7 @@ taskstaka edit <id>                             # open the note in $EDITOR
 taskstaka quick "renew the cert #devops @Priya +3d"
 taskstaka tui                                   # the always-on panel
 taskstaka status · stop · restart
+taskstaka tray start · stop · status           # the menu bar item
 ```
 
 Ids are six characters; any unique prefix works. `--json` on anything gives machine output. Context filters and does not rank: `next -c work`.
@@ -78,7 +79,7 @@ Ids are six characters; any unique prefix works. `--json` on anything gives mach
 
 ## The menu bar
 
-On macOS, `taskstaka-tray` shows the plate in the menu bar: `▶ title` for the task in hand, `○ title` for up next. Its menu reads like the plate: the title, its notes, then *Done* and *Put back* or *Start*, each row you can do now, *Quick add… ⌥Space* and *Open taskstaka*. <kbd>⌥Space</kbd> toggles the quick-add panel from any app; <kbd>Esc</kbd> or clicking elsewhere hides it. Install it with `taskstaka setup macos` (see [Install](/install#macos-menu-bar-and-space)).
+On macOS, `taskstaka-tray` shows the plate in the menu bar: `▶ title` for the task in hand, `○ title` for up next. Its menu reads like the plate: the title, its notes, then *Done* and *Put back* or *Start*, each row you can do now, *Quick add… ⌥Space* and *Open taskstaka*. <kbd>⌥Space</kbd> toggles the quick-add panel from any app; <kbd>Esc</kbd> or clicking elsewhere hides it. Install it with `taskstaka setup macos` (see [Install](/install#macos-menu-bar-and-space)). After *Quit*, `taskstaka tray start` brings it back; `taskstaka tray stop` takes it down until your next login, and `taskstaka tray status` says who runs it.
 
 ## Agents
 

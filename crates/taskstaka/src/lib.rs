@@ -15,6 +15,7 @@ pub mod server;
 pub mod service;
 pub mod setup;
 pub mod setup_macos;
+pub mod tray;
 pub mod tui;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -274,7 +274,7 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 
 ## Resume here
 
-**P1–P25 complete** (2026-10-10/11). `cargo fmt`, `clippy --all-targets`, `cargo test` are
+**P1–P25 complete** (2026-10-10/11). v0.1.3 adds `taskstaka tray start|stop|status` (`crates/taskstaka/src/tray.rs`: launchd bootstrap/kickstart/bootout when `setup macos` installed the agent, plain spawn/kill otherwise). `cargo fmt`, `clippy --all-targets`, `cargo test` are
 clean at head. taskstaka runs on macOS 27 with the menu bar item, the `⌥Space` quick-add
 panel and launchd agents; `brew install a6wright/taskstaka/taskstaka` installs 0.1.2 from the
 tap. **https://taskstaka.com** (and `www`) is live: `crates/site` on Cloud Run, domain

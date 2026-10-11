@@ -32,6 +32,16 @@ pub struct Cli {
     pub cmd: Cmd,
 }
 
+#[derive(Subcommand, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrayCmd {
+    /// Bring the menu bar item up (after Quit, or after `tray stop`).
+    Start,
+    /// Take it down; it comes back at login (or with `tray start`).
+    Stop,
+    /// Is it running, and who supervises it.
+    Status,
+}
+
 #[derive(Subcommand, Debug)]
 pub enum Cmd {
     /// Create the todo directory layout.
@@ -52,6 +62,13 @@ pub enum Cmd {
 
     /// Ask the running daemon to shut down.
     Stop,
+
+    /// The menu bar item: `start`, `stop` or `status`. Goes through launchd
+    /// when `setup macos` installed it, else runs `taskstaka-tray` itself.
+    Tray {
+        #[command(subcommand)]
+        cmd: TrayCmd,
+    },
 
     /// Show whether a daemon is running and where.
     Status,

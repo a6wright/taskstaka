@@ -153,6 +153,7 @@ pub fn main() -> Result<()> {
             );
             return Ok(());
         }
+        Cmd::Tray { cmd } => return crate::tray::run(cmd, json),
         Cmd::Tui { context } => return crate::tui::run(&dir, cli.port, context),
         Cmd::Mcp => return crate::mcp::run(&dir, cli.port),
         Cmd::Setup {
@@ -314,6 +315,7 @@ pub fn run(b: &mut dyn Backend, cmd: Cmd, json: bool) -> Result<()> {
         | Cmd::Notifications { .. }
         | Cmd::Status
         | Cmd::Tui { .. }
+        | Cmd::Tray { .. }
         | Cmd::Mcp
         | Cmd::Setup { .. } => {
             unreachable!("handled in main")

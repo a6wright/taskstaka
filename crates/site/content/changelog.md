@@ -2,6 +2,11 @@
 
 Releases are on [GitHub](https://github.com/a6wright/taskstaka/releases).
 
+## 0.1.3 · 2026-10-11
+
+- `taskstaka tray start`, `stop` and `status` control the menu bar item. With the launchd agent from `setup macos`, `start` brings it back after Quit and `stop` unloads it until login; without the agent they run and end a plain `taskstaka-tray`.
+- taskstaka.com deploys from GitHub Actions on each push to main, after fmt, clippy and the tests.
+
 ## 0.1.2 · 2026-10-10
 
 - <kbd>⌥Space</kbd> opens a Spotlight-style quick-add panel instead of the browser.

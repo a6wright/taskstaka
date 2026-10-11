@@ -24,6 +24,15 @@ pub enum Supervisor {
 }
 
 impl Supervisor {
+    /// This supervisor, or `fallback()` when there is none: what owned the
+    /// daemon before a stop beats a fresh guess among several loaded agents.
+    pub fn or_else(self, fallback: impl FnOnce() -> Supervisor) -> Supervisor {
+        match self {
+            Supervisor::None => fallback(),
+            s => s,
+        }
+    }
+
     pub fn label(&self) -> Option<&str> {
         match self {
             Supervisor::Launchd { label } => Some(label),
@@ -403,6 +412,24 @@ mod tests {
             None,
         );
         assert_eq!(s.label(), Some("dev.taskstaka"));
+    }
+
+    #[test]
+    fn the_supervisor_seen_before_a_stop_wins_over_a_fresh_guess() {
+        // Two agents loaded for one folder (brew services + setup macos):
+        // restart must kick the one that owned the daemon, not the first label.
+        let brew = Supervisor::Launchd {
+            label: "sh.brew.taskstaka".into(),
+        };
+        let ours = Supervisor::Launchd {
+            label: "dev.taskstaka".into(),
+        };
+        assert_eq!(brew.clone().or_else(|| ours.clone()), brew);
+        assert_eq!(Supervisor::None.or_else(|| ours.clone()), ours);
+        assert_eq!(
+            Supervisor::None.or_else(|| Supervisor::None),
+            Supervisor::None
+        );
     }
 
     #[test]

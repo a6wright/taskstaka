@@ -91,13 +91,18 @@ pub fn main() -> Result<()> {
                 Some(t) => Some(crate::notes_dir::plan(&dir, &t.to_string_lossy())?),
                 None => None,
             };
+            // Who owned the running daemon (by pid) is remembered across the
+            // stop; with nothing running afterwards, a loaded agent for this
+            // folder is the one to start even if the daemon just stopped was
+            // unsupervised (an earlier spawn). Either way the folder ends up
+            // under launchd rather than unsupervised.
+            let pid = Client::discover(&dir)
+                .and_then(|c| c.health().ok())
+                .map(|h| h.pid);
+            let before = crate::service::detect(&dir, &default_dir(), pid, cli.port);
             let was_running = Client::stop_and_wait(&dir)?;
-            // Detect *after* stopping: with nothing running, a loaded agent
-            // for this folder is the one to start, even if the daemon just
-            // stopped was an unsupervised one (an earlier spawn, or brew's
-            // service after `brew services stop`). Hands the folder back to
-            // launchd rather than keeping it unsupervised.
-            let sup = crate::service::detect(&dir, &default_dir(), None, cli.port);
+            let sup =
+                before.or_else(|| crate::service::detect(&dir, &default_dir(), None, cli.port));
             let mut target = dir.clone();
             if let Some(plan) = plan {
                 // The old daemon is stopped, so the copy is final. If it fails,
@@ -130,7 +135,7 @@ pub fn main() -> Result<()> {
             let sup = if target == dir {
                 sup
             } else {
-                crate::service::detect(&target, &default_dir(), None, cli.port)
+                sup.or_else(|| crate::service::detect(&target, &default_dir(), None, cli.port))
             };
             start_daemon(&sup, &target, port)?;
             let c = Client::wait_for(&target)?;

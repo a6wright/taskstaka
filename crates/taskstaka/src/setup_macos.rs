@@ -27,7 +27,8 @@ pub struct MacosSetup {
 }
 
 pub struct Report {
-    pub daemon_plist: PathBuf,
+    /// `None` on uninstall when there was nothing to remove.
+    pub daemon_plist: Option<PathBuf>,
     pub tray_plist: Option<PathBuf>,
     pub notes: Vec<String>,
 }
@@ -42,8 +43,18 @@ pub fn install(opts: &MacosSetup) -> Result<Report> {
         .filter(|p| !p.as_os_str().is_empty())
         .context("HOME is not set")?;
     let exe = std::env::current_exe().context("locating the taskstaka binary")?;
-    let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
-    install_in(&home, &exe, &service::System, opts)
+    install_in(&home, &exe_for_plist(exe), &service::System, opts)
+}
+
+/// The path launchd runs: absolute, but symlinks kept — Homebrew's
+/// `/opt/homebrew/bin/taskstaka` points into a Cellar folder that
+/// `brew upgrade` replaces, so resolving it would break the agents.
+pub fn exe_for_plist(exe: PathBuf) -> PathBuf {
+    if exe.is_absolute() {
+        exe
+    } else {
+        std::env::current_dir().map(|d| d.join(&exe)).unwrap_or(exe)
+    }
 }
 
 pub fn install_in(
@@ -58,24 +69,27 @@ pub fn install_in(
     let daemon_plist = service::plist_path(home, DAEMON_LABEL);
     let tray_path = service::plist_path(home, TRAY_LABEL);
     let mut report = Report {
-        daemon_plist: daemon_plist.clone(),
+        daemon_plist: Some(daemon_plist.clone()),
         tray_plist: None,
         notes: Vec::new(),
     };
 
     if opts.uninstall {
+        report.daemon_plist = None;
         for (label, path) in [(DAEMON_LABEL, &daemon_plist), (TRAY_LABEL, &tray_path)] {
             if !path.exists() {
                 continue;
             }
             if !opts.dry_run {
-                // Not loaded is fine; the file still goes.
+                // bootout stops the job too; not loaded is fine, the file still goes.
                 let _ = lc.bootout(label);
                 std::fs::remove_file(path)
                     .with_context(|| format!("removing {}", path.display()))?;
             }
             if label == TRAY_LABEL {
                 report.tray_plist = Some(path.clone());
+            } else {
+                report.daemon_plist = Some(path.clone());
             }
         }
         return Ok(report);
@@ -193,15 +207,17 @@ pub fn describe(r: &Report, opts: &MacosSetup) -> String {
     let mut s = String::new();
     if opts.uninstall {
         let verb = if opts.dry_run {
-            "would remove"
+            "would stop and remove"
         } else {
-            "removed"
+            "stopped and removed"
         };
-        for p in std::iter::once(&r.daemon_plist).chain(r.tray_plist.iter()) {
+        let mut any = false;
+        for p in r.daemon_plist.iter().chain(r.tray_plist.iter()) {
+            any = true;
             s.push_str(&format!("{verb}  {}\n", p.display()));
         }
-        if !opts.dry_run {
-            s.push_str("the daemon and the tray stay up until you quit them (taskstaka stop; Quit in the menu)\n");
+        if !any {
+            s.push_str("nothing to remove: no taskstaka agents in ~/Library/LaunchAgents\n");
         }
         return s;
     }
@@ -210,10 +226,12 @@ pub fn describe(r: &Report, opts: &MacosSetup) -> String {
     } else {
         "installed"
     };
-    s.push_str(&format!(
-        "{verb} daemon  {}  (launchd {DAEMON_LABEL})\n",
-        r.daemon_plist.display()
-    ));
+    if let Some(p) = &r.daemon_plist {
+        s.push_str(&format!(
+            "{verb} daemon  {}  (launchd {DAEMON_LABEL})\n",
+            p.display()
+        ));
+    }
     if let Some(p) = &r.tray_plist {
         s.push_str(&format!(
             "{verb} tray    {}  (launchd {TRAY_LABEL}, hotkey {})\n",
@@ -347,13 +365,18 @@ mod tests {
         let lc = Fake::default();
         let r = install_in(home.path(), &exe, &lc, &opts()).unwrap();
         let agents = home.path().join("Library/LaunchAgents");
-        assert_eq!(r.daemon_plist, agents.join("dev.taskstaka.plist"));
+        assert_eq!(
+            r.daemon_plist.as_deref(),
+            Some(agents.join("dev.taskstaka.plist").as_path())
+        );
         assert_eq!(
             r.tray_plist.as_deref(),
             Some(agents.join("dev.taskstaka.tray.plist").as_path())
         );
-        assert!(r.daemon_plist.exists() && r.tray_plist.as_ref().unwrap().exists());
-        let daemon = std::fs::read_to_string(&r.daemon_plist).unwrap();
+        assert!(
+            r.daemon_plist.as_ref().unwrap().exists() && r.tray_plist.as_ref().unwrap().exists()
+        );
+        let daemon = std::fs::read_to_string(r.daemon_plist.as_ref().unwrap()).unwrap();
         assert!(daemon.contains(&format!(
             "<string>{}</string><string>serve</string>",
             exe.display()
@@ -425,7 +448,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(!r.daemon_plist.exists());
+        assert!(!r.daemon_plist.as_ref().unwrap().exists());
         assert!(lc.calls.borrow().is_empty());
         let text = describe(
             &r,
@@ -454,7 +477,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(!r.daemon_plist.exists());
+        assert!(!r.daemon_plist.as_ref().unwrap().exists());
         assert!(
             !home
                 .path()
@@ -472,6 +495,55 @@ mod tests {
                 ..opts()
             },
         );
-        assert!(text.contains("removed"), "{text}");
+        assert!(text.contains("stopped and removed"), "{text}");
+        assert!(
+            !text.contains("stay up"),
+            "bootout terminates the jobs: {text}"
+        );
+    }
+
+    #[test]
+    fn uninstall_with_nothing_installed_says_so() {
+        let home = tempfile::tempdir().unwrap();
+        let (_b, exe) = bins(true);
+        let lc = Fake::default();
+        let r = install_in(
+            home.path(),
+            &exe,
+            &lc,
+            &MacosSetup {
+                uninstall: true,
+                ..opts()
+            },
+        )
+        .unwrap();
+        assert!(r.daemon_plist.is_none() && r.tray_plist.is_none());
+        assert!(lc.calls.borrow().is_empty());
+        let text = describe(
+            &r,
+            &MacosSetup {
+                uninstall: true,
+                ..opts()
+            },
+        );
+        assert!(text.contains("nothing to remove"), "{text}");
+    }
+
+    #[test]
+    fn the_binary_path_in_the_plist_keeps_symlinks() {
+        // Homebrew's /opt/homebrew/bin/taskstaka is a symlink into the Cellar;
+        // resolving it would break the agents on the next `brew upgrade`.
+        let d = tempfile::tempdir().unwrap();
+        let real = d.path().join("Cellar/taskstaka/0.1.0/bin/taskstaka");
+        std::fs::create_dir_all(real.parent().unwrap()).unwrap();
+        std::fs::write(&real, b"").unwrap();
+        let link = d.path().join("bin/taskstaka");
+        std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        assert_eq!(exe_for_plist(link.clone()), link);
+        // A relative path is made absolute, nothing more.
+        let rel = exe_for_plist(PathBuf::from("target/debug/taskstaka"));
+        assert!(rel.is_absolute());
+        assert!(rel.ends_with("target/debug/taskstaka"));
     }
 }

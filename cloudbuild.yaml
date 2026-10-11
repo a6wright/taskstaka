@@ -1,0 +1,17 @@
+# Builds the taskstaka.com image from crates/site/Dockerfile. From the repo root:
+#   gcloud builds submit --project taskstaka --region us-central1 --config cloudbuild.yaml --substitutions _TAG=0.1.2 .
+#   gcloud run deploy taskstaka-site --image us-central1-docker.pkg.dev/taskstaka/site/taskstaka-site:0.1.2 \
+#     --region us-central1 --project taskstaka --allow-unauthenticated --port 8080
+substitutions:
+  _TAG: latest
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ['build', '-f', 'crates/site/Dockerfile',
+           '-t', 'us-central1-docker.pkg.dev/taskstaka/site/taskstaka-site:${_TAG}',
+           '-t', 'us-central1-docker.pkg.dev/taskstaka/site/taskstaka-site:latest', '.']
+images:
+  - 'us-central1-docker.pkg.dev/taskstaka/site/taskstaka-site:${_TAG}'
+  - 'us-central1-docker.pkg.dev/taskstaka/site/taskstaka-site:latest'
+options:
+  machineType: E2_HIGHCPU_8
+timeout: 1800s

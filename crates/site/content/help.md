@@ -82,7 +82,7 @@ On macOS, `taskstaka-tray` shows the plate in the menu bar: `▶ title` for the 
 
 ## Agents
 
-`taskstaka setup claude` gives Claude Code the MCP server and a skill that turns any multi-step plan into tasks: your manual steps with the exact command or draft message in the notes, its own steps tagged `agent` and closed as it goes, and anything that depends on a person already waiting on them. The MCP tools are `plan`, `next`, `waiting`, `list_tasks`, `tree`, `get_task`, `add_task`, `set_status`, `update_task`, `move_task`, `touch`, `chase` and `record_reply`. Nothing sends messages on your behalf: agents draft, you send.
+`taskstaka setup claude` gives Claude Code the MCP server and a skill that turns any multi-step plan into tasks: your manual steps with the exact command or draft message in the notes, its own steps tagged `agent` and closed as it goes, and anything that depends on a person already waiting on them. The MCP tools are `plan`, `next`, `waiting`, `list_tasks`, `tree`, `get_task`, `add_task`, `set_status`, `update_task`, `move_task`, `touch`, `chase`, `record_reply`, `projects` and `nudges`. Nothing sends messages on your behalf: agents draft, you send.
 
 A daily routine with a messages MCP alongside it:
 

@@ -13,7 +13,9 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::get;
 
 pub fn router() -> Router {
-    let mut r = Router::new().route("/healthz", get(|| async { "ok" }));
+    // Not `/healthz`: Cloud Run's front end answers that path with its own 404
+    // before the container sees it.
+    let mut r = Router::new().route("/-/health", get(|| async { "ok" }));
     for page in pages::all() {
         let html: Arc<str> = Arc::from(page.html);
         r = r.route(page.path, get(move || page_response(html.clone())));

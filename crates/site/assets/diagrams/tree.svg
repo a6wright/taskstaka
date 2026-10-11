@@ -6,7 +6,7 @@
 .d-tree .label { fill: var(--fg, #e8e9eb); font-weight: 500; }
 .d-tree .small { fill: var(--fg-2, #b4b6bb); font-size: 14px; }
 .d-tree .blocked { fill: var(--muted, #8a8d94); font-size: 12.5px; }
-.d-tree .edge { fill: none; stroke: var(--line, #24262b); stroke-width: 1.6; stroke-dasharray: 160; }
+.d-tree .edge { fill: none; stroke: var(--line, #24262b); stroke-width: 1.6; stroke-dasharray: 1; }
 .d-tree .box { fill: none; stroke: var(--muted, #8a8d94); stroke-width: 1.3; }
 .d-tree .story, .d-tree .c1, .d-tree .c2, .d-tree .c3, .d-tree .e1, .d-tree .e2, .d-tree .e3, .d-tree .blk { animation-duration: 8s; animation-iteration-count: infinite; animation-timing-function: cubic-bezier(.2, .7, .2, 1); }
 .d-tree .c1 { animation-name: tr-c1; } .d-tree .c2 { animation-name: tr-c2; } .d-tree .c3 { animation-name: tr-c3; }
@@ -15,9 +15,9 @@
 @keyframes tr-c1 { 0%, 14% { opacity: 0; transform: translate(0, 10px); } 22%, 90% { opacity: 1; transform: translate(0, 0); } 100% { opacity: 0; } }
 @keyframes tr-c2 { 0%, 26% { opacity: 0; transform: translate(0, 10px); } 34%, 90% { opacity: 1; transform: translate(0, 0); } 100% { opacity: 0; } }
 @keyframes tr-c3 { 0%, 38% { opacity: 0; transform: translate(0, 10px); } 46%, 90% { opacity: 1; transform: translate(0, 0); } 100% { opacity: 0; } }
-@keyframes tr-e1 { 0%, 12% { stroke-dashoffset: 160; } 22%, 90% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 160; } }
-@keyframes tr-e2 { 0%, 24% { stroke-dashoffset: 160; } 34%, 90% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 160; } }
-@keyframes tr-e3 { 0%, 36% { stroke-dashoffset: 160; } 46%, 90% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 160; } }
+@keyframes tr-e1 { 0%, 12% { stroke-dashoffset: 1; } 22%, 90% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 1; } }
+@keyframes tr-e2 { 0%, 24% { stroke-dashoffset: 1; } 34%, 90% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 1; } }
+@keyframes tr-e3 { 0%, 36% { stroke-dashoffset: 1; } 46%, 90% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 1; } }
 @keyframes tr-story { 0%, 14% { opacity: 1; } 22%, 90% { opacity: .5; } 100% { opacity: 1; } }
 @keyframes tr-blk { 0%, 16% { opacity: 0; } 24%, 90% { opacity: 1; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .d-tree * { animation: none !important; } .d-tree .story { opacity: .5; } }
@@ -28,11 +28,11 @@
   <rect class="box" x="250" y="38" width="18" height="18" rx="4"/>
   <text class="label" x="282" y="53">Ship the new site</text>
 </g>
-<text class="blocked blk" x="360" y="92" text-anchor="middle">▽ blocked — look down</text>
+<text class="blocked blk" x="360" y="90" text-anchor="middle">▽ blocked — look down</text>
 <!-- edges from the story to each subtask -->
-<path class="edge e1" d="M300 70 C300 120, 130 110, 130 170"/>
-<path class="edge e2" d="M360 70 C360 120, 360 110, 360 170"/>
-<path class="edge e3" d="M420 70 C420 120, 590 110, 590 170"/>
+<path class="edge e1" pathLength="1" d="M296 70 C296 128, 130 112, 130 170"/>
+<path class="edge e2" pathLength="1" d="M360 70 C360 120, 360 110, 360 170"/>
+<path class="edge e3" pathLength="1" d="M424 70 C424 128, 590 112, 590 170"/>
 <!-- subtasks -->
 <g class="c1">
   <rect class="node" x="20" y="170" width="220" height="46" rx="10"/>

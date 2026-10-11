@@ -80,5 +80,14 @@ mod tests {
             );
             assert!(!svg.contains("<script"), "{name} has no script");
         }
+        // The tree's edges are drawn with a dash the length of the path, so the
+        // line reaches the subtask instead of stopping short.
+        let tree = ALL.iter().find(|(n, _)| *n == "tree").unwrap().1;
+        assert_eq!(
+            tree.matches(r#"pathLength="1""#).count(),
+            3,
+            "every edge normalised"
+        );
+        assert!(tree.contains("stroke-dasharray: 1;"), "{tree}");
     }
 }

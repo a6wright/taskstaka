@@ -1,4 +1,6 @@
 # Build from the repo root:  docker build -f crates/site/Dockerfile -t taskstaka-site .
+# Deploy: cloudbuild.yaml at the repo root builds and pushes this image; then
+#   gcloud run deploy taskstaka-site --image us-central1-docker.pkg.dev/taskstaka/site/taskstaka-site:<tag> --region us-central1 --project taskstaka
 FROM rust:1-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./

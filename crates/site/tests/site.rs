@@ -11,7 +11,7 @@ async fn start() -> (String, tokio::task::JoinHandle<()>) {
     });
     let agent = ureq::Agent::new_with_defaults();
     for _ in 0..50 {
-        if agent.get(format!("{base}/healthz")).call().is_ok() {
+        if agent.get(format!("{base}/-/health")).call().is_ok() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -41,7 +41,8 @@ fn get(base: &str, path: &str) -> (u16, String, String) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn healthz_answers_ok() {
     let (base, handle) = start().await;
-    let (status, _, body) = get(&base, "/healthz");
+    // Not `/healthz`: Cloud Run's front end answers that path itself.
+    let (status, _, body) = get(&base, "/-/health");
     assert_eq!((status, body.as_str()), (200, "ok"));
     handle.abort();
 }
@@ -155,6 +156,12 @@ async fn assets_have_types_and_cache_headers() {
         css.contains("@media (max-width: 640px)"),
         "phone rules exist"
     );
+    let light = css.split("prefers-color-scheme: light").nth(1).unwrap();
+    let light = &light[..light.find('}').unwrap()];
+    assert!(
+        light.contains("--warn:") && light.contains("--ok:"),
+        "light scheme keeps badges readable: {light}"
+    );
     handle.abort();
 }
 
@@ -198,6 +205,12 @@ async fn content_has_the_install_command_anchors_and_placeholders() {
             || help.contains("<!-- diagram:tree -->"),
         "diagram placeholder or SVG present"
     );
+    for tool in ["projects", "nudges", "record_reply"] {
+        assert!(
+            help.contains(&format!("<code>{tool}</code>")),
+            "MCP tool {tool} listed"
+        );
+    }
     let (_, _, log) = get(&base, "/changelog");
     assert!(log.contains("0.1.2") && log.contains("0.1.0"));
     handle.abort();

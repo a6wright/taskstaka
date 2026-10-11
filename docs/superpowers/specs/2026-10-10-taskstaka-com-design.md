@@ -43,7 +43,7 @@ captured from a scratch daemon with demo data by `site/shots.js` (the e2e harnes
 ## Diagrams (SVG, inline, animated)
 
 Three diagrams, each an inline `<svg>` with its own `<style>` so it animates without
-JavaScript, and a `prefers-reduced-motion` rule that shows the final frame still:
+JavaScript, and a `prefers-reduced-motion` rule that shows a readable still (the stack shows its initial frame, which explains the stack better than the emptied one):
 
 1. **A story is a tree.** A story box spawns subtasks below it; the story dims (blocked)
    while they are open. Loops.

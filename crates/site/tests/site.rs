@@ -97,3 +97,47 @@ async fn a_trailing_slash_redirects_to_the_bare_path_and_case_is_strict() {
     );
     handle.abort();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn assets_have_types_and_cache_headers() {
+    let (base, handle) = start().await;
+    let agent = ureq::Agent::new_with_defaults();
+    for (path, ctype) in [
+        ("/site.css", "text/css"),
+        ("/logo.png", "image/png"),
+        ("/mark.png", "image/png"),
+        ("/favicon.ico", "image/x-icon"),
+        ("/apple-touch-icon.png", "image/png"),
+    ] {
+        let res = agent.get(format!("{base}{path}")).call().unwrap();
+        assert_eq!(res.status().as_u16(), 200, "{path}");
+        assert!(
+            res.headers()
+                .get("content-type")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with(ctype),
+            "{path}"
+        );
+        assert_eq!(
+            res.headers()
+                .get("cache-control")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "public, max-age=86400",
+            "{path}"
+        );
+    }
+    let (_, _, css) = get(&base, "/site.css");
+    assert!(
+        css.contains("--accent: #e87818"),
+        "the logo orange is the accent"
+    );
+    assert!(
+        css.contains("@media (max-width: 640px)"),
+        "phone rules exist"
+    );
+    handle.abort();
+}

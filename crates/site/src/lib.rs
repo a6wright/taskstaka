@@ -1,6 +1,7 @@
 //! taskstaka.com. Pages are rendered from Markdown once, at startup, and
 //! served from memory; later this same service grows the sync endpoints.
 
+pub mod assets;
 pub mod diagrams;
 pub mod pages;
 
@@ -17,7 +18,27 @@ pub fn router() -> Router {
         let html: Arc<str> = Arc::from(page.html);
         r = r.route(page.path, get(move || page_response(html.clone())));
     }
+    for a in assets::ASSETS {
+        r = r.route(a.path, get(move || asset_response(a)));
+    }
     r.fallback(fallback)
+}
+
+async fn asset_response(a: &'static assets::Asset) -> Response {
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static(a.content_type),
+            ),
+            (
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=86400"),
+            ),
+        ],
+        a.bytes,
+    )
+        .into_response()
 }
 
 async fn page_response(html: Arc<str>) -> Response {

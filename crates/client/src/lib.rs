@@ -1,5 +1,7 @@
 //! HTTP client for the daemon, plus discovery and auto-start. Blocking (ureq)
-//! on purpose: the CLI wants fast startup and no runtime.
+//! on purpose: the CLI wants fast startup and no runtime. Its own crate so
+//! OS-facing clients (the tray) can speak to the daemon without depending on
+//! the daemon, the TUI or the MCP bridge (ADR 0003, ADR 0015).
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -10,7 +12,8 @@ use taskstaka_core::view::{NextResponse, PlateView};
 use taskstaka_core::{Command, Context, Outcome, TaskId, TaskView};
 use ureq::Agent;
 
-use crate::DEFAULT_PORT;
+/// The port the daemon binds unless told otherwise.
+pub const DEFAULT_PORT: u16 = 7407;
 
 /// Written by the daemon to `<dir>/.taskstaka/daemon.json`.
 #[derive(Clone, Debug, Serialize, Deserialize)]

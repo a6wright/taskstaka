@@ -2361,11 +2361,25 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
+ "taskstaka-client",
  "taskstaka-core",
  "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "ureq",
+]
+
+[[package]]
+name = "taskstaka-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "jiff",
+ "serde",
+ "serde_json",
+ "taskstaka-core",
+ "tempfile",
  "ureq",
 ]
 

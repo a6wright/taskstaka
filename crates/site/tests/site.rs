@@ -54,3 +54,46 @@ fn port_falls_back_to_8080() {
     assert_eq!(port_from_env(Some("abc")), 8080);
     assert_eq!(port_from_env(Some("9090")), 9090);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pages_serve_html_and_unknown_paths_get_a_404_page() {
+    let (base, handle) = start().await;
+    for path in ["/", "/install", "/help", "/changelog"] {
+        let (status, ctype, body) = get(&base, path);
+        assert_eq!(status, 200, "{path}");
+        assert!(ctype.starts_with("text/html"), "{path}: {ctype}");
+        assert!(body.contains("taskstaka"), "{path}");
+    }
+    let (status, ctype, body) = get(&base, "/nope");
+    assert_eq!(status, 404);
+    assert!(
+        ctype.starts_with("text/html") && body.contains("Not found"),
+        "{body}"
+    );
+    handle.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_trailing_slash_redirects_to_the_bare_path_and_case_is_strict() {
+    let (base, handle) = start().await;
+    let agent = ureq::Agent::new_with_defaults();
+    let res = agent
+        .get(format!("{base}/install/"))
+        .config()
+        .http_status_as_error(false)
+        .max_redirects(0)
+        .build()
+        .call()
+        .unwrap();
+    assert_eq!(res.status().as_u16(), 308);
+    assert_eq!(
+        res.headers().get("location").unwrap().to_str().unwrap(),
+        "/install"
+    );
+    let (status, _, _) = get(&base, "/INSTALL");
+    assert_eq!(
+        status, 404,
+        "paths are case-sensitive; the links on the site are lowercase"
+    );
+    handle.abort();
+}

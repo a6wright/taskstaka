@@ -202,3 +202,20 @@ async fn content_has_the_install_command_anchors_and_placeholders() {
     assert!(log.contains("0.1.2") && log.contains("0.1.0"));
     handle.abort();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn head_requests_answer_like_get() {
+    let (base, handle) = start().await;
+    let agent = ureq::Agent::new_with_defaults();
+    let res = agent.head(format!("{base}/")).call().unwrap();
+    assert_eq!(res.status().as_u16(), 200);
+    assert!(
+        res.headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("text/html")
+    );
+    handle.abort();
+}

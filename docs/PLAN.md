@@ -279,9 +279,9 @@ clean at head. taskstaka runs on macOS 27 with the menu bar item, the `⌥Space`
 panel and launchd agents; `brew install a6wright/taskstaka/taskstaka` installs 0.1.2 from the
 tap. **https://taskstaka.com** (and `www`) is live: `crates/site` on Cloud Run, domain
 mappings created 2026-10-11, DNS at Namecheap (4 A + 4 AAAA at the apex, `www` CNAME to
-`ghs.googlehosted.com`), Google-managed certificate. Redeploy: `gcloud builds submit
---config cloudbuild.yaml --substitutions _TAG=<tag>` then `gcloud run deploy taskstaka-site
---image …:<tag>` (recipe in `cloudbuild.yaml`).
+`ghs.googlehosted.com`), Google-managed certificate. Deploys itself: `.github/workflows/deploy-site.yml` runs on every push to
+`main` that touches the site (Cloud Build then Cloud Run, keyless auth via Workload Identity;
+one-time setup in `scripts/gcp-deploy-setup.sh`). No test gate in front of it yet.
 
 **Next, roughly in order of pain:**
 

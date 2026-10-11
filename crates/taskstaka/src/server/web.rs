@@ -133,7 +133,7 @@ q.addEventListener('keydown', async (e) => {
     const j = await r.json();
     if (!r.ok) throw new Error((j.error && j.error.message) || j.message || r.statusText);
     m.className = 'ok'; m.textContent = 'added: ' + q.value; q.value = '';
-    if (panel) { host('added'); setTimeout(() => host('close'), 650); }
+    if (panel) { host('added'); host('close'); }
   } catch (err) { m.className = 'err'; m.textContent = err.message; }
 });
 </script></body></html>"#;

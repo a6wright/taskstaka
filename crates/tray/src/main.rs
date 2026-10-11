@@ -126,7 +126,12 @@ impl Panel {
             }
             self.loaded_from = Some(base.to_string());
         }
-        let g = panel::geometry(screen_of(target));
+        let screen = screen_of(target);
+        let g = panel::geometry(screen);
+        eprintln!(
+            "taskstaka-tray: panel at {},{} {}x{} on screen {},{} {}x{}",
+            g.x, g.y, g.width, g.height, screen.x, screen.y, screen.width, screen.height
+        );
         self.window
             .set_outer_position(LogicalPosition::new(g.x, g.y));
         // Order matters: set_focus activates the app only once the window

@@ -79,10 +79,9 @@ pub enum Item {
 pub const BAR_TITLE_CHARS: usize = 40;
 /// How many *now* rows the menu lists before summarising the rest.
 pub const MAX_ROWS: usize = 10;
-/// Notes wrap at this many characters per menu line…
-pub const NOTE_WRAP: usize = 56;
-/// …and stop after this many lines, with an ellipsis.
-pub const NOTE_LINES: usize = 6;
+/// Notes wrap at this many characters per menu line. Nothing is cut: the
+/// menu grows with the note, so everything to do is in view.
+pub const NOTE_WRAP: usize = 72;
 
 pub fn build(model: &Model, hotkey_label: &str) -> MenuSpec {
     let mut items = Vec::new();
@@ -100,9 +99,12 @@ pub fn build(model: &Model, hotkey_label: &str) -> MenuSpec {
                         ("Up next", "○")
                     };
                     items.push(Item::Label(format!("{word}: {}", p.title)));
+                    // Title | notes | actions, each behind a rule.
+                    items.push(Item::Separator);
                     for line in note_lines(&p.notes) {
                         items.push(Item::Label(line));
                     }
+                    items.push(Item::Separator);
                     items.push(action(format!("done:{}", p.id), "Done"));
                     if p.in_hand {
                         items.push(action(format!("putback:{}", p.id), "Put back"));
@@ -141,11 +143,10 @@ pub fn build(model: &Model, hotkey_label: &str) -> MenuSpec {
 }
 
 /// The note body as menu lines: blank lines dropped, heading marks stripped,
-/// list markers turned into bullets, wrapped at `NOTE_WRAP`, at most
-/// `NOTE_LINES` lines then `…`. Empty notes say so.
+/// list markers turned into bullets, wrapped at `NOTE_WRAP`. Empty notes say so.
 pub fn note_lines(body: &str) -> Vec<String> {
     let mut out = Vec::new();
-    'lines: for raw in body.lines() {
+    for raw in body.lines() {
         let line = raw.trim();
         if line.is_empty() {
             continue;
@@ -156,13 +157,7 @@ pub fn note_lines(body: &str) -> Vec<String> {
             .find_map(|m| line.strip_prefix(m))
             .map(|rest| format!("• {rest}"))
             .unwrap_or_else(|| line.to_string());
-        for piece in wrap(&line, NOTE_WRAP) {
-            if out.len() == NOTE_LINES {
-                out.push("…".to_string());
-                break 'lines;
-            }
-            out.push(piece);
-        }
+        out.extend(wrap(&line, NOTE_WRAP));
     }
     if out.is_empty() {
         out.push("no notes yet".to_string());
@@ -233,13 +228,15 @@ mod tests {
             "⌥Space",
         ));
         assert_eq!(t[0], "[In hand: Renew the cert]");
-        assert_eq!(t[1], "[Run certbot on web-1.]");
-        assert_eq!(t[2], "[Then restart nginx.]");
-        assert!(t[3].starts_with("done:"), "{t:?}");
+        assert_eq!(t[1], "---", "a rule between the title and the notes");
+        assert_eq!(t[2], "[Run certbot on web-1.]");
+        assert_eq!(t[3], "[Then restart nginx.]");
+        assert_eq!(t[4], "---", "and one before the actions");
+        assert!(t[5].starts_with("done:"), "{t:?}");
     }
 
     #[test]
-    fn long_note_lines_wrap_and_many_lines_are_capped() {
+    fn long_note_lines_wrap_and_nothing_is_cut() {
         let mut p = plate("abc234", "T", false);
         let long = "word ".repeat(30).trim_end().to_string(); // 149 chars
         p.notes = format!(
@@ -256,13 +253,14 @@ mod tests {
             },
             "⌥Space",
         ));
-        let notes: Vec<&String> = t[1..].iter().take_while(|x| x.starts_with('[')).collect();
+        let notes: Vec<&String> = t[2..].iter().take_while(|x| x.starts_with('[')).collect();
         assert!(
             notes.iter().all(|l| l.chars().count() <= NOTE_WRAP + 2),
             "{notes:?}"
         );
-        assert_eq!(notes.len(), NOTE_LINES + 1, "{notes:?}");
-        assert_eq!(notes.last().unwrap().as_str(), "[…]");
+        // 149 chars wrap to 3 lines at 72; then the ten short lines, all kept.
+        assert_eq!(notes.len(), 3 + 10, "{notes:?}");
+        assert_eq!(notes.last().unwrap().as_str(), "[line 10]");
     }
 
     #[test]
@@ -275,7 +273,7 @@ mod tests {
             },
             "⌥Space",
         ));
-        assert_eq!(t[1], "[no notes yet]");
+        assert_eq!(t[2], "[no notes yet]");
         let mut p = plate("abc234", "T", true);
         p.notes = "- [ ] call Priya\n\n## Context\nsome text".into();
         let t = texts(&build(
@@ -285,12 +283,12 @@ mod tests {
             },
             "⌥Space",
         ));
-        assert_eq!(t[1], "[• call Priya]");
+        assert_eq!(t[2], "[• call Priya]");
         assert_eq!(
-            t[2], "[Context]",
+            t[3], "[Context]",
             "blank lines dropped, heading marks stripped"
         );
-        assert_eq!(t[3], "[some text]");
+        assert_eq!(t[4], "[some text]");
     }
 
     fn row(id: &str, title: &str, story: Option<&str>) -> Row {

@@ -15,11 +15,25 @@ gcloud services enable iamcredentials.googleapis.com sts.googleapis.com cloudbui
 gcloud iam service-accounts describe "$SA" --project "$P" >/dev/null 2>&1 \
   || gcloud iam service-accounts create github-deploy --project "$P" --display-name "GitHub Actions deploy (taskstaka.com)"
 
+# A new service account takes a few seconds to become visible to IAM.
+for i in $(seq 1 12); do
+  gcloud iam service-accounts describe "$SA" --project "$P" >/dev/null 2>&1 && break
+  sleep 5
+done
+sleep 5
+
 # builds.editor + storage.admin: gcloud builds submit (source upload, logs)
 # artifactregistry.writer: push the image; run.admin + serviceAccountUser: deploy
+bind() {
+  for i in 1 2 3 4 5 6; do
+    gcloud projects add-iam-policy-binding "$P" --member "serviceAccount:$SA" --role "$1" --quiet --format=none && return 0
+    echo "retrying $1 in 10s"; sleep 10
+  done
+  return 1
+}
 for r in roles/cloudbuild.builds.editor roles/storage.admin roles/artifactregistry.writer \
          roles/run.admin roles/iam.serviceAccountUser roles/viewer; do
-  gcloud projects add-iam-policy-binding "$P" --member "serviceAccount:$SA" --role "$r" --quiet --format=none
+  bind "$r"
 done
 
 gcloud iam workload-identity-pools describe github --project "$P" --location global >/dev/null 2>&1 \

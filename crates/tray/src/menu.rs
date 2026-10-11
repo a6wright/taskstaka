@@ -81,7 +81,7 @@ pub const BAR_TITLE_CHARS: usize = 40;
 pub const MAX_ROWS: usize = 10;
 /// Notes wrap at this many characters per menu line. Nothing is cut: the
 /// menu grows with the note, so everything to do is in view.
-pub const NOTE_WRAP: usize = 72;
+pub const NOTE_WRAP: usize = 80;
 
 pub fn build(model: &Model, hotkey_label: &str) -> MenuSpec {
     let mut items = Vec::new();
@@ -142,27 +142,81 @@ pub fn build(model: &Model, hotkey_label: &str) -> MenuSpec {
     MenuSpec { title, items }
 }
 
-/// The note body as menu lines: blank lines dropped, heading marks stripped,
-/// list markers turned into bullets, wrapped at `NOTE_WRAP`. Empty notes say so.
+/// The note body as menu lines, read the way Markdown reads it: consecutive
+/// lines join into one paragraph before wrapping (so hard returns do not
+/// make a poem), a blank line is a gap, list items and headings keep their
+/// own line, fenced code is kept verbatim. Empty notes say so.
 pub fn note_lines(body: &str) -> Vec<String> {
-    let mut out = Vec::new();
+    let mut out: Vec<String> = Vec::new();
+    let mut para: Vec<String> = Vec::new();
+    let mut in_fence = false;
+    let flush = |para: &mut Vec<String>, out: &mut Vec<String>| {
+        if !para.is_empty() {
+            out.extend(wrap(&para.join(" "), NOTE_WRAP));
+            para.clear();
+        }
+    };
+    let gap = |out: &mut Vec<String>| {
+        if out.last().is_some_and(|l| l != " ") {
+            out.push(" ".to_string());
+        }
+    };
     for raw in body.lines() {
-        let line = raw.trim();
-        if line.is_empty() {
+        let line = raw.trim_end();
+        if line.trim_start().starts_with("```") {
+            flush(&mut para, &mut out);
+            in_fence = !in_fence;
             continue;
         }
-        let line = line.trim_start_matches('#').trim_start();
-        let line = ["- [ ] ", "- [x] ", "- [X] ", "- ", "* ", "+ "]
+        if in_fence {
+            out.push(line.to_string());
+            continue;
+        }
+        let line = line.trim_start();
+        if line.is_empty() {
+            flush(&mut para, &mut out);
+            if !out.is_empty() {
+                gap(&mut out);
+            }
+            continue;
+        }
+        if let Some(h) = line.strip_prefix('#') {
+            flush(&mut para, &mut out);
+            out.push(h.trim_start_matches('#').trim().to_string());
+            continue;
+        }
+        if let Some(rest) = ["- [ ] ", "- [x] ", "- [X] ", "- ", "* ", "+ "]
             .iter()
             .find_map(|m| line.strip_prefix(m))
-            .map(|rest| format!("• {rest}"))
-            .unwrap_or_else(|| line.to_string());
-        out.extend(wrap(&line, NOTE_WRAP));
+        {
+            flush(&mut para, &mut out);
+            out.extend(wrap(&format!("• {rest}"), NOTE_WRAP));
+            continue;
+        }
+        if is_numbered(line) {
+            flush(&mut para, &mut out);
+            out.extend(wrap(line, NOTE_WRAP));
+            continue;
+        }
+        para.push(line.to_string());
+    }
+    flush(&mut para, &mut out);
+    while out.last().is_some_and(|l| l == " ") {
+        out.pop();
     }
     if out.is_empty() {
         out.push("no notes yet".to_string());
     }
     out
+}
+
+/// `1. ` / `12) ` list items.
+fn is_numbered(line: &str) -> bool {
+    let digits = line.chars().take_while(char::is_ascii_digit).count();
+    digits > 0
+        && line[digits..]
+            .strip_prefix(['.', ')'])
+            .is_some_and(|r| r.starts_with(' '))
 }
 
 /// Greedy word wrap by character count; a single long word gets its own line.
@@ -219,7 +273,7 @@ mod tests {
     #[test]
     fn notes_come_before_the_actions_so_you_see_what_to_do() {
         let mut p = plate("abc234", "Renew the cert", true);
-        p.notes = "Run certbot on web-1.\nThen restart nginx.".into();
+        p.notes = "Run certbot on web-1.\n\nThen restart nginx.".into();
         let t = texts(&build(
             &Model::Online {
                 plate: Some(p),
@@ -230,9 +284,10 @@ mod tests {
         assert_eq!(t[0], "[In hand: Renew the cert]");
         assert_eq!(t[1], "---", "a rule between the title and the notes");
         assert_eq!(t[2], "[Run certbot on web-1.]");
-        assert_eq!(t[3], "[Then restart nginx.]");
-        assert_eq!(t[4], "---", "and one before the actions");
-        assert!(t[5].starts_with("done:"), "{t:?}");
+        assert_eq!(t[3], "[ ]", "a paragraph gap");
+        assert_eq!(t[4], "[Then restart nginx.]");
+        assert_eq!(t[5], "---", "and one before the actions");
+        assert!(t[6].starts_with("done:"), "{t:?}");
     }
 
     #[test]
@@ -258,9 +313,70 @@ mod tests {
             notes.iter().all(|l| l.chars().count() <= NOTE_WRAP + 2),
             "{notes:?}"
         );
-        // 149 chars wrap to 3 lines at 72; then the ten short lines, all kept.
-        assert_eq!(notes.len(), 3 + 10, "{notes:?}");
-        assert_eq!(notes.last().unwrap().as_str(), "[line 10]");
+        // One paragraph: 149 chars + ten short lines joined, wrapped at 80, nothing cut.
+        let joined: String = notes
+            .iter()
+            .map(|l| l.trim_matches(['[', ']']))
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(joined.ends_with("line 9 line 10"), "{notes:?}");
+        assert!(notes.len() >= 3, "{notes:?}");
+    }
+
+    #[test]
+    fn consecutive_lines_join_into_a_paragraph_before_wrapping() {
+        // Typed with Enter at the end of each line, this is one paragraph in
+        // Markdown; wrapped line by line it reads like a poem.
+        let lines = note_lines(
+            "Run certbot on web-1 and then restart nginx, checking\nthat the cert is the new one, and that the\nold one is gone from the cache.",
+        );
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(
+            lines[0]
+                .starts_with("Run certbot on web-1 and then restart nginx, checking that the cert"),
+            "{lines:?}"
+        );
+        assert!(lines.iter().all(|l| l.chars().count() <= NOTE_WRAP));
+    }
+
+    #[test]
+    fn blank_lines_separate_paragraphs_with_a_gap() {
+        let lines = note_lines("First paragraph.\n\nSecond paragraph.");
+        assert_eq!(lines, vec!["First paragraph.", " ", "Second paragraph."]);
+    }
+
+    #[test]
+    fn list_items_and_headings_stay_on_their_own_lines() {
+        let lines = note_lines(
+            "## Steps\n- [ ] call Priya\n- restart nginx\n1. first\n2. second\nthen done",
+        );
+        assert_eq!(
+            lines,
+            vec![
+                "Steps",
+                "• call Priya",
+                "• restart nginx",
+                "1. first",
+                "2. second",
+                "then done"
+            ]
+        );
+    }
+
+    #[test]
+    fn fenced_code_is_kept_verbatim() {
+        let lines = note_lines(
+            "Run:\n```\ngcloud auth login   --no-launch-browser\n  kubectl get pods\n```\nthen check",
+        );
+        assert_eq!(
+            lines,
+            vec![
+                "Run:",
+                "gcloud auth login   --no-launch-browser",
+                "  kubectl get pods",
+                "then check"
+            ]
+        );
     }
 
     #[test]
@@ -284,11 +400,9 @@ mod tests {
             "⌥Space",
         ));
         assert_eq!(t[2], "[• call Priya]");
-        assert_eq!(
-            t[3], "[Context]",
-            "blank lines dropped, heading marks stripped"
-        );
-        assert_eq!(t[4], "[some text]");
+        assert_eq!(t[3], "[ ]", "a blank line is a gap");
+        assert_eq!(t[4], "[Context]", "heading marks stripped");
+        assert_eq!(t[5], "[some text]");
     }
 
     fn row(id: &str, title: &str, story: Option<&str>) -> Row {

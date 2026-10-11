@@ -6,6 +6,8 @@ use taskstaka_core::Status;
 pub enum Effect {
     /// Open this URL in the default browser.
     Open(String),
+    /// Show the quick-add panel.
+    Panel,
     /// `POST /api/v1/commands` set_status.
     SetStatus {
         id: String,
@@ -32,7 +34,7 @@ pub fn effect(id: &str, base: &str) -> Option<Effect> {
         Some(("task", t)) if !t.is_empty() => Some(Effect::Open(format!("{base}/t/{t}"))),
         Some(_) => None,
         None => match id {
-            "quick" => Some(Effect::Open(format!("{base}/quick"))),
+            "quick" => Some(Effect::Panel),
             "open" => Some(Effect::Open(format!("{base}/next"))),
             "quit" => Some(Effect::Quit),
             _ => None,
@@ -80,7 +82,7 @@ mod tests {
             effect("task:abc234", B),
             Some(Effect::Open(format!("{B}/t/abc234")))
         );
-        assert_eq!(effect("quick", B), Some(Effect::Open(format!("{B}/quick"))));
+        assert_eq!(effect("quick", B), Some(Effect::Panel));
         assert_eq!(effect("open", B), Some(Effect::Open(format!("{B}/next"))));
     }
 

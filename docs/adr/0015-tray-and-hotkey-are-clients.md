@@ -33,8 +33,11 @@ under launchd or systemd.
   logic every surface must agree on, and the web was already recomputing it in JavaScript.
 - **The HTTP client moved to `crates/client` (`taskstaka-client`)** so the tray depends on
   the client and core only, never on the daemon, the TUI or the MCP bridge.
-- **The hotkey opens the existing `/quick` page in the browser.** A native popover is
-  possible later; a browser tab is one code path for every OS today.
+- **The hotkey shows the existing `/quick` page in a Spotlight-style panel**: a borderless,
+  always-on-top `tao` window with a `wry` webview (WKWebView on macOS, WebKitGTK on Linux),
+  so quick add never leaves the app you are in. The page's `?panel=1` mode talks to the host
+  over wry's IPC (Esc and a finished add hide the panel). First built as a browser tab; the
+  user's words: "I want something like how Spotlight opens with cmd+space as the inspiration."
 - **Supervisors are respected.** On macOS `stop`, `restart` and `status` detect a launchd
   agent that owns the daemon (`dev.taskstaka` from `taskstaka setup macos`, or
   `sh.brew.taskstaka` from `brew services`) and go through `launchctl kickstart`

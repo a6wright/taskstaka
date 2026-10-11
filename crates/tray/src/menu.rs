@@ -10,6 +10,8 @@ pub struct Plate {
     pub id: String,
     pub title: String,
     pub in_hand: bool,
+    /// The note body, so the menu shows what to do at a glance.
+    pub notes: String,
 }
 
 /// A row you can do now, with the story it is for when that is not itself.
@@ -36,6 +38,7 @@ impl Model {
             id: p.task.task.id.to_string(),
             title: p.task.task.title.clone(),
             in_hand: p.in_hand,
+            notes: p.task.body.clone(),
         });
         let rows = stories
             .iter()
@@ -76,6 +79,10 @@ pub enum Item {
 pub const BAR_TITLE_CHARS: usize = 40;
 /// How many *now* rows the menu lists before summarising the rest.
 pub const MAX_ROWS: usize = 10;
+/// Notes wrap at this many characters per menu line…
+pub const NOTE_WRAP: usize = 56;
+/// …and stop after this many lines, with an ellipsis.
+pub const NOTE_LINES: usize = 6;
 
 pub fn build(model: &Model, hotkey_label: &str) -> MenuSpec {
     let mut items = Vec::new();
@@ -93,6 +100,9 @@ pub fn build(model: &Model, hotkey_label: &str) -> MenuSpec {
                         ("Up next", "○")
                     };
                     items.push(Item::Label(format!("{word}: {}", p.title)));
+                    for line in note_lines(&p.notes) {
+                        items.push(Item::Label(line));
+                    }
                     items.push(action(format!("done:{}", p.id), "Done"));
                     if p.in_hand {
                         items.push(action(format!("putback:{}", p.id), "Put back"));
@@ -130,6 +140,58 @@ pub fn build(model: &Model, hotkey_label: &str) -> MenuSpec {
     MenuSpec { title, items }
 }
 
+/// The note body as menu lines: blank lines dropped, heading marks stripped,
+/// list markers turned into bullets, wrapped at `NOTE_WRAP`, at most
+/// `NOTE_LINES` lines then `…`. Empty notes say so.
+pub fn note_lines(body: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    'lines: for raw in body.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let line = line.trim_start_matches('#').trim_start();
+        let line = ["- [ ] ", "- [x] ", "- [X] ", "- ", "* ", "+ "]
+            .iter()
+            .find_map(|m| line.strip_prefix(m))
+            .map(|rest| format!("• {rest}"))
+            .unwrap_or_else(|| line.to_string());
+        for piece in wrap(&line, NOTE_WRAP) {
+            if out.len() == NOTE_LINES {
+                out.push("…".to_string());
+                break 'lines;
+            }
+            out.push(piece);
+        }
+    }
+    if out.is_empty() {
+        out.push("no notes yet".to_string());
+    }
+    out
+}
+
+/// Greedy word wrap by character count; a single long word gets its own line.
+fn wrap(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut cur = String::new();
+    for word in text.split_whitespace() {
+        let fits = cur.chars().count() + 1 + word.chars().count() <= width;
+        if cur.is_empty() {
+            cur.push_str(word);
+        } else if fits {
+            cur.push(' ');
+            cur.push_str(word);
+        } else {
+            lines.push(std::mem::take(&mut cur));
+            cur.push_str(word);
+        }
+    }
+    if !cur.is_empty() {
+        lines.push(cur);
+    }
+    lines
+}
+
 fn action(id: impl Into<String>, text: impl Into<String>) -> Item {
     Item::Action {
         id: id.into(),
@@ -155,7 +217,80 @@ mod tests {
             id: id.into(),
             title: title.into(),
             in_hand,
+            notes: String::new(),
         }
+    }
+
+    #[test]
+    fn notes_come_before_the_actions_so_you_see_what_to_do() {
+        let mut p = plate("abc234", "Renew the cert", true);
+        p.notes = "Run certbot on web-1.\nThen restart nginx.".into();
+        let t = texts(&build(
+            &Model::Online {
+                plate: Some(p),
+                rows: vec![],
+            },
+            "⌥Space",
+        ));
+        assert_eq!(t[0], "[In hand: Renew the cert]");
+        assert_eq!(t[1], "[Run certbot on web-1.]");
+        assert_eq!(t[2], "[Then restart nginx.]");
+        assert!(t[3].starts_with("done:"), "{t:?}");
+    }
+
+    #[test]
+    fn long_note_lines_wrap_and_many_lines_are_capped() {
+        let mut p = plate("abc234", "T", false);
+        let long = "word ".repeat(30).trim_end().to_string(); // 149 chars
+        p.notes = format!(
+            "{long}\n{}",
+            (1..=10)
+                .map(|i| format!("line {i}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        let t = texts(&build(
+            &Model::Online {
+                plate: Some(p),
+                rows: vec![],
+            },
+            "⌥Space",
+        ));
+        let notes: Vec<&String> = t[1..].iter().take_while(|x| x.starts_with('[')).collect();
+        assert!(
+            notes.iter().all(|l| l.chars().count() <= NOTE_WRAP + 2),
+            "{notes:?}"
+        );
+        assert_eq!(notes.len(), NOTE_LINES + 1, "{notes:?}");
+        assert_eq!(notes.last().unwrap().as_str(), "[…]");
+    }
+
+    #[test]
+    fn empty_notes_say_so_and_markdown_bullets_are_kept_readable() {
+        let p = plate("abc234", "T", true);
+        let t = texts(&build(
+            &Model::Online {
+                plate: Some(p),
+                rows: vec![],
+            },
+            "⌥Space",
+        ));
+        assert_eq!(t[1], "[no notes yet]");
+        let mut p = plate("abc234", "T", true);
+        p.notes = "- [ ] call Priya\n\n## Context\nsome text".into();
+        let t = texts(&build(
+            &Model::Online {
+                plate: Some(p),
+                rows: vec![],
+            },
+            "⌥Space",
+        ));
+        assert_eq!(t[1], "[• call Priya]");
+        assert_eq!(
+            t[2], "[Context]",
+            "blank lines dropped, heading marks stripped"
+        );
+        assert_eq!(t[3], "[some text]");
     }
 
     fn row(id: &str, title: &str, story: Option<&str>) -> Row {
@@ -283,7 +418,7 @@ mod tests {
     #[test]
     fn model_is_built_from_the_wire_types() {
         let plate: Option<taskstaka_core::view::PlateView> = serde_json::from_str(
-            r#"{"in_hand":true,"task":{"id":"abc234","title":"Renew the cert","status":"doing","context":"work","created":"2026-09-29T15:00:00Z","updated":"2026-09-29T15:00:00Z","body":"","derived":{"blocked_by":0,"deferred_by":null,"followup":false,"actionable":true,"resurfaced_at":null,"orphaned":false,"waiting_on_summary":null},"children":[],"ancestry":[]}}"#,
+            r#"{"in_hand":true,"task":{"id":"abc234","title":"Renew the cert","status":"doing","context":"work","created":"2026-09-29T15:00:00Z","updated":"2026-09-29T15:00:00Z","body":"do it carefully","derived":{"blocked_by":0,"deferred_by":null,"followup":false,"actionable":true,"resurfaced_at":null,"orphaned":false,"waiting_on_summary":null},"children":[],"ancestry":[]}}"#,
         )
         .unwrap();
         let stories: Vec<taskstaka_core::action::StoryPlan> = serde_json::from_str(
@@ -296,6 +431,7 @@ mod tests {
         };
         let p = plate.unwrap();
         assert_eq!((p.id.as_str(), p.in_hand), ("abc234", true));
+        assert_eq!(p.notes, "do it carefully");
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].story.as_deref(), Some("Fix DNS"));
         assert_eq!(rows[1].story, None, "a one-task story is just itself");

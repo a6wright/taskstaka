@@ -146,16 +146,18 @@ reuses a matching project or creates one named for the repo.
 **Quick add.** One line becomes a new root task: `taskstaka quick "renew the cert #devops
 @Priya +3d"` (`@Name [date]` at the end waits on them; `#project` as the first or last word
 sets the project). In the web UI press `n` anywhere. From any app, the **tray** binds a
-global hotkey (`⌥Space` by default) that opens `http://127.0.0.1:7407/quick`, a bare one-box
-page (`?context=personal` picks the context). Without the tray, bind your launcher to that URL
-or to the command: on macOS a Raycast/Alfred hotkey or a Shortcuts action "Open URL"; on Linux
-a desktop keyboard shortcut running `xdg-open http://127.0.0.1:7407/quick` or
+global hotkey (`⌥Space` by default) that drops a Spotlight-style panel over whatever you are
+doing: type, Enter, it is gone. Esc or clicking elsewhere hides it; `⌥Space` again toggles it.
+The panel is the bare `http://127.0.0.1:7407/quick` page in a small webview (`?context=personal`
+picks the context), so the same page works from a launcher too: bind it to that URL or to the
+command — on macOS a Raycast/Alfred hotkey or a Shortcuts action "Open URL"; on Linux a desktop
+keyboard shortcut running `xdg-open http://127.0.0.1:7407/quick` or
 `taskstaka quick "$(zenity --entry --text=Add)"`. The daemon itself never grabs keys.
 
-**Menu bar (macOS).** `taskstaka-tray` shows the plate in the menu bar — `▶ title` for the
-task in hand, `○ title` for *up next* — and its menu lists what you can do now: *Done*, *Put
-back* or *Start* for the plate, each *now* row (opens the task), *Quick add… ⌥Space*, *Open
-taskstaka*. It is a separate process that only talks HTTP to the daemon (ADR 0015);
+**Menu bar (macOS).** `taskstaka-tray` shows the mark and the plate in the menu bar — `▶ title`
+for the task in hand, `○ title` for *up next* — and its menu reads top to bottom like the plate:
+the title, its notes (so you see what to do at a glance), then *Done* and *Put back* or
+*Start*, each *now* row (opens the task), *Quick add… ⌥Space*, *Open taskstaka*. It is a separate process that only talks HTTP to the daemon (ADR 0015);
 `taskstaka setup macos` installs it as a launchd agent. `taskstaka-tray --hotkey
 ctrl+alt+space` (or `setup macos --hotkey …`) picks another key; `--context work` filters.
 

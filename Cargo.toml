@@ -33,6 +33,7 @@ rmcp = { version = "3.5", features = ["server", "macros", "transport-io"] }
 tao = "0.37"
 tray-icon = "0.26"
 global-hotkey = "0.8"
+wry = "0.57"
 open = "5"
 
 insta = { version = "1", features = ["yaml"] }

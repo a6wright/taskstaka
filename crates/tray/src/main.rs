@@ -5,18 +5,23 @@
 mod actions;
 mod daemon;
 mod hotkey;
+mod icon;
 mod menu;
+mod panel;
 
 use std::path::PathBuf;
 
 use clap::Parser;
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
-use tao::event::{Event, StartCause};
-use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
+use tao::dpi::{LogicalPosition, LogicalSize};
+use tao::event::{Event, StartCause, WindowEvent};
+use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget};
+use tao::window::{Window, WindowBuilder};
 use taskstaka_client::Client;
 use taskstaka_core::{Command, Context};
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{TrayIcon, TrayIconBuilder};
+use wry::{WebView, WebViewBuilder};
 
 use actions::Effect;
 use menu::{Item, MenuSpec, Model};
@@ -44,6 +49,125 @@ enum UserEvent {
     Daemon(daemon::Msg),
     Menu(MenuEvent),
     HotKey(GlobalHotKeyEvent),
+    /// The quick page, inside the panel, talking to us.
+    Panel(panel::Ipc),
+}
+
+/// The Spotlight-style quick-add window: created hidden at start, shown by
+/// the hotkey or the menu, hidden by Esc, an add, or losing focus.
+struct Panel {
+    window: Window,
+    webview: WebView,
+    /// The daemon URL the page was loaded from, so a daemon that comes up
+    /// later (or on another port) gets the page reloaded.
+    loaded_from: Option<String>,
+}
+
+impl Panel {
+    fn create(
+        target: &EventLoopWindowTarget<UserEvent>,
+        proxy: EventLoopProxy<UserEvent>,
+    ) -> Result<Panel, String> {
+        let g = panel::geometry(screen_of(target));
+        let builder = WindowBuilder::new()
+            .with_title("Quick add")
+            .with_inner_size(LogicalSize::new(g.width, g.height))
+            .with_position(LogicalPosition::new(g.x, g.y))
+            .with_decorations(false)
+            .with_transparent(true)
+            .with_always_on_top(true)
+            .with_resizable(false)
+            .with_minimizable(false)
+            .with_closable(false)
+            .with_visible_on_all_workspaces(true)
+            .with_visible(false);
+        let window = builder.build(target).map_err(|e| e.to_string())?;
+        let wv = WebViewBuilder::new()
+            .with_url("about:blank")
+            .with_transparent(true)
+            .with_ipc_handler(move |req: wry::http::Request<String>| {
+                if let Some(msg) = panel::ipc(req.body()) {
+                    let _ = proxy.send_event(UserEvent::Panel(msg));
+                }
+            });
+        #[cfg(not(target_os = "linux"))]
+        let webview = wv.build(&window).map_err(|e| e.to_string())?;
+        #[cfg(target_os = "linux")]
+        let webview = {
+            use tao::platform::unix::WindowExtUnix;
+            use wry::WebViewBuilderExtUnix;
+            let vbox = window
+                .default_vbox()
+                .ok_or("no gtk box on the panel window")?;
+            wv.build_gtk(vbox).map_err(|e| e.to_string())?
+        };
+        Ok(Panel {
+            window,
+            webview,
+            loaded_from: None,
+        })
+    }
+
+    fn visible(&self) -> bool {
+        self.window.is_visible()
+    }
+
+    /// Show on the primary screen, over everything, with the field focused.
+    fn show(
+        &mut self,
+        target: &EventLoopWindowTarget<UserEvent>,
+        base: &str,
+        ctx: Option<Context>,
+    ) {
+        if self.loaded_from.as_deref() != Some(base) {
+            let url = panel::url(base, ctx);
+            if let Err(e) = self.webview.load_url(&url) {
+                eprintln!("taskstaka-tray: panel: {e}");
+            }
+            self.loaded_from = Some(base.to_string());
+        }
+        let g = panel::geometry(screen_of(target));
+        self.window
+            .set_outer_position(LogicalPosition::new(g.x, g.y));
+        // Order matters: set_focus activates the app only once the window
+        // is visible (an Accessory app has no other way to take the keyboard).
+        self.window.set_visible(true);
+        self.window.set_focus();
+        let _ = self.webview.focus();
+        let _ = self
+            .webview
+            .evaluate_script("window.taskstakaReset && window.taskstakaReset()");
+    }
+
+    /// Idempotent: hiding resigns key, which asks to hide again.
+    fn hide(&self) {
+        if self.window.is_visible() {
+            self.window.set_visible(false);
+        }
+    }
+}
+
+/// The primary monitor in logical points, where the panel goes.
+fn screen_of(target: &EventLoopWindowTarget<UserEvent>) -> panel::Screen {
+    match target.primary_monitor() {
+        Some(m) => {
+            let sf = m.scale_factor();
+            let size = m.size().to_logical::<f64>(sf);
+            let pos = m.position().to_logical::<f64>(sf);
+            panel::Screen {
+                x: pos.x,
+                y: pos.y,
+                width: size.width,
+                height: size.height,
+            }
+        }
+        None => panel::Screen {
+            x: 0.0,
+            y: 0.0,
+            width: 1440.0,
+            height: 900.0,
+        },
+    }
 }
 
 fn main() {
@@ -95,10 +219,13 @@ fn main() {
     spawn_follower(&event_loop, dir.clone(), args.port, args.context);
 
     let mut tray: Option<TrayIcon> = None;
+    let mut panel: Option<Panel> = None;
     let mut base: Option<String> = None;
     let mut spec = menu::build(&Model::Offline, &hotkey_label);
+    let ctx = args.context;
+    let panel_proxy = event_loop.create_proxy();
 
-    event_loop.run(move |event, _, control_flow| {
+    event_loop.run(move |event, target, control_flow| {
         *control_flow = ControlFlow::Wait;
         match event {
             // macOS wants the status item created once the loop is live.
@@ -107,8 +234,12 @@ fn main() {
                     .with_menu(Box::new(to_menu(&spec)))
                     .with_title(&spec.title)
                     .with_tooltip("taskstaka");
-                #[cfg(target_os = "linux")]
-                let b = b.with_icon(placeholder_icon());
+                // The brand mark: a template image on macOS (drawn as a mask,
+                // so it matches the other status items in light and dark).
+                #[cfg(target_os = "macos")]
+                let b = b.with_icon_templated(icon::tray_icon());
+                #[cfg(not(target_os = "macos"))]
+                let b = b.with_icon(icon::tray_icon());
                 match b.build() {
                     Ok(t) => tray = Some(t),
                     Err(e) => {
@@ -123,6 +254,31 @@ fn main() {
                     if let Some(rl) = CFRunLoop::main() {
                         rl.wake_up();
                     }
+                }
+                match Panel::create(target, panel_proxy.clone()) {
+                    Ok(p) => {
+                        eprintln!("taskstaka-tray: quick-add panel ready");
+                        panel = Some(p);
+                    }
+                    Err(e) => eprintln!(
+                        "taskstaka-tray: no quick-add panel ({e}); the hotkey opens the browser instead"
+                    ),
+                }
+            }
+            // Esc, or an add finished: hide the panel.
+            Event::UserEvent(UserEvent::Panel(panel::Ipc::Close)) => {
+                if let Some(p) = &panel {
+                    p.hide();
+                }
+            }
+            Event::UserEvent(UserEvent::Panel(panel::Ipc::Added)) => {}
+            // Clicking elsewhere hides it, like Spotlight.
+            Event::WindowEvent {
+                event: WindowEvent::Focused(false) | WindowEvent::CloseRequested,
+                ..
+            } => {
+                if let Some(p) = &panel {
+                    p.hide();
                 }
             }
             Event::UserEvent(UserEvent::Daemon(daemon::Msg::Connected { base: b })) => {
@@ -140,11 +296,21 @@ fn main() {
             Event::UserEvent(UserEvent::HotKey(e))
                 if Some(e.id) == hotkey_id && e.state == HotKeyState::Pressed =>
             {
-                open_page(&mut base, &dir, args.port, "/quick");
+                // Toggle, like Spotlight.
+                match &panel {
+                    Some(p) if p.visible() => p.hide(),
+                    _ => quick_add(&mut panel, target, &mut base, &dir, args.port, ctx),
+                }
             }
             Event::UserEvent(UserEvent::Menu(e)) => {
+                if let Some(p) = &panel {
+                    p.hide();
+                }
                 let b = base.clone().unwrap_or_default();
                 match actions::effect(e.id.as_ref(), &b) {
+                    Some(Effect::Panel) => {
+                        quick_add(&mut panel, target, &mut base, &dir, args.port, ctx)
+                    }
                     Some(Effect::Quit) => {
                         tray.take();
                         *control_flow = ControlFlow::Exit;
@@ -199,23 +365,53 @@ fn spawn_follower(
     });
 }
 
+/// Quick add: the panel when we have one, else the quick page in the browser.
+fn quick_add(
+    panel: &mut Option<Panel>,
+    target: &EventLoopWindowTarget<UserEvent>,
+    base: &mut Option<String>,
+    dir: &std::path::Path,
+    port: Option<u16>,
+    ctx: Option<Context>,
+) {
+    if !ensure_daemon(base, dir, port) {
+        return;
+    }
+    let Some(b) = base.as_deref() else { return };
+    match panel {
+        Some(p) => p.show(target, b, ctx),
+        None => open_url(&format!("{b}/quick")),
+    }
+}
+
 /// Open a daemon page in the browser, (re)connecting first so the link works
 /// even right after a `taskstaka stop`.
 fn open_page(base: &mut Option<String>, dir: &std::path::Path, port: Option<u16>, path: &str) {
+    if ensure_daemon(base, dir, port)
+        && let Some(b) = base
+    {
+        open_url(&format!("{b}{path}"));
+    }
+}
+
+/// Make sure a daemon answers (starting one if the user stopped it) and
+/// remember its URL. `false` when none could be reached.
+fn ensure_daemon(base: &mut Option<String>, dir: &std::path::Path, port: Option<u16>) -> bool {
     if base.is_none() || Client::discover(dir).is_none() {
         match Client::connect(dir, port) {
             Ok(c) => *base = Some(c.base().to_string()),
             Err(e) => {
                 eprintln!("taskstaka-tray: {e:#}");
-                return;
+                return false;
             }
         }
     }
-    if let Some(b) = base {
-        let url = format!("{b}{path}");
-        if let Err(e) = open::that_detached(&url) {
-            eprintln!("taskstaka-tray: opening {url}: {e}");
-        }
+    base.is_some()
+}
+
+fn open_url(url: &str) {
+    if let Err(e) = open::that_detached(url) {
+        eprintln!("taskstaka-tray: opening {url}: {e}");
     }
 }
 
@@ -252,16 +448,4 @@ fn to_menu(spec: &MenuSpec) -> Menu {
         }
     }
     menu
-}
-
-/// AppIndicator hides title-only items, so Linux gets a plain mark until a
-/// real icon lands.
-#[cfg(target_os = "linux")]
-fn placeholder_icon() -> tray_icon::Icon {
-    let (w, h) = (16u32, 16u32);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for _ in 0..(w * h) {
-        rgba.extend_from_slice(&[0x58, 0x7c, 0xff, 0xff]);
-    }
-    tray_icon::Icon::from_rgba(rgba, w, h).expect("placeholder icon")
 }

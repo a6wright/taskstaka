@@ -37,7 +37,7 @@ under launchd or systemd.
   possible later; a browser tab is one code path for every OS today.
 - **Supervisors are respected.** On macOS `stop`, `restart` and `status` detect a launchd
   agent that owns the daemon (`dev.taskstaka` from `taskstaka setup macos`, or
-  `homebrew.mxcl.taskstaka` from `brew services`) and go through `launchctl kickstart`
+  `sh.brew.taskstaka` from `brew services`) and go through `launchctl kickstart`
   instead of spawning a second daemon. Agents are written with
   `KeepAlive {SuccessfulExit: false}` so a clean `stop` stays stopped and a crash restarts,
   and without `TASKSTAKA_DIR`, so the folder in Settings applies (ADR 0011).

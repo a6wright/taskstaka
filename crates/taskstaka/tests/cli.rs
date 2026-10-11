@@ -172,13 +172,17 @@ fn flags_after_title_are_flags_not_title() {
 struct DaemonEnv {
     dir: tempfile::TempDir,
     cfg: tempfile::TempDir,
+    /// A HOME of its own, so a developer's real launchd agents
+    /// (`~/Library/LaunchAgents/dev.taskstaka.plist`) are never seen.
+    home: tempfile::TempDir,
 }
 
 impl DaemonEnv {
     fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
         let cfg = tempfile::tempdir().unwrap();
-        let env = DaemonEnv { dir, cfg };
+        let home = tempfile::tempdir().unwrap();
+        let env = DaemonEnv { dir, cfg, home };
         env.cmd().arg("init").assert().success();
         env
     }
@@ -187,6 +191,7 @@ impl DaemonEnv {
         let mut c = Command::cargo_bin("taskstaka").unwrap();
         c.env("TASKSTAKA_DIR", self.dir.path())
             .env("TASKSTAKA_CONFIG_DIR", self.cfg.path())
+            .env("HOME", self.home.path())
             .env("TASKSTAKA_PORT", "0")
             .env("TASKSTAKA_NO_NOTIFY", "true")
             .env_remove("TASKSTAKA_DIRECT")

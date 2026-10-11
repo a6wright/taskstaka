@@ -67,7 +67,7 @@ pub fn main() -> Result<()> {
             return match Client::discover(&dir) {
                 Some(c) => {
                     let pid = c.health().ok().map(|h| h.pid);
-                    let sup = crate::service::detect(&dir, &default_dir(), pid);
+                    let sup = crate::service::detect(&dir, &default_dir(), pid, cli.port);
                     c.shutdown()?;
                     println!("asked the daemon at {} to stop", c.base());
                     if let Some(label) = sup.label() {
@@ -91,11 +91,13 @@ pub fn main() -> Result<()> {
                 Some(t) => Some(crate::notes_dir::plan(&dir, &t.to_string_lossy())?),
                 None => None,
             };
-            let pid = Client::discover(&dir)
-                .and_then(|c| c.health().ok())
-                .map(|h| h.pid);
-            let sup = crate::service::detect(&dir, &default_dir(), pid);
             let was_running = Client::stop_and_wait(&dir)?;
+            // Detect *after* stopping: with nothing running, a loaded agent
+            // for this folder is the one to start, even if the daemon just
+            // stopped was an unsupervised one (an earlier spawn, or brew's
+            // service after `brew services stop`). Hands the folder back to
+            // launchd rather than keeping it unsupervised.
+            let sup = crate::service::detect(&dir, &default_dir(), None, cli.port);
             let mut target = dir.clone();
             if let Some(plan) = plan {
                 // The old daemon is stopped, so the copy is final. If it fails,
@@ -123,7 +125,13 @@ pub fn main() -> Result<()> {
             }
             // Under launchd the agent is kicked instead of spawning our own
             // daemon, so it stays supervised (and the setting it just saved
-            // is what it reads on the way up).
+            // is what it reads on the way up). After `--to`, the agent serves
+            // the new folder because that is now the saved setting.
+            let sup = if target == dir {
+                sup
+            } else {
+                crate::service::detect(&target, &default_dir(), None, cli.port)
+            };
             start_daemon(&sup, &target, port)?;
             let c = Client::wait_for(&target)?;
             let h = c.health()?;
@@ -198,7 +206,7 @@ pub fn main() -> Result<()> {
                 Some(c) => {
                     let h = c.health()?;
                     let stale = c.is_stale();
-                    let sup = crate::service::detect(&dir, &default_dir(), Some(h.pid));
+                    let sup = crate::service::detect(&dir, &default_dir(), Some(h.pid), cli.port);
                     if json {
                         println!(
                             "{}",
@@ -225,7 +233,7 @@ pub fn main() -> Result<()> {
                     Ok(())
                 }
                 None => {
-                    let sup = crate::service::detect(&dir, &default_dir(), None);
+                    let sup = crate::service::detect(&dir, &default_dir(), None, cli.port);
                     if json {
                         println!(
                             "{}",

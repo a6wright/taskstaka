@@ -249,7 +249,7 @@ from Settings (below). `stop`, `restart` and `status` know when launchd owns the
 through `launchctl` instead of starting a second one. Logs land in `~/Library/Logs/taskstaka.log`
 and `taskstaka-tray.log`; `--uninstall` unloads and deletes both; `--dry-run` shows the plists.
 Homebrew users can run the daemon with `brew services start taskstaka` instead (label
-`homebrew.mxcl.taskstaka`, recognised the same way) and add the tray with `taskstaka setup macos`.
+`sh.brew.taskstaka`, recognised the same way) and add the tray with `taskstaka setup macos`.
 
 Nudges (desktop notifications) fire for: stuck in *doing* > 2 days, nothing actionable,
 tasks rotting untouched > 14 days, a parent resurfacing, follow-ups due, too much WIP.

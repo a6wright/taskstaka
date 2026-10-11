@@ -6,9 +6,13 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 
-/// Our own agent label (written by `setup macos`) and Homebrew's, in the
-/// order they are looked for.
-pub const LABELS: [&str; 2] = ["dev.taskstaka", "homebrew.mxcl.taskstaka"];
+/// Our own agent label (written by `setup macos`) and Homebrew's — `sh.brew.*`
+/// since Homebrew 7, `homebrew.mxcl.*` before — in the order they are looked for.
+pub const LABELS: [&str; 3] = [
+    "dev.taskstaka",
+    "sh.brew.taskstaka",
+    "homebrew.mxcl.taskstaka",
+];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Supervisor {
@@ -127,15 +131,22 @@ pub fn plist_path(home: &Path, label: &str) -> PathBuf {
 
 /// Who supervises the daemon for `dir`. `running_pid` is the pid of the
 /// daemon found for `dir`, if any; `default_dir` is the folder a launchd
-/// daemon would serve (it gets no `--dir`, so Settings decide, ADR 0011).
-pub fn detect(dir: &Path, default_dir: &Path, running_pid: Option<u32>) -> Supervisor {
+/// daemon would serve (it gets no `--dir`, so Settings decide, ADR 0011);
+/// `port` is the port the user asked for, if any — launchd's daemon serves
+/// the default one, so another port can only be an unsupervised daemon.
+pub fn detect(
+    dir: &Path,
+    default_dir: &Path,
+    running_pid: Option<u32>,
+    port: Option<u16>,
+) -> Supervisor {
     if !cfg!(target_os = "macos") {
         return Supervisor::None;
     }
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
         return Supervisor::None;
     };
-    detect_in(&home, &System, dir, default_dir, running_pid)
+    detect_in(&home, &System, dir, default_dir, running_pid, port)
 }
 
 pub fn detect_in(
@@ -144,7 +155,11 @@ pub fn detect_in(
     dir: &Path,
     default_dir: &Path,
     running_pid: Option<u32>,
+    port: Option<u16>,
 ) -> Supervisor {
+    if port.is_some_and(|p| p != taskstaka_client::DEFAULT_PORT) {
+        return Supervisor::None;
+    }
     for label in LABELS {
         if !plist_path(home, label).exists() {
             continue;
@@ -223,7 +238,14 @@ mod tests {
     fn no_plist_means_no_supervisor() {
         let home = home_with(&[]);
         let lc = Fake::default();
-        let s = detect_in(home.path(), &lc, Path::new("/n"), Path::new("/n"), Some(7));
+        let s = detect_in(
+            home.path(),
+            &lc,
+            Path::new("/n"),
+            Path::new("/n"),
+            Some(7),
+            None,
+        );
         assert!(matches!(s, Supervisor::None));
         assert!(lc.calls.borrow().is_empty(), "no plist, no launchctl call");
     }
@@ -232,7 +254,14 @@ mod tests {
     fn plist_on_disk_but_not_loaded_is_not_a_supervisor() {
         let home = home_with(&["dev.taskstaka"]);
         let lc = Fake::default();
-        let s = detect_in(home.path(), &lc, Path::new("/n"), Path::new("/n"), None);
+        let s = detect_in(
+            home.path(),
+            &lc,
+            Path::new("/n"),
+            Path::new("/n"),
+            None,
+            None,
+        );
         assert!(matches!(s, Supervisor::None));
     }
 
@@ -243,9 +272,23 @@ mod tests {
             loaded: vec![("dev.taskstaka", Some(42))],
             ..Default::default()
         };
-        let ours = detect_in(home.path(), &lc, Path::new("/n"), Path::new("/n"), Some(42));
+        let ours = detect_in(
+            home.path(),
+            &lc,
+            Path::new("/n"),
+            Path::new("/n"),
+            Some(42),
+            None,
+        );
         assert_eq!(ours.label(), Some("dev.taskstaka"));
-        let other = detect_in(home.path(), &lc, Path::new("/n"), Path::new("/n"), Some(43));
+        let other = detect_in(
+            home.path(),
+            &lc,
+            Path::new("/n"),
+            Path::new("/n"),
+            Some(43),
+            None,
+        );
         assert!(
             matches!(other, Supervisor::None),
             "a test daemon on another port is not launchd's"
@@ -265,6 +308,7 @@ mod tests {
             Path::new("/todo"),
             Path::new("/todo"),
             None,
+            None,
         );
         assert_eq!(same.label(), Some("dev.taskstaka"));
         let other = detect_in(
@@ -273,23 +317,91 @@ mod tests {
             Path::new("/tmp/x"),
             Path::new("/todo"),
             None,
+            None,
         );
         assert!(matches!(other, Supervisor::None));
     }
 
     #[test]
-    fn homebrew_label_is_recognised_after_ours() {
-        let home = home_with(&["homebrew.mxcl.taskstaka", "dev.taskstaka"]);
+    fn a_non_default_port_is_never_launchds_when_nothing_runs() {
+        // launchd's agent serves 7407; `--port 0` (tests) or `--port 7500`
+        // cannot be satisfied by kicking it.
+        let home = home_with(&["dev.taskstaka"]);
+        let lc = Fake {
+            loaded: vec![("dev.taskstaka", None)],
+            ..Default::default()
+        };
+        let s = detect_in(
+            home.path(),
+            &lc,
+            Path::new("/todo"),
+            Path::new("/todo"),
+            None,
+            Some(0),
+        );
+        assert!(matches!(s, Supervisor::None));
+        let s = detect_in(
+            home.path(),
+            &lc,
+            Path::new("/todo"),
+            Path::new("/todo"),
+            None,
+            Some(7407),
+        );
+        assert_eq!(s.label(), Some("dev.taskstaka"));
+        let s = detect_in(
+            home.path(),
+            &lc,
+            Path::new("/todo"),
+            Path::new("/todo"),
+            None,
+            None,
+        );
+        assert_eq!(s.label(), Some("dev.taskstaka"));
+    }
+
+    #[test]
+    fn homebrew_labels_are_recognised_after_ours() {
+        // Homebrew 7 writes sh.brew.<name>; older brews homebrew.mxcl.<name>.
+        let home = home_with(&[
+            "sh.brew.taskstaka",
+            "homebrew.mxcl.taskstaka",
+            "dev.taskstaka",
+        ]);
         let lc = Fake {
             loaded: vec![
+                ("sh.brew.taskstaka", Some(8)),
                 ("homebrew.mxcl.taskstaka", Some(9)),
                 ("dev.taskstaka", Some(10)),
             ],
             ..Default::default()
         };
-        let s = detect_in(home.path(), &lc, Path::new("/n"), Path::new("/n"), Some(9));
+        let s = detect_in(
+            home.path(),
+            &lc,
+            Path::new("/n"),
+            Path::new("/n"),
+            Some(8),
+            None,
+        );
+        assert_eq!(s.label(), Some("sh.brew.taskstaka"));
+        let s = detect_in(
+            home.path(),
+            &lc,
+            Path::new("/n"),
+            Path::new("/n"),
+            Some(9),
+            None,
+        );
         assert_eq!(s.label(), Some("homebrew.mxcl.taskstaka"));
-        let s = detect_in(home.path(), &lc, Path::new("/n"), Path::new("/n"), Some(10));
+        let s = detect_in(
+            home.path(),
+            &lc,
+            Path::new("/n"),
+            Path::new("/n"),
+            Some(10),
+            None,
+        );
         assert_eq!(s.label(), Some("dev.taskstaka"));
     }
 

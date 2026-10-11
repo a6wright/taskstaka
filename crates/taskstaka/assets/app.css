@@ -17,6 +17,7 @@
   --back: #c38fff;
   --wait: #5fb3e6;
   --radius: 6px;
+  --indent: 24px;
   --font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
@@ -50,14 +51,9 @@ button { cursor: pointer; }
 .toggle { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 999px; padding: 2px 10px; font-size: 12px; }
 .toggle.on { color: var(--fg); background: var(--bg-active); }
 .viewhelp { margin: 8px 24px 0; color: var(--muted); font-size: 13px; max-width: 760px; }
-.newline { margin-left: calc(var(--depth, 0) * 24px); }
+.newline { margin-left: calc(var(--depth, 0) * var(--indent)); }
 #pane { background: var(--bg-pane); border-left: 1px solid var(--line); overflow-y: auto; display: none; }
 #app.pane-open #pane { display: block; }
-@media (max-width: 1000px) {
-  #pane-toggle { right: auto; left: 10px; }
-  #side { display: none; }
-  #app.pane-open #main { display: none; }
-}
 
 /* ---- sidebar ---- */
 .brand { display: flex; align-items: center; justify-content: space-between; padding: 2px 8px; font-weight: 600; letter-spacing: -0.01em; }
@@ -88,7 +84,7 @@ button { cursor: pointer; }
 
 /* ---- rows (Notion-quiet) ---- */
 .rows { list-style: none; margin: 0; padding: 0; }
-.rows .rows { margin-left: 24px; }
+.rows .rows { margin-left: var(--indent); }
 .row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 30px; padding: 2px 6px 2px 2px; border-radius: var(--radius); position: relative; }
 .row.compact .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .meta { flex-shrink: 0; }
@@ -119,7 +115,7 @@ button { cursor: pointer; }
 .openbtn:hover { color: var(--fg); border-color: var(--muted); }
 .newline { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: center; padding: 4px 6px 4px 2px; color: var(--muted); margin-top: 4px; }
 .newline .plus { text-align: center; font-size: 16px; line-height: 1; }
-.draftrow { margin-left: calc(var(--depth, 0) * 24px); }
+.draftrow { margin-left: calc(var(--depth, 0) * var(--indent)); }
 .crumb { color: var(--muted); font-size: 12px; margin-left: 8px; white-space: nowrap; }
 .group { margin: 18px 0 6px; display: flex; align-items: center; gap: 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 .group .n { font-variant-numeric: tabular-nums; }
@@ -224,3 +220,91 @@ kbd { font-family: var(--mono); font-size: 11px; background: var(--bg-active); p
 .quick-card { width: min(620px, 92vw); }
 .quick-card input { width: 100%; font-size: 17px; padding: 13px 16px; border-radius: 10px; border: 1px solid var(--accent); background: var(--bg-pane); outline: none; }
 .quick-hint { margin: 8px 4px 0; color: var(--muted); font-size: 12.5px; } .quick-hint.err { color: var(--danger); }
+
+/* ---- narrow (a half-width window, a tablet): one column. The sidebar
+   becomes a top bar that scrolls sideways; the details pane takes over
+   the whole screen and its ✕ brings the list back. ---- */
+@media (max-width: 1000px) {
+  #app, #app.pane-open { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  #side { flex-direction: row; align-items: center; gap: 4px; padding: 8px 12px; padding-top: max(8px, env(safe-area-inset-top)); border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  #side::-webkit-scrollbar { display: none; }
+  #side > * { flex: 0 0 auto; }
+  .brand { padding: 0 4px 0 0; }
+  .brand span { font-size: 0; display: inline-flex; align-items: center; }
+  .brand .mark { margin-right: 0; }
+  .ctxs { padding: 0; gap: 2px; margin-right: 4px; }
+  .ctxs a { flex: 0 0 auto; padding: 5px 9px; }
+  .nav { flex-direction: row; gap: 2px; }
+  .nav a { padding: 6px 9px; white-space: nowrap; gap: 6px; }
+  .nav .ico { width: auto; }
+  .nav .count { margin-left: 1px; }
+  .sidefoot { margin: 0 0 0 auto; padding-left: 4px; }
+  .sidefoot a { padding: 6px 8px; font-size: 0; gap: 0; }
+  .sidefoot .ico { width: auto; font-size: 14px; }
+  #main { min-height: 0; }
+  #app.pane-open #main { display: none; }
+  #pane { border-left: 0; }
+  #pane-toggle, #app.pane-open #pane-toggle { display: none; }
+  .head { padding: 10px 16px; flex-wrap: wrap; gap: 4px 10px; }
+  .head h1 { flex: 0 0 auto; }
+  .head .sum { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .viewhelp, .flash, .nudge { margin-left: 16px; margin-right: 16px; }
+  .content { padding: 12px 16px 60px; }
+  .settings { margin: 16px; }
+}
+
+/* ---- phone: tighter rhythm, forms that wrap, the summary on its own line ---- */
+@media (max-width: 640px) {
+  :root { --indent: 14px; }
+  .head { padding: 8px 12px; }
+  .head > .sum:first-of-type { flex: 1 1 100%; order: 3; white-space: normal; }
+  .viewhelp, .flash, .nudge { margin-left: 12px; margin-right: 12px; }
+  .content { padding: 10px 12px 72px; }
+  /* Rows wrap: the title gets the first line to itself; the project pill,
+     chips and actions sit on a second line under it. */
+  .row, .row.has-proj { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 6px 4px 6px 2px; }
+  .row .cb, .row .mark { flex: 0 0 auto; }
+  .row .mark { width: 22px; }
+  /* The title's basis fills the line beside the checkbox, so nothing else fits on it. */
+  .row .title { flex: 1 1 calc(100% - 34px); min-width: 0; }
+  .row.compact .title { white-space: normal; overflow: visible; }
+  .row.has-proj > .proj { order: 2; flex: 0 0 auto; margin: 0 0 0 28px; }
+  .row .meta { order: 3; flex: 1 1 auto; justify-content: flex-start; flex-wrap: wrap; white-space: normal; gap: 4px 6px; margin-left: 28px; }
+  .row.has-proj .meta { margin-left: 0; }
+  .row .note { order: 4; flex: 1 1 100%; margin-left: 28px; padding-left: 0; }
+  .row .meta .hover { flex-wrap: wrap; gap: 4px 6px; }
+  .chip.tier { max-width: 140px; }
+  .crumb { white-space: normal; margin-left: 4px; }
+  .plate { padding: 10px 12px; border-radius: 8px; }
+  .plate.top, .plate.now { padding: 14px 14px 8px; }
+  .plate-title { font-size: 19px; }
+  .plate .note { max-width: none; }
+  .inline-form { flex-wrap: wrap; }
+  .inline-form input { flex: 1 1 160px; min-width: 0; }
+  .props { grid-template-columns: 84px minmax(0, 1fr); gap: 6px 8px; }
+  .pane-body { padding: 14px 12px 40px; }
+  .pane-title { font-size: 18px; }
+  .pane-head { padding: 10px 12px; }
+  .pane-head .crumbs { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .settings { margin: 12px; }
+  .setcard { padding: 12px; }
+  .setrow { flex-wrap: wrap; }
+  .setrow input { flex: 1 1 100%; }
+  .quick { padding-top: 10vh; }
+}
+
+/* ---- touch: nothing hides behind hover, targets you can hit ---- */
+@media (hover: none) {
+  .row .meta .hover { display: inline-flex; }
+  .row .meta .hover > span { display: none; }
+  .row .grip { display: none; }
+}
+@media (pointer: coarse) {
+  .row { min-height: 40px; }
+  .row .cb { width: 20px; height: 20px; }
+  .rowbtn, .openbtn, .btn.small { padding: 5px 10px; font-size: 13px; }
+  .btn { padding: 8px 12px; }
+  .nav a, .ctxs a, .sidefoot a { padding: 8px 10px; }
+  .toggle { padding: 6px 12px; }
+  .later-toggle { padding: 10px 12px; }
+}

@@ -142,7 +142,7 @@ const SHELL: &str = r#"<!doctype html>
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
 <title>taskstaka</title>
 <link rel="icon" href="/favicon.ico" sizes="any">

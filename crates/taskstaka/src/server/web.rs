@@ -98,19 +98,34 @@ async fn image(ctype: &'static str, bytes: &'static [u8]) -> impl IntoResponse {
 
 /// A bare capture box for a launcher or a small window: type a line, Enter
 /// adds it as a new root task. `?context=personal` picks the context.
+/// `?panel=1` is the tray's Spotlight-style window: transparent body, one
+/// floating card, Esc/an add tell the host over wry IPC to hide the panel,
+/// and `window.taskstakaReset()` clears and refocuses when it is shown again.
 const QUICK: &str = r#"<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Quick add</title><link rel="icon" href="/favicon.ico"><link rel="stylesheet" href="/app.css">
 <style>body{display:grid;place-items:center;min-height:100vh;margin:0}
 .qa{width:min(640px,92vw)}.qa input{width:100%;font-size:18px;padding:14px 16px;border-radius:10px;border:1px solid var(--line);background:var(--bg-pane);outline:none}
-.qa input:focus{border-color:var(--accent)}.qa p{margin:10px 4px 0;color:var(--muted);font-size:12.5px;min-height:1.4em}.qa .ok{color:#22c55e}.qa .err{color:var(--danger)}</style></head>
+.qa input:focus{border-color:var(--accent)}.qa p{margin:10px 4px 0;color:var(--muted);font-size:12.5px;min-height:1.4em}.qa .ok{color:#22c55e}.qa .err{color:var(--danger)}
+html.panel,html.panel body{background:transparent;min-height:0;height:100%;overflow:hidden}
+html.panel body{display:block;padding:0}
+html.panel .qa{width:100%;box-sizing:border-box;height:100vh;padding:0 14px;display:flex;align-items:center;gap:12px;border-radius:14px;background:color-mix(in srgb,var(--bg-pane) 92%,transparent);border:1px solid var(--line);box-shadow:0 18px 50px rgba(0,0,0,.35);backdrop-filter:blur(18px)}
+html.panel .qa input{flex:1;font-size:22px;padding:10px 4px;border:0;background:transparent;border-radius:0}
+html.panel .qa input:focus{border:0}
+html.panel .qa p{margin:0;flex:0 0 auto;max-width:34%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right}</style></head>
 <body><div class="qa"><input id="q" autofocus autocomplete="off" spellcheck="false" placeholder="Add a task…  (@Name waits on them · #project)">
 <p id="m">Enter adds it as a new root task · Esc clears</p></div>
 <script>
 const q = document.getElementById('q'), m = document.getElementById('m');
-const ctx = new URLSearchParams(location.search).get('context');
+const sp = new URLSearchParams(location.search);
+const ctx = sp.get('context');
+const panel = sp.get('panel') === '1';
+if (panel) { document.documentElement.classList.add('panel'); m.textContent = ''; }
+// The tray hosts this page in a wry webview; tell it when to hide the panel.
+const host = (msg) => { if (panel && window.ipc) window.ipc.postMessage(msg); };
+window.taskstakaReset = () => { q.value = ''; m.textContent = ''; m.className = ''; q.focus(); };
 q.addEventListener('keydown', async (e) => {
-  if (e.key === 'Escape') { q.value = ''; return; }
+  if (e.key === 'Escape') { if (panel) host('close'); else q.value = ''; return; }
   if (e.key !== 'Enter' || !q.value.trim()) return;
   e.preventDefault();
   try {
@@ -118,6 +133,7 @@ q.addEventListener('keydown', async (e) => {
     const j = await r.json();
     if (!r.ok) throw new Error((j.error && j.error.message) || j.message || r.statusText);
     m.className = 'ok'; m.textContent = 'added: ' + q.value; q.value = '';
+    if (panel) { host('added'); setTimeout(() => host('close'), 650); }
   } catch (err) { m.className = 'err'; m.textContent = err.message; }
 });
 </script></body></html>"#;

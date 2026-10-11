@@ -109,6 +109,12 @@ async fn shell_assets_and_api_from_one_origin() {
     let (status, ctype, html) = get(&a, &format!("{base}/quick"));
     assert_eq!(status, 200);
     assert!(ctype.starts_with("text/html") && html.contains("/api/v1/quick"));
+    // Panel mode for the tray's Spotlight-style window: the page talks to its
+    // host over wry's IPC (close on Esc / after an add) and exposes a reset
+    // hook the host calls each time it shows the panel.
+    assert!(html.contains("panel"), "panel mode is read from the query");
+    assert!(html.contains("ipc.postMessage"), "{html}");
+    assert!(html.contains("window.taskstakaReset"), "{html}");
     let mut res = a
         .post(format!("{base}/api/v1/quick"))
         .send_json(serde_json::json!({"text": "#devops renew the cert @Priya +3d"}))

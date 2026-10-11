@@ -1,11 +1,13 @@
-//! The brand mark as raw RGBA for the status item (a template image on
-//! macOS, so it follows the menu bar's light/dark rendering) and for the
-//! Linux indicator. Decoded once from the PNG the web UI already serves.
+//! The brand mark as raw RGBA for the Linux indicator (AppIndicator hides
+//! title-only items). macOS shows the title alone: the mark as a monochrome
+//! template mask did not look like the logo. Decoded once from the PNG the
+//! web UI already serves.
 
 /// `crates/taskstaka/assets/mark.png`, the favicon's source.
 const MARK_PNG: &[u8] = include_bytes!("../../taskstaka/assets/mark.png");
 
 /// The mark as 8-bit RGBA, with its width and height.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn mark_rgba() -> (Vec<u8>, u32, u32) {
     let decoder = png::Decoder::new(std::io::Cursor::new(MARK_PNG));
     let mut reader = decoder.read_info().expect("mark.png is a PNG");
@@ -29,6 +31,7 @@ pub fn mark_rgba() -> (Vec<u8>, u32, u32) {
 }
 
 /// The status item icon.
+#[cfg(not(target_os = "macos"))]
 pub fn tray_icon() -> tray_icon::Icon {
     let (rgba, w, h) = mark_rgba();
     tray_icon::Icon::from_rgba(rgba, w, h).expect("mark as a tray icon")

@@ -234,10 +234,9 @@ fn main() {
                     .with_menu(Box::new(to_menu(&spec)))
                     .with_title(&spec.title)
                     .with_tooltip("taskstaka");
-                // The brand mark: a template image on macOS (drawn as a mask,
-                // so it matches the other status items in light and dark).
-                #[cfg(target_os = "macos")]
-                let b = b.with_icon_templated(icon::tray_icon());
+                // Title only on macOS: the mark as a monochrome template mask
+                // lost what makes it the logo. Linux needs an icon (AppIndicator
+                // hides title-only items), so the mark stays there.
                 #[cfg(not(target_os = "macos"))]
                 let b = b.with_icon(icon::tray_icon());
                 match b.build() {

@@ -154,7 +154,7 @@ command — on macOS a Raycast/Alfred hotkey or a Shortcuts action "Open URL"; o
 keyboard shortcut running `xdg-open http://127.0.0.1:7407/quick` or
 `taskstaka quick "$(zenity --entry --text=Add)"`. The daemon itself never grabs keys.
 
-**Menu bar (macOS).** `taskstaka-tray` shows the mark and the plate in the menu bar — `▶ title`
+**Menu bar (macOS).** `taskstaka-tray` shows the plate in the menu bar — `▶ title`
 for the task in hand, `○ title` for *up next* — and its menu reads top to bottom like the plate:
 the title, its notes (so you see what to do at a glance), then *Done* and *Put back* or
 *Start*, each *now* row (opens the task), *Quick add… ⌥Space*, *Open taskstaka*. It is a separate process that only talks HTTP to the daemon (ADR 0015);

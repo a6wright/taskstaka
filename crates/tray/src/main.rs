@@ -8,6 +8,8 @@ mod hotkey;
 mod icon;
 mod menu;
 mod panel;
+#[cfg(unix)]
+mod trigger;
 
 use std::path::PathBuf;
 
@@ -51,6 +53,9 @@ enum UserEvent {
     HotKey(GlobalHotKeyEvent),
     /// The quick page, inside the panel, talking to us.
     Panel(panel::Ipc),
+    /// `taskstaka tray quick` over the control socket: toggle the panel. How
+    /// a desktop keybinding reaches us where no process can grab a key.
+    Toggle,
 }
 
 /// The Spotlight-style quick-add window: created hidden at start, shown by
@@ -76,7 +81,11 @@ impl Panel {
             .with_decorations(false)
             .with_transparent(true)
             .with_always_on_top(true)
-            .with_resizable(false)
+            // GTK sizes a non-resizable window to its child's natural size,
+            // not the one asked for: on Linux stay resizable (there is no
+            // frame to drag anyway) and pin the size with constraints.
+            .with_resizable(cfg!(target_os = "linux"))
+            .with_inner_size_constraints(fixed_size(g.width, g.height))
             .with_minimizable(false)
             .with_closable(false)
             .with_visible_on_all_workspaces(true)
@@ -139,6 +148,12 @@ impl Panel {
         self.window.set_visible(true);
         self.window.set_focus();
         let _ = self.webview.focus();
+        let sf = self.window.scale_factor();
+        let inner = self.window.inner_size().to_logical::<f64>(sf);
+        eprintln!(
+            "taskstaka-tray: panel window {}x{} (scale {sf})",
+            inner.width, inner.height
+        );
         let _ = self
             .webview
             .evaluate_script("window.taskstakaReset && window.taskstakaReset()");
@@ -152,9 +167,26 @@ impl Panel {
     }
 }
 
-/// The primary monitor in logical points, where the panel goes.
+/// Min = max: the panel is exactly this big.
+fn fixed_size(width: f64, height: f64) -> tao::window::WindowSizeConstraints {
+    use tao::dpi::{LogicalUnit, PixelUnit};
+    let unit = |v: f64| Some(PixelUnit::Logical(LogicalUnit(v)));
+    tao::window::WindowSizeConstraints {
+        min_width: unit(width),
+        min_height: unit(height),
+        max_width: unit(width),
+        max_height: unit(height),
+    }
+}
+
+/// The primary monitor in logical points, where the panel goes. Wayland has
+/// no primary monitor: the first one then (the compositor places the window
+/// anyway; the width still matters).
 fn screen_of(target: &EventLoopWindowTarget<UserEvent>) -> panel::Screen {
-    match target.primary_monitor() {
+    let monitor = target
+        .primary_monitor()
+        .or_else(|| target.available_monitors().next());
+    match monitor {
         Some(m) => {
             let sf = m.scale_factor();
             let size = m.size().to_logical::<f64>(sf);
@@ -180,6 +212,8 @@ fn main() {
     let dir = args.dir.clone().unwrap_or_else(default_dir);
     let dir = std::fs::canonicalize(&dir).unwrap_or(dir);
 
+    // `mut` for the macOS activation policy below.
+    #[allow(unused_mut)]
     let mut event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     #[cfg(target_os = "macos")]
     {
@@ -222,6 +256,21 @@ fn main() {
     };
 
     spawn_follower(&event_loop, dir.clone(), args.port, args.context);
+    // `taskstaka tray quick` (what a desktop keybinding runs) toggles the
+    // panel over the control socket.
+    #[cfg(unix)]
+    let mut trigger = {
+        let p = event_loop.create_proxy();
+        match trigger::listen(move |req| {
+            req == taskstaka_client::tray::TOGGLE && p.send_event(UserEvent::Toggle).is_ok()
+        }) {
+            Ok(l) => Some(l),
+            Err(e) => {
+                eprintln!("taskstaka-tray: no control socket: {e}");
+                None
+            }
+        }
+    };
 
     let mut tray: Option<TrayIcon> = None;
     let mut panel: Option<Panel> = None;
@@ -300,11 +349,10 @@ fn main() {
             Event::UserEvent(UserEvent::HotKey(e))
                 if Some(e.id) == hotkey_id && e.state == HotKeyState::Pressed =>
             {
-                // Toggle, like Spotlight.
-                match &panel {
-                    Some(p) if p.visible() => p.hide(),
-                    _ => quick_add(&mut panel, target, &mut base, &dir, args.port, ctx),
-                }
+                toggle_panel(&mut panel, target, &mut base, &dir, args.port, ctx);
+            }
+            Event::UserEvent(UserEvent::Toggle) => {
+                toggle_panel(&mut panel, target, &mut base, &dir, args.port, ctx);
             }
             Event::UserEvent(UserEvent::Menu(e)) => {
                 if let Some(p) = &panel {
@@ -317,6 +365,8 @@ fn main() {
                     }
                     Some(Effect::Quit) => {
                         tray.take();
+                        #[cfg(unix)]
+                        trigger.take();
                         *control_flow = ControlFlow::Exit;
                     }
                     Some(Effect::Open(url)) => {
@@ -367,6 +417,22 @@ fn spawn_follower(
             proxy.send_event(UserEvent::Daemon(msg)).is_ok()
         });
     });
+}
+
+/// The hotkey, or `taskstaka tray quick`: show the panel, or hide it if it
+/// is up, like Spotlight.
+fn toggle_panel(
+    panel: &mut Option<Panel>,
+    target: &EventLoopWindowTarget<UserEvent>,
+    base: &mut Option<String>,
+    dir: &std::path::Path,
+    port: Option<u16>,
+    ctx: Option<Context>,
+) {
+    match panel {
+        Some(p) if p.visible() => p.hide(),
+        _ => quick_add(panel, target, base, dir, port, ctx),
+    }
 }
 
 /// Quick add: the panel when we have one, else the quick page in the browser.

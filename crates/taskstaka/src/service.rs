@@ -1,6 +1,7 @@
 //! Who keeps the daemon alive. On macOS a launchd agent may own it (installed
-//! by `taskstaka setup macos`, or by `brew services`); `stop`/`restart`/`status`
-//! then go through `launchctl` instead of racing it with their own daemon.
+//! by `taskstaka setup macos`, or by `brew services`); on Linux a systemd user
+//! unit (`taskstaka setup linux`). `stop`/`restart`/`status` then go through
+//! `launchctl` or `systemctl --user` instead of racing it with their own daemon.
 
 use std::path::{Path, PathBuf};
 
@@ -14,11 +15,19 @@ pub const LABELS: [&str; 3] = [
     "homebrew.mxcl.taskstaka",
 ];
 
+/// The systemd user units `setup linux` writes.
+pub const DAEMON_UNIT: &str = "taskstaka.service";
+pub const TRAY_UNIT: &str = "taskstaka-tray.service";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Supervisor {
     /// A loaded launchd agent owns the daemon for this folder.
     Launchd {
         label: String,
+    },
+    /// A systemd user unit owns the daemon for this folder.
+    Systemd {
+        unit: String,
     },
     None,
 }
@@ -33,10 +42,31 @@ impl Supervisor {
         }
     }
 
+    /// The agent label or unit name, for `--json` and messages.
     pub fn label(&self) -> Option<&str> {
         match self {
             Supervisor::Launchd { label } => Some(label),
+            Supervisor::Systemd { unit } => Some(unit),
             Supervisor::None => None,
+        }
+    }
+
+    /// `launchd dev.taskstaka` / `systemd taskstaka.service`, for a person.
+    pub fn describe(&self) -> Option<String> {
+        match self {
+            Supervisor::Launchd { label } => Some(format!("launchd {label}")),
+            Supervisor::Systemd { unit } => Some(format!("systemd {unit}")),
+            Supervisor::None => None,
+        }
+    }
+
+    /// Bring the daemon up through its supervisor (a fresh start, or a
+    /// restart if it is somehow still there).
+    pub fn start(&self) -> Result<()> {
+        match self {
+            Supervisor::Launchd { label } => System.kickstart(label),
+            Supervisor::Systemd { unit } => System.restart(unit),
+            Supervisor::None => bail!("no supervisor"),
         }
     }
 }
@@ -130,6 +160,115 @@ fn uid() -> u32 {
     0
 }
 
+/// What `systemctl --user show` says about a unit.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Unit {
+    pub active: bool,
+    /// The main process while active.
+    pub pid: Option<u32>,
+}
+
+/// The few `systemctl --user` verbs we use, behind a trait so tests never
+/// touch systemd.
+pub trait Systemctl {
+    /// `None` when systemd does not know the unit (no file, or not reloaded).
+    fn show(&self, unit: &str) -> Option<Unit>;
+    fn daemon_reload(&self) -> Result<()>;
+    fn enable(&self, unit: &str) -> Result<()>;
+    fn disable_now(&self, unit: &str) -> Result<()>;
+    fn start(&self, unit: &str) -> Result<()>;
+    fn stop(&self, unit: &str) -> Result<()>;
+    fn restart(&self, unit: &str) -> Result<()>;
+}
+
+impl Systemctl for System {
+    fn show(&self, unit: &str) -> Option<Unit> {
+        let out = std::process::Command::new("systemctl")
+            .args([
+                "--user",
+                "show",
+                "-p",
+                "LoadState,ActiveState,MainPID",
+                unit,
+            ])
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        parse_show(&String::from_utf8_lossy(&out.stdout))
+    }
+    fn daemon_reload(&self) -> Result<()> {
+        systemctl(&["daemon-reload"])
+    }
+    fn enable(&self, unit: &str) -> Result<()> {
+        systemctl(&["enable", unit])
+    }
+    fn disable_now(&self, unit: &str) -> Result<()> {
+        systemctl(&["disable", "--now", unit])
+    }
+    fn start(&self, unit: &str) -> Result<()> {
+        systemctl(&["start", unit])
+    }
+    fn stop(&self, unit: &str) -> Result<()> {
+        systemctl(&["stop", unit])
+    }
+    fn restart(&self, unit: &str) -> Result<()> {
+        systemctl(&["restart", unit])
+    }
+}
+
+fn systemctl(args: &[&str]) -> Result<()> {
+    let out = std::process::Command::new("systemctl")
+        .arg("--user")
+        .args(args)
+        .output()
+        .with_context(|| format!("running systemctl --user {}", args.join(" ")))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        bail!(
+            "systemctl --user {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        )
+    }
+}
+
+/// `LoadState=`, `ActiveState=`, `MainPID=` lines from `systemctl show`.
+/// `None` for a unit systemd has not loaded.
+pub fn parse_show(out: &str) -> Option<Unit> {
+    let mut load = "";
+    let mut active = "";
+    let mut pid = 0u32;
+    for line in out.lines() {
+        if let Some((k, v)) = line.trim().split_once('=') {
+            match k {
+                "LoadState" => load = v,
+                "ActiveState" => active = v,
+                "MainPID" => pid = v.trim().parse().unwrap_or(0),
+                _ => {}
+            }
+        }
+    }
+    if load != "loaded" {
+        return None;
+    }
+    Some(Unit {
+        active: active == "active" || active == "activating",
+        pid: (pid != 0).then_some(pid),
+    })
+}
+
+/// `~/.config/systemd/user`, where `setup linux` writes the units.
+pub fn units_dir(home: &Path) -> PathBuf {
+    home.join(".config").join("systemd").join("user")
+}
+
+pub fn unit_path(home: &Path, unit: &str) -> PathBuf {
+    units_dir(home).join(unit)
+}
+
 pub fn agents_dir(home: &Path) -> PathBuf {
     home.join("Library").join("LaunchAgents")
 }
@@ -149,13 +288,49 @@ pub fn detect(
     running_pid: Option<u32>,
     port: Option<u16>,
 ) -> Supervisor {
-    if !cfg!(target_os = "macos") {
-        return Supervisor::None;
-    }
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
         return Supervisor::None;
     };
-    detect_in(&home, &System, dir, default_dir, running_pid, port)
+    if cfg!(target_os = "macos") {
+        detect_in(&home, &System, dir, default_dir, running_pid, port)
+    } else if cfg!(target_os = "linux") {
+        detect_systemd_in(&home, &System, dir, default_dir, running_pid, port)
+    } else {
+        Supervisor::None
+    }
+}
+
+/// The Linux counterpart of `detect_in`: the daemon unit owns the daemon
+/// when it is the running process, or, with nothing running, when the unit
+/// is loaded and would serve this folder (it gets no `--dir` either).
+pub fn detect_systemd_in(
+    home: &Path,
+    sc: &dyn Systemctl,
+    dir: &Path,
+    default_dir: &Path,
+    running_pid: Option<u32>,
+    port: Option<u16>,
+) -> Supervisor {
+    if port.is_some_and(|p| p != taskstaka_client::DEFAULT_PORT) {
+        return Supervisor::None;
+    }
+    if !unit_path(home, DAEMON_UNIT).exists() {
+        return Supervisor::None;
+    }
+    let Some(unit) = sc.show(DAEMON_UNIT) else {
+        return Supervisor::None;
+    };
+    let ours = match running_pid {
+        Some(pid) => unit.pid == Some(pid),
+        None => same_dir(dir, default_dir),
+    };
+    if ours {
+        Supervisor::Systemd {
+            unit: DAEMON_UNIT.to_string(),
+        }
+    } else {
+        Supervisor::None
+    }
 }
 
 pub fn detect_in(
@@ -444,5 +619,138 @@ mod tests {
     fn domain_is_the_gui_session_of_this_user() {
         assert!(domain().starts_with("gui/"));
         let _ = PathBuf::new();
+    }
+
+    /// A systemctl that answers from a table and records what was asked.
+    #[derive(Default)]
+    struct FakeSystemctl {
+        units: std::collections::HashMap<String, Unit>,
+        calls: RefCell<Vec<String>>,
+    }
+
+    impl Systemctl for FakeSystemctl {
+        fn show(&self, unit: &str) -> Option<Unit> {
+            self.calls.borrow_mut().push(format!("show {unit}"));
+            self.units.get(unit).copied()
+        }
+        fn daemon_reload(&self) -> anyhow::Result<()> {
+            self.calls.borrow_mut().push("daemon-reload".into());
+            Ok(())
+        }
+        fn enable(&self, unit: &str) -> anyhow::Result<()> {
+            self.calls.borrow_mut().push(format!("enable {unit}"));
+            Ok(())
+        }
+        fn disable_now(&self, unit: &str) -> anyhow::Result<()> {
+            self.calls
+                .borrow_mut()
+                .push(format!("disable --now {unit}"));
+            Ok(())
+        }
+        fn start(&self, unit: &str) -> anyhow::Result<()> {
+            self.calls.borrow_mut().push(format!("start {unit}"));
+            Ok(())
+        }
+        fn stop(&self, unit: &str) -> anyhow::Result<()> {
+            self.calls.borrow_mut().push(format!("stop {unit}"));
+            Ok(())
+        }
+        fn restart(&self, unit: &str) -> anyhow::Result<()> {
+            self.calls.borrow_mut().push(format!("restart {unit}"));
+            Ok(())
+        }
+    }
+
+    fn home_with_units(units: &[&str]) -> tempfile::TempDir {
+        let home = tempfile::tempdir().unwrap();
+        let dir = units_dir(home.path());
+        std::fs::create_dir_all(&dir).unwrap();
+        for u in units {
+            std::fs::write(dir.join(u), "[Unit]\n").unwrap();
+        }
+        home
+    }
+
+    #[test]
+    fn parses_systemctl_show() {
+        assert_eq!(
+            parse_show("LoadState=loaded\nActiveState=active\nMainPID=4242\n"),
+            Some(Unit {
+                active: true,
+                pid: Some(4242)
+            })
+        );
+        assert_eq!(
+            parse_show("LoadState=loaded\nActiveState=inactive\nMainPID=0\n"),
+            Some(Unit {
+                active: false,
+                pid: None
+            })
+        );
+        assert_eq!(
+            parse_show("LoadState=not-found\nActiveState=inactive\nMainPID=0\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn systemd_owns_the_daemon_only_when_the_unit_runs_that_pid() {
+        let home = home_with_units(&[DAEMON_UNIT]);
+        let todo = home.path().join("todo");
+        let mut sc = FakeSystemctl::default();
+        sc.units.insert(
+            DAEMON_UNIT.into(),
+            Unit {
+                active: true,
+                pid: Some(77),
+            },
+        );
+        let sup = detect_systemd_in(home.path(), &sc, &todo, &todo, Some(77), None);
+        assert_eq!(
+            sup,
+            Supervisor::Systemd {
+                unit: DAEMON_UNIT.into()
+            }
+        );
+        assert_eq!(sup.describe().as_deref(), Some("systemd taskstaka.service"));
+        // Another daemon on the port is not systemd's.
+        let sup = detect_systemd_in(home.path(), &sc, &todo, &todo, Some(78), None);
+        assert_eq!(sup, Supervisor::None);
+    }
+
+    #[test]
+    fn stopped_daemon_is_systemds_for_the_default_folder_only() {
+        let home = home_with_units(&[DAEMON_UNIT]);
+        let todo = home.path().join("todo");
+        let other = home.path().join("other");
+        let mut sc = FakeSystemctl::default();
+        sc.units.insert(DAEMON_UNIT.into(), Unit::default());
+        assert_eq!(
+            detect_systemd_in(home.path(), &sc, &todo, &todo, None, None),
+            Supervisor::Systemd {
+                unit: DAEMON_UNIT.into()
+            }
+        );
+        assert_eq!(
+            detect_systemd_in(home.path(), &sc, &other, &todo, None, None),
+            Supervisor::None
+        );
+        assert_eq!(
+            detect_systemd_in(home.path(), &sc, &todo, &todo, None, Some(9000)),
+            Supervisor::None,
+            "another port is never the unit's"
+        );
+    }
+
+    #[test]
+    fn no_unit_file_means_no_systemctl_call() {
+        let home = tempfile::tempdir().unwrap();
+        let todo = home.path().join("todo");
+        let sc = FakeSystemctl::default();
+        assert_eq!(
+            detect_systemd_in(home.path(), &sc, &todo, &todo, None, None),
+            Supervisor::None
+        );
+        assert!(sc.calls.borrow().is_empty());
     }
 }

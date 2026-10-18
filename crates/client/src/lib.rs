@@ -3,6 +3,8 @@
 //! OS-facing clients (the tray) can speak to the daemon without depending on
 //! the daemon, the TUI or the MCP bridge (ADR 0003, ADR 0015).
 
+pub mod tray;
+
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 

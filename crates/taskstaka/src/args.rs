@@ -40,6 +40,9 @@ pub enum TrayCmd {
     Stop,
     /// Is it running, and who supervises it.
     Status,
+    /// Toggle the quick-add panel over whatever you are doing: what the
+    /// desktop key runs. Brings the item up first if it is not running.
+    Quick,
 }
 
 #[derive(Subcommand, Debug)]
@@ -63,8 +66,9 @@ pub enum Cmd {
     /// Ask the running daemon to shut down.
     Stop,
 
-    /// The menu bar item: `start`, `stop` or `status`. Goes through launchd
-    /// when `setup macos` installed it, else runs `taskstaka-tray` itself.
+    /// The menu bar item: `start`, `stop`, `status` or `quick`. Goes through
+    /// launchd or systemd when `setup macos`/`setup linux` installed it, else
+    /// runs `taskstaka-tray` itself.
     Tray {
         #[command(subcommand)]
         cmd: TrayCmd,
@@ -76,10 +80,11 @@ pub enum Cmd {
     /// Speak MCP on stdin/stdout for agents (Claude Code, Claude Desktop).
     Mcp,
 
-    /// Install an integration: `claude` (skill + MCP server) or `macos`
-    /// (launchd agents for the daemon and the menu bar item).
+    /// Install an integration: `claude` (skill + MCP server), `macos`
+    /// (launchd agents for the daemon and the menu bar item) or `linux`
+    /// (systemd user units for both, and the quick-add key on GNOME).
     Setup {
-        /// What to set up: `claude` or `macos`.
+        /// What to set up: `claude`, `macos` or `linux`.
         target: String,
         /// Install into this project (.claude/skills, MCP scope project) instead of your home.
         #[arg(long)]
@@ -91,13 +96,13 @@ pub enum Cmd {
         /// Do not add the taskstaka section to ~/.claude/CLAUDE.md (or ./CLAUDE.md with --project).
         #[arg(long)]
         skip_claude_md: bool,
-        /// macos: leave the menu bar item out.
+        /// macos/linux: leave the menu bar item out.
         #[arg(long)]
         no_tray: bool,
-        /// macos: the tray's global key for quick add.
+        /// macos/linux: the tray's global key for quick add.
         #[arg(long, default_value = "alt+space")]
         hotkey: String,
-        /// macos: unload and delete the agents instead.
+        /// macos/linux: unload and delete the agents/units instead.
         #[arg(long)]
         uninstall: bool,
         /// Show what would be done without writing anything.

@@ -512,6 +512,30 @@ fn status_json_reports_the_supervisor() {
         .stdout(predicate::str::contains("\"supervisor\":null"));
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn setup_linux_dry_run_describes_units_and_the_gnome_key_without_writing() {
+    let home = tempfile::tempdir().unwrap();
+    let out = Command::cargo_bin("taskstaka")
+        .unwrap()
+        .env("HOME", home.path())
+        .env("XDG_CURRENT_DESKTOP", "ubuntu:GNOME")
+        .args(["setup", "linux", "--dry-run", "--hotkey", "ctrl+alt+space"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(text.contains("would install daemon"), "{text}");
+    assert!(text.contains("systemd/user/taskstaka.service"), "{text}");
+    // The tray binary sits next to the CLI in target/, so the key is planned too.
+    assert!(text.contains("<Control><Alt>space"), "{text}");
+    assert!(!home.path().join(".config").exists());
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn setup_macos_dry_run_describes_both_agents_without_writing() {

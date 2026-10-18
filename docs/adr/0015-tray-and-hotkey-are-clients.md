@@ -48,7 +48,9 @@ under launchd or systemd.
 ## Consequences
 
 One tray crate serves every OS behind `cfg`: macOS is built and verified first; Linux needs
-an icon (AppIndicator hides title-only items) and has no hotkey under Wayland yet. Installing
+an icon (AppIndicator hides title-only items) and has no hotkey under Wayland yet (resolved
+by ADR 0016: a desktop shortcut runs `taskstaka tray quick`, which reaches the item over a
+socket; `setup linux` writes systemd user units). Installing
 means two binaries; `taskstaka setup macos` and the Homebrew formula install both. The tray
 auto-starts the daemon on launch like any client, but after an explicit `taskstaka stop` it
 only waits, until a click or the hotkey asks for the daemon again. systemd awareness for

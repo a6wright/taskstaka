@@ -3840,6 +3840,7 @@ dependencies = [
  "clap",
  "insta",
  "jiff",
+ "open",
  "predicates",
  "ratatui",
  "rmcp",
@@ -3909,6 +3910,7 @@ dependencies = [
  "tao",
  "taskstaka-client",
  "taskstaka-core",
+ "tempfile",
  "tray-icon",
  "wry",
 ]

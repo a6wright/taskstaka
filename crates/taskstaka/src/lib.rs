@@ -14,6 +14,7 @@ pub mod render;
 pub mod server;
 pub mod service;
 pub mod setup;
+pub mod setup_linux;
 pub mod setup_macos;
 pub mod tray;
 pub mod tui;

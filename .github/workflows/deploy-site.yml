@@ -3,8 +3,8 @@
 # taskstaka, limited to this repository. The two repo variables are
 # GCP_WIF_PROVIDER and GCP_DEPLOY_SA; the GCP side (service account
 # github-deploy, pool github) was set up by hand. The deploy job waits for
-# the test job: fmt, clippy and cargo test over the workspace, minus the tray
-# crate (OS-facing, not built on Linux yet).
+# the test job: fmt, clippy and cargo test over the whole workspace (the tray
+# crate needs GTK and WebKitGTK, installed below).
 name: Deploy taskstaka.com
 
 on:
@@ -40,12 +40,14 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Tray build packages
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy
-        run: cargo clippy --workspace --exclude taskstaka-tray --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
-        run: cargo test --workspace --exclude taskstaka-tray
+        run: cargo test --workspace
 
   deploy:
     needs: test

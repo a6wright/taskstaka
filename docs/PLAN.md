@@ -211,10 +211,12 @@ per-(rule,task) cooldown persisted in `.taskstaka/nudges.json`; quiet hours in c
 to HTTP: `next`, `add_task`, `get_task`, `set_status`, `update_task`, `move_task`,
 `touch`, `tree`; resources `taskstaka://index`, `taskstaka://task/{id}`.
 
-**Tray and hotkey (ADR 0015):** out of the *daemon*, in `taskstaka-tray` (`crates/tray`), a
+**Tray and hotkey (ADR 0015, 0016):** out of the *daemon*, in `taskstaka-tray` (`crates/tray`), a
 separate OS-facing process that only speaks HTTP: plate title in the menu bar, a menu of *now*
-rows, and a global hotkey (`alt+space`) that opens `/quick` in the browser. Launcher recipes
-(Raycast/Alfred/sxhkd → `taskstaka add`) remain the no-tray alternative.
+rows, and a global hotkey (`alt+space`) that drops the quick-add panel. On Linux under Wayland
+the desktop binds the key to `taskstaka tray quick`, which toggles the panel over the item's
+control socket. Launcher recipes (Raycast/Alfred/sxhkd → `taskstaka add`) remain the no-tray
+alternative.
 
 ## Build phases
 
@@ -247,6 +249,7 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 | ✅ | **P23 setup macos** | `taskstaka setup macos [--no-tray] [--hotkey K] [--uninstall] [--dry-run]`: writes `dev.taskstaka` and `dev.taskstaka.tray` LaunchAgents (absolute binary paths, `RunAtLoad`, `KeepAlive {SuccessfulExit:false}`, `PATH`, logs in `~/Library/Logs`, no `TASKSTAKA_DIR`), `bootout` + `bootstrap gui/<uid>`; rerun after `cargo install`. README launchd section rewritten around it. | `setup_macos.rs` unit tests (plist content, escaping, missing tray → note, dry run, uninstall) with a fake launchctl; `tests/cli.rs` dry run; manual: both agents running, logs written |
 | ✅ | **P24 release + Homebrew tap** | Repo public; tags `v0.1.0`–`v0.1.2` (0.1.2: the Spotlight-style quick-add panel, notes in the menu, responsive web) with GitHub releases; tap `a6wright/homebrew-taskstaka` with `Formula/taskstaka.rb`: source tarball + sha256, `depends_on "rust" => :build`, installs `taskstaka` and (macOS) `taskstaka-tray` from the workspace, `service` block running `taskstaka serve` with `keep_alive crashed: true` (so `taskstaka stop` sticks; label `sh.brew.taskstaka` is recognised by `service.rs`), caveats pointing at `brew services start` / `taskstaka setup macos` / `setup claude`. | `brew install --build-from-source a6wright/taskstaka/taskstaka`, `brew test`, `brew audit --strict`; `brew services start` → `taskstaka status` names the Homebrew supervisor |
 | ✅ | **P25 taskstaka.com** (2026-10-10) | `crates/site` → `taskstaka-site`: axum + pulldown-cmark render `content/{index,install,help,changelog}.md` at startup into a hand-built shell with stable heading anchors; the app's palette with the logo orange `#e87818` as the accent; three animated inline SVG diagrams (tree, stack, resurfaced) with reduced-motion stills; screenshots of a demo tree captured by `shots.js`; `/-/health` (Cloud Run intercepts `/healthz`), `$PORT`, 404 page, trailing-slash redirect limited to known pages (open-redirect finding fixed). Built by Cloud Build from `crates/site/Dockerfile`, deployed to Cloud Run `taskstaka-site` (project `taskstaka`, us-central1), domain mapping for `taskstaka.com` + `www`. | `crates/site` unit tests (anchors, shell, diagrams) and `tests/site.rs` (routes, assets, redirect safety, HEAD); headless shots at 1280/390 read by eye; `curl` of the Cloud Run URL |
+| ✅ | **P26 Linux tray + setup linux** (2026-10-18, ADR 0016) | `crates/tray` builds and runs on Ubuntu 26.04 / GNOME 50 (Wayland): the mark and the plate title as an AppIndicator item, the menu, the WebKitGTK panel (kept resizable with pinned size constraints: GTK sizes a non-resizable window to its content; first monitor as the fallback, Wayland has no primary). The item listens on `$XDG_RUNTIME_DIR/taskstaka-tray.sock` (`taskstaka_client::tray`, `tray/src/trigger.rs`); `taskstaka tray quick` sends `toggle` (starts the item or opens `/quick` in the browser when none). `taskstaka setup linux [--no-tray] [--hotkey K] [--uninstall] [--dry-run]` (`setup_linux.rs`): `taskstaka.service` + `taskstaka-tray.service` user units (`Restart=on-failure`, the tray `PartOf` the graphical session), a GNOME custom shortcut via gsettings (frees Alt+Space from the window menu, reversible), the command to bind elsewhere. `service.rs`: `Supervisor::Systemd` + a `Systemctl` trait; `stop`/`restart`/`status`/`tray start|stop|status` go through `systemctl --user` when a unit owns the process. CI builds the tray (GTK + WebKitGTK apt packages). | `setup_linux.rs` unit tests (units, GNOME key spelling, gsettings arrays, install/rerun/dry-run/uninstall with fakes), `service.rs` systemd tests, `tray.rs` unit-state tests, `client::tray` + `trigger.rs` socket tests, `tests/cli.rs` dry run; by hand on this machine: item, menu, panel focus and add, `tray quick` toggle |
 | | post-v1 | see the candidate list under **Resume here** | |
 
 ### Deviations from the original plan (recorded as they happen)
@@ -274,14 +277,14 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 
 ## Resume here
 
-**P1–P25 complete** (2026-10-10/11). v0.1.3 adds `taskstaka tray start|stop|status` (`crates/taskstaka/src/tray.rs`: launchd bootstrap/kickstart/bootout when `setup macos` installed the agent, plain spawn/kill otherwise). `cargo fmt`, `clippy --all-targets`, `cargo test` are
-clean at head. taskstaka runs on macOS 27 with the menu bar item, the `⌥Space` quick-add
-panel and launchd agents; `brew install a6wright/taskstaka/taskstaka` installs 0.1.2 from the
+**P1–P26 complete** (2026-10-10/18). v0.1.3 adds `taskstaka tray start|stop|status` (`crates/taskstaka/src/tray.rs`: launchd bootstrap/kickstart/bootout when `setup macos` installed the agent, plain spawn/kill otherwise). P26 (2026-10-18) brings the tray to Linux: `taskstaka setup linux`, `taskstaka tray quick`, systemd awareness (ADR 0016). `cargo fmt`, `clippy --all-targets`, `cargo test` are
+clean at head, tray included. taskstaka runs on macOS 27 with the menu bar item, the `⌥Space` quick-add
+panel and launchd agents, and on Ubuntu 26.04 / GNOME 50 with the item, the Alt+Space shortcut and systemd user units; `brew install a6wright/taskstaka/taskstaka` installs 0.1.2 from the
 tap. **https://taskstaka.com** (and `www`) is live: `crates/site` on Cloud Run, domain
 mappings created 2026-10-11, DNS at Namecheap (4 A + 4 AAAA at the apex, `www` CNAME to
 `ghs.googlehosted.com`), Google-managed certificate. Deploys itself: `.github/workflows/deploy-site.yml` runs on every push to
 `main` that touches the site (Cloud Build then Cloud Run, keyless auth via Workload Identity;
-one-time setup done 2026-10-11, kept out of the repo). No test gate in front of it yet.
+one-time setup done 2026-10-11, kept out of the repo), gated by a test job (fmt, clippy, cargo test, the whole workspace).
 
 **Next, roughly in order of pain:**
 
@@ -289,10 +292,10 @@ one-time setup done 2026-10-11, kept out of the repo). No test gate in front of 
    tests, builds `crates/site/Dockerfile` in Cloud Build and deploys `taskstaka-site` on
    every push to `main`; a second job that bumps the Homebrew formula on `v*` tags (needs a
    `HOMEBREW_TAP_TOKEN` secret); `content/changelog.md` regenerated from GitHub releases.
-1. **Linux tray** — build `crates/tray` on Ubuntu (`libgtk-3-dev libappindicator3-dev`), a real
-   icon instead of the placeholder square, systemd user units from a `setup linux`, and
-   systemd awareness in `service.rs`. Wayland has no global hotkey yet (global-hotkey is X11
-   only); fall back to the launcher recipes there.
+1. **Linux tray, the rest** — the XDG GlobalShortcuts portal so the item binds its own key
+   under Wayland (needs a desktop entry for the app id); the panel sits where the compositor
+   puts it (GNOME: centre), not at Spotlight height; the Homebrew formula installs the tray on
+   Linux too; a CI workflow on every push, not only site-touching ones.
 2. **Deferred from the 2026-10-10 review** (all small): `setup macos --no-daemon` for brew
    users (today a `dev.taskstaka` agent is installed beside `sh.brew.taskstaka` and one
    exits at login); check the notes folder is initialised before loading the daemon agent;

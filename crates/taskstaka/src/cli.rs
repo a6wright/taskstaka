@@ -13,12 +13,12 @@ use crate::backend::{Backend, Direct, Http};
 use crate::client::{Client, DaemonInfo};
 use crate::{render, server};
 
-/// Bring the daemon up for `dir`: kick the launchd agent when one owns it,
-/// else spawn our own detached daemon.
+/// Bring the daemon up for `dir`: through launchd or systemd when one of
+/// them owns it, else spawn our own detached daemon.
 fn start_daemon(sup: &crate::service::Supervisor, dir: &std::path::Path, port: u16) -> Result<()> {
-    match sup.label() {
-        Some(label) => crate::service::Launchctl::kickstart(&crate::service::System, label),
-        None => crate::client::spawn_daemon(dir, port),
+    match sup {
+        crate::service::Supervisor::None => crate::client::spawn_daemon(dir, port),
+        sup => sup.start(),
     }
 }
 
@@ -70,9 +70,9 @@ pub fn main() -> Result<()> {
                     let sup = crate::service::detect(&dir, &default_dir(), pid, cli.port);
                     c.shutdown()?;
                     println!("asked the daemon at {} to stop", c.base());
-                    if let Some(label) = sup.label() {
+                    if let Some(d) = sup.describe() {
                         println!(
-                            "it is a launchd agent ({label}); it stays down until `taskstaka restart` or login"
+                            "it is supervised ({d}); it stays down until `taskstaka restart` or login"
                         );
                     }
                     Ok(())
@@ -147,13 +147,13 @@ pub fn main() -> Result<()> {
                 h.pid,
                 h.version,
                 target.display(),
-                sup.label()
-                    .map(|l| format!("  (launchd {l})"))
+                sup.describe()
+                    .map(|d| format!("  ({d})"))
                     .unwrap_or_default()
             );
             return Ok(());
         }
-        Cmd::Tray { cmd } => return crate::tray::run(cmd, json),
+        Cmd::Tray { cmd } => return crate::tray::run(cmd, json, &dir, cli.port),
         Cmd::Tui { context } => return crate::tui::run(&dir, cli.port, context),
         Cmd::Mcp => return crate::mcp::run(&dir, cli.port),
         Cmd::Setup {
@@ -178,9 +178,20 @@ pub fn main() -> Result<()> {
                 print!("{}", crate::setup_macos::describe(&report, &opts));
                 return Ok(());
             }
+            if target == "linux" {
+                let opts = crate::setup_linux::LinuxSetup {
+                    no_tray,
+                    hotkey,
+                    uninstall,
+                    dry_run,
+                };
+                let report = crate::setup_linux::install(&opts)?;
+                print!("{}", crate::setup_linux::describe(&report, &opts));
+                return Ok(());
+            }
             if target != "claude" {
                 bail!(
-                    "unknown setup target {target:?}; try `taskstaka setup claude` or `taskstaka setup macos`"
+                    "unknown setup target {target:?}; try `taskstaka setup claude`, `taskstaka setup macos` or `taskstaka setup linux`"
                 );
             }
             let opts = crate::setup::ClaudeSetup {
@@ -226,9 +237,7 @@ pub fn main() -> Result<()> {
                             h.version,
                             h.rev,
                             h.todo_dir.display(),
-                            sup.label()
-                                .map(|l| format!("  launchd {l}"))
-                                .unwrap_or_default(),
+                            sup.describe().map(|d| format!("  {d}")).unwrap_or_default(),
                             if stale {
                                 "  (stale: started before this binary was built — run `taskstaka restart`)"
                             } else {
@@ -249,10 +258,8 @@ pub fn main() -> Result<()> {
                         println!(
                             "not running  ({}){}",
                             dir.display(),
-                            sup.label()
-                                .map(|l| format!(
-                                    "  launchd {l} loaded; `taskstaka restart` starts it"
-                                ))
+                            sup.describe()
+                                .map(|d| format!("  {d} loaded; `taskstaka restart` starts it"))
                                 .unwrap_or_default()
                         );
                     }

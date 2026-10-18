@@ -40,12 +40,17 @@ cargo install --path crates/taskstaka
 taskstaka init
 ```
 
-On a Mac, add the menu bar item and keep both running across logins:
+Add the menu bar item and keep both running across logins:
 
 ```
 cargo install --path crates/tray   # taskstaka-tray
-taskstaka setup macos              # launchd agents for the daemon and the tray; ⌥Space = quick add
+taskstaka setup macos              # macOS: launchd agents for the daemon and the tray; ⌥Space = quick add
+taskstaka setup linux              # Linux: systemd user units for both; on GNOME, Alt+Space = quick add
 ```
+
+On Linux the tray builds against GTK 3 and WebKitGTK (`sudo apt install libgtk-3-dev
+libwebkit2gtk-4.1-dev` on Ubuntu/Debian) and shows up wherever a StatusNotifier host runs:
+KDE, XFCE, and GNOME with the AppIndicator extension that Ubuntu preinstalls.
 
 ## Updating and running
 
@@ -58,6 +63,7 @@ cargo install --path crates/taskstaka
 cargo install --path crates/tray   # if you use the menu bar item
 taskstaka restart              # the old daemon keeps running old code until you do this
 taskstaka setup macos          # macOS: reloads the tray agent too
+taskstaka setup linux          # Linux: restarts both units
 ```
 
 Any command will also warn `the daemon started before this binary was built` until you
@@ -150,19 +156,24 @@ reuses a matching project or creates one named for the repo.
 sets the project). In the web UI press `n` anywhere. From any app, the **tray** binds a
 global hotkey (`⌥Space` by default) that drops a Spotlight-style panel over whatever you are
 doing: type, Enter, it is gone. Esc or clicking elsewhere hides it; `⌥Space` again toggles it.
+On Linux under Wayland no app can grab a key, so `taskstaka setup linux` binds the same key as
+a GNOME shortcut that runs `taskstaka tray quick`, which toggles the panel of the running item
+(ADR 0016; on another desktop, bind that command yourself). GNOME has Alt+Space on the window
+menu by default; setup takes it and says how to give it back.
 The panel is the bare `http://127.0.0.1:7407/quick` page in a small webview (`?context=personal`
 picks the context), so the same page works from a launcher too: bind it to that URL or to the
 command — on macOS a Raycast/Alfred hotkey or a Shortcuts action "Open URL"; on Linux a desktop
 keyboard shortcut running `xdg-open http://127.0.0.1:7407/quick` or
 `taskstaka quick "$(zenity --entry --text=Add)"`. The daemon itself never grabs keys.
 
-**Menu bar (macOS).** `taskstaka-tray` shows the plate in the menu bar — `▶ title`
-for the task in hand, `○ title` for *up next* — and its menu reads top to bottom like the plate:
+**Menu bar (macOS and Linux).** `taskstaka-tray` shows the plate in the menu bar — `▶ title`
+for the task in hand, `○ title` for *up next* (next to the mark on Linux) — and its menu reads top to bottom like the plate:
 the title, its notes (so you see what to do at a glance), then *Done* and *Put back* or
 *Start*, each *now* row (opens the task), *Quick add… ⌥Space*, *Open taskstaka*. It is a separate process that only talks HTTP to the daemon (ADR 0015);
-`taskstaka setup macos` installs it as a launchd agent; `taskstaka tray start` brings it
-back after *Quit*, `tray stop` takes it down until login, `tray status` says who runs it.
-`taskstaka-tray --hotkey ctrl+alt+space` (or `setup macos --hotkey …`) picks another key;
+`taskstaka setup macos` / `setup linux` installs it as a launchd agent / systemd user unit;
+`taskstaka tray start` brings it back after *Quit*, `tray stop` takes it down until login,
+`tray status` says who runs it, `tray quick` toggles the panel from anywhere.
+`taskstaka-tray --hotkey ctrl+alt+space` (or `setup macos|linux --hotkey …`) picks another key;
 `--context work` filters.
 
 **Outline** is the tree (`⇧` + arrows rearrange, `A` adds under, `h` shows completed),
@@ -234,18 +245,15 @@ The first command auto-starts `taskstaka serve` in the background; it owns the f
 and every client talks to it on `127.0.0.1:7407`. `taskstaka status` / `taskstaka stop`.
 For always-on, install a service:
 
-**systemd (Linux)** — `~/.config/systemd/user/taskstaka.service`
-```ini
-[Unit]
-Description=taskstaka daemon
-[Service]
-ExecStart=%h/.cargo/bin/taskstaka serve
-Environment=TASKSTAKA_DIR=%h/todo
-Restart=on-failure
-[Install]
-WantedBy=default.target
-```
-`systemctl --user enable --now taskstaka`
+**systemd (Linux)** — `taskstaka setup linux` writes and starts two user units in
+`~/.config/systemd/user/`: `taskstaka.service` (the daemon, at login) and
+`taskstaka-tray.service` (the menu bar item, with the graphical session; `--no-tray` skips it),
+and on GNOME the quick-add shortcut. Both restart only if they crash, so `taskstaka stop` and
+the tray's *Quit* stick (`taskstaka tray start` brings the item back). They carry no
+`TASKSTAKA_DIR`: the folder comes from Settings (below). `stop`, `restart` and `status` know
+when systemd owns the daemon and go through `systemctl --user`. Logs: `journalctl --user -u
+taskstaka -u taskstaka-tray`; `--uninstall` stops and removes both and the shortcut;
+`--dry-run` shows what would be written.
 
 **launchd (macOS)** — `taskstaka setup macos` writes and loads two agents in
 `~/Library/LaunchAgents/`: `dev.taskstaka` (the daemon) and `dev.taskstaka.tray` (the menu

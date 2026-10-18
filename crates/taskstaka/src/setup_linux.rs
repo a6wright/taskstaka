@@ -706,9 +706,14 @@ mod tests {
 
     #[test]
     fn gnome_without_an_appindicator_host_gets_a_note() {
-        assert!(appindicator_note("ubuntu-appindicators@ubuntu.com\nding@rastersoft.com\n").is_none());
+        assert!(
+            appindicator_note("ubuntu-appindicators@ubuntu.com\nding@rastersoft.com\n").is_none()
+        );
         assert!(appindicator_note("appindicatorsupport@rgcjonas.gmail.com\n").is_none());
-        assert!(appindicator_note("").is_none(), "no gnome-extensions tool: say nothing");
+        assert!(
+            appindicator_note("").is_none(),
+            "no gnome-extensions tool: say nothing"
+        );
         let n = appindicator_note("ding@rastersoft.com\n").unwrap();
         assert!(n.contains("gnome-shell-extension-appindicator"), "{n}");
     }

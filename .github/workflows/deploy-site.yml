@@ -4,19 +4,14 @@
 # GCP_WIF_PROVIDER and GCP_DEPLOY_SA; the GCP side (service account
 # github-deploy, pool github) was set up by hand. The deploy job waits for
 # the test job: fmt, clippy and cargo test over the whole workspace (the tray
-# crate needs GTK and WebKitGTK, installed below).
+# crate needs GTK and WebKitGTK, installed below). Tests run on every push to
+# main; the deploy only when the push touched the site, install.sh, the
+# workspace manifests, this workflow, or on a manual run.
 name: Deploy taskstaka.com
 
 on:
   push:
     branches: [main]
-    paths:
-      - "crates/site/**"
-      - "install.sh"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "cloudbuild.yaml"
-      - ".github/workflows/deploy-site.yml"
   workflow_dispatch:
 
 concurrency:
@@ -50,8 +45,33 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      site: ${{ steps.diff.outputs.site }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo site=true >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          base="$BEFORE"
+          git cat-file -e "$base^{commit}" 2>/dev/null || base="HEAD~1"
+          if git diff --name-only "$base" HEAD | grep -qE '^(crates/site/|install\.sh$|Cargo\.toml$|Cargo\.lock$|cloudbuild\.yaml$|\.github/workflows/deploy-site\.yml$)'; then
+            echo site=true >> "$GITHUB_OUTPUT"
+          else
+            echo site=false >> "$GITHUB_OUTPUT"
+          fi
+
   deploy:
-    needs: test
+    needs: [test, changes]
+    if: needs.changes.outputs.site == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read

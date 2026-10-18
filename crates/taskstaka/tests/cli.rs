@@ -531,8 +531,13 @@ fn setup_linux_dry_run_describes_units_and_the_gnome_key_without_writing() {
     );
     assert!(text.contains("would install daemon"), "{text}");
     assert!(text.contains("systemd/user/taskstaka.service"), "{text}");
-    // The tray binary sits next to the CLI in target/, so the key is planned too.
-    assert!(text.contains("<Control><Alt>space"), "{text}");
+    // With taskstaka-tray built next to the CLI the key is planned in GNOME's
+    // spelling; without it (a fresh CI target dir) setup says what to install.
+    if text.contains("would install tray") {
+        assert!(text.contains("<Control><Alt>space"), "{text}");
+    } else {
+        assert!(text.contains("no taskstaka-tray beside"), "{text}");
+    }
     assert!(!home.path().join(".config").exists());
 }
 

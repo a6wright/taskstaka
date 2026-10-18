@@ -125,6 +125,7 @@ async fn assets_have_types_and_cache_headers() {
         ("/apple-touch-icon.png", "image/png"),
         ("/shots/next.png", "image/png"),
         ("/shots/outline.png", "image/png"),
+        ("/install.sh", "text/plain"),
     ] {
         let res = agent.get(format!("{base}{path}")).call().unwrap();
         assert_eq!(res.status().as_u16(), 200, "{path}");

@@ -6,6 +6,7 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY assets ./assets
+COPY install.sh ./
 RUN cargo build --release --locked -p taskstaka-site
 
 FROM debian:bookworm-slim

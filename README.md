@@ -26,7 +26,14 @@ git, Drive, whatever — the files are yours.
 
 Docs, install and help: **https://taskstaka.com**.
 
-Homebrew (macOS and Linux; builds from source, a few minutes):
+One line (macOS: Homebrew; Linux: packages, cargo, both binaries, `setup linux`):
+
+```
+curl -fsSL https://taskstaka.com/install.sh | sh
+```
+
+Homebrew (macOS and Linux; builds from source, a few minutes; the menu bar item on Linux
+comes from source, below):
 
 ```
 brew install a6wright/taskstaka/taskstaka

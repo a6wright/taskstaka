@@ -2,6 +2,11 @@
 
 Releases are on [GitHub](https://github.com/a6wright/taskstaka/releases).
 
+## 0.1.4 · 2026-10-18
+
+- Linux: the menu bar item runs on GNOME, KDE and any StatusNotifier host, with the same menu and the same quick-add panel. `taskstaka setup linux` writes systemd user units for the daemon and the item, and on GNOME a keyboard shortcut (<kbd>Alt+Space</kbd>) that runs `taskstaka tray quick`, which toggles the panel of the running item. `stop`, `restart`, `status` and `tray start|stop|status` go through `systemctl --user` when a unit owns the process.
+- `curl -fsSL https://taskstaka.com/install.sh | sh` installs everything on either system.
+
 ## 0.1.3 · 2026-10-11
 
 - `taskstaka tray start`, `stop` and `status` control the menu bar item. With the launchd agent from `setup macos`, `start` brings it back after Quit and `stop` unloads it until login; without the agent they run and end a plain `taskstaka-tray`.

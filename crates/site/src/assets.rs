@@ -42,4 +42,11 @@ pub const ASSETS: &[Asset] = &[
         content_type: "image/png",
         bytes: include_bytes!("../assets/shots/outline.png"),
     },
+    // `curl -fsSL https://taskstaka.com/install.sh | sh`; plain text so a
+    // browser shows it rather than downloading it.
+    Asset {
+        path: "/install.sh",
+        content_type: "text/plain; charset=utf-8",
+        bytes: include_bytes!("../../../install.sh"),
+    },
 ];

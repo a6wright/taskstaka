@@ -120,8 +120,32 @@ pub fn install(opts: &LinuxSetup) -> Result<Report> {
         }
     }
     let mut report = install_in(&home, &exe, &service::System, gs, opts)?;
+    if gnome && report.tray_unit.is_some() {
+        let enabled = std::process::Command::new("gnome-extensions")
+            .args(["list", "--enabled"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default();
+        notes.extend(appindicator_note(&enabled));
+    }
     report.notes.extend(notes);
     Ok(report)
+}
+
+/// GNOME shows no tray items at all without a StatusNotifier host; Ubuntu
+/// ships the AppIndicator extension enabled, other GNOMEs do not. `enabled`
+/// is `gnome-extensions list --enabled` (empty when the tool is missing,
+/// which is not GNOME Shell: no note then).
+pub fn appindicator_note(enabled: &str) -> Option<String> {
+    if enabled.trim().is_empty() || enabled.to_ascii_lowercase().contains("appindicator") {
+        return None;
+    }
+    Some(
+        "GNOME hides tray items without the AppIndicator extension: install \
+         gnome-shell-extension-appindicator (apt/dnf), log out and in, then \
+         `gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com`"
+            .to_string(),
+    )
 }
 
 /// `XDG_CURRENT_DESKTOP` names GNOME (`ubuntu:GNOME`, `GNOME`, `GNOME-Classic:GNOME`).
@@ -678,6 +702,15 @@ mod tests {
         assert!(same_key("<alt>Space", "<Alt>space"));
         assert!(same_key("<Shift><Alt>space", "<Alt><Shift>space"));
         assert!(!same_key("<Alt>space", "<Super>space"));
+    }
+
+    #[test]
+    fn gnome_without_an_appindicator_host_gets_a_note() {
+        assert!(appindicator_note("ubuntu-appindicators@ubuntu.com\nding@rastersoft.com\n").is_none());
+        assert!(appindicator_note("appindicatorsupport@rgcjonas.gmail.com\n").is_none());
+        assert!(appindicator_note("").is_none(), "no gnome-extensions tool: say nothing");
+        let n = appindicator_note("ding@rastersoft.com\n").unwrap();
+        assert!(n.contains("gnome-shell-extension-appindicator"), "{n}");
     }
 
     #[test]

@@ -12,6 +12,7 @@ on:
     branches: [main]
     paths:
       - "crates/site/**"
+      - "install.sh"
       - "Cargo.toml"
       - "Cargo.lock"
       - "cloudbuild.yaml"

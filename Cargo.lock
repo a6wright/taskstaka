@@ -3832,7 +3832,7 @@ checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
 
 [[package]]
 name = "taskstaka"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -3857,7 +3857,7 @@ dependencies = [
 
 [[package]]
 name = "taskstaka-client"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "jiff",
@@ -3870,7 +3870,7 @@ dependencies = [
 
 [[package]]
 name = "taskstaka-core"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "fd-lock",
  "insta",
@@ -3885,7 +3885,7 @@ dependencies = [
 
 [[package]]
 name = "taskstaka-site"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "axum",
  "pulldown-cmark",
@@ -3897,7 +3897,7 @@ dependencies = [
 
 [[package]]
 name = "taskstaka-tray"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "clap",

@@ -2,6 +2,13 @@
 
 Releases are on [GitHub](https://github.com/a6wright/taskstaka/releases).
 
+## 0.1.5 · 2026-10-26
+
+- Web: a search box (<kbd>/</kbd>) that matches titles, notes, who a task waits on and ids, keeping the ancestors of a match for context.
+- Web: filter every view to one project or tag from the sidebar's Projects and Tags lists, a project pill or a `#tag` chip. The filters live in the URL.
+- Web: fold a row's subtasks with the chevron left of it (`▸ fold` in the head folds every story); folds are remembered.
+- Web: rearrange by clicking. A row's grip picks it up, then click the line where it should go, or `↳ nest under` a row. <kbd>Alt+↑</kbd> / <kbd>Alt+↓</kbd> swap siblings. Drag still works.
+
 ## 0.1.4 · 2026-10-18
 
 - Linux: the menu bar item runs on GNOME, KDE and any StatusNotifier host, with the same menu and the same quick-add panel. `taskstaka setup linux` writes systemd user units for the daemon and the item, and on GNOME a keyboard shortcut (<kbd>Alt+Space</kbd>) that runs `taskstaka tray quick`, which toggles the panel of the running item. `stop`, `restart`, `status` and `tray start|stop|status` go through `systemctl --user` when a unit owns the process.

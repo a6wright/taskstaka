@@ -250,6 +250,88 @@ function check(cond, what) {
   await page.locator('a[data-view="outline"]').click(); await settle();
   check((await page.locator('li.row', { hasText: 'Bake an apple pie' }).count()) >= 1, 'revive puts the story back in the outline');
 
+  console.log('fold a row\'s subtasks');
+  const dnsRow = page.locator('li.row', { hasText: 'Get DNS address' }).first();
+  const dnsKids = await page.locator(`li.row[data-parent="${dnsId}"]`).count();
+  check(dnsKids >= 2, `the DNS story shows its subtasks (${dnsKids})`);
+  await dnsRow.hover(); await dnsRow.locator('button.fold').click({ force: true }); await settle();
+  check((await page.locator(`li.row[data-parent="${dnsId}"]`).count()) === 0, 'the chevron folds them away');
+  check(/more/.test(await dnsRow.locator('.chip.foldchip').textContent().catch(() => '')), 'the row says how many are folded');
+  check(JSON.parse(await page.evaluate(() => localStorage.getItem('taskstaka.collapsed') || '[]')).includes(dnsId), 'the fold is remembered');
+  await page.locator('li.row', { hasText: 'Get DNS address' }).first().locator('.chip.foldchip').click(); await settle();
+  check((await page.locator(`li.row[data-parent="${dnsId}"]`).count()) === dnsKids, 'the chip unfolds them');
+  await page.locator('#toggle-fold').click(); await settle();
+  check((await page.locator('li.row[data-depth="1"]').count()) === 0 && (await page.locator('li.row[data-depth="0"]').count()) >= 2, 'fold in the head folds every story to one line');
+  await shot('06-folded');
+  await page.locator('#toggle-fold').click(); await settle();
+  check((await page.locator('li.row[data-depth="1"]').count()) > 0, 'unfold brings them back');
+
+  console.log('search');
+  await page.locator('.head h1').click();   // nothing editable focused
+  await page.keyboard.press('/');
+  check(await page.locator('#search').evaluate(e => document.activeElement === e), '/ focuses the search box');
+  await page.keyboard.type('apples'); await settle();
+  let shownTitles = await page.locator('li.row .title').allTextContents();
+  check(shownTitles.some(x => /Buy apples/.test(x)) && shownTitles.some(x => /Bake an apple pie/.test(x)) && !shownTitles.some(x => /Get DNS/.test(x)), `typing narrows the outline to matches and their ancestors (${shownTitles.join(' | ')})`);
+  check((await page.locator('li.row.dim', { hasText: 'Bake an apple pie' }).count()) === 1, 'an ancestor that does not match itself is dimmed');
+  check(/q=apples/.test(page.url()), 'the query is in the URL');
+  check(await page.locator('#search').evaluate(e => document.activeElement === e), 'typing keeps the caret in the box');
+  await shot('07-search');
+  await page.fill('#search', 'nothing-like-this'); await settle();
+  check((await page.locator('.content .empty').count()) === 1 && (await page.locator('li.row').count()) === 0, 'no match says so');
+  await page.locator('.content .empty a[data-clear]').click(); await settle();
+  check((await page.locator('li.row', { hasText: 'Get DNS' }).count()) >= 1 && !/q=/.test(page.url()), 'clear the filters restores the outline');
+
+  console.log('filter by project and tag');
+  await page.request.patch(base + '/api/v1/tasks/' + pieId, { data: { project: { to: 'kitchen' } } });
+  const applesId = await page.locator('li.row', { hasText: 'Buy apples' }).first().getAttribute('data-id');
+  await page.request.patch(base + '/api/v1/tasks/' + applesId, { data: { tags: ['agent'] } }); await settle(); await settle();
+  check((await page.locator('#side .facets a[data-project="kitchen"]').count()) === 1, 'the sidebar lists the project');
+  check((await page.locator('#side .facets a[data-tag="agent"]').count()) === 1, 'and the tag');
+  await page.locator('#side .facets a[data-project="kitchen"]').click(); await settle();
+  shownTitles = await page.locator('li.row .title').allTextContents();
+  check(shownTitles.some(x => /Bake an apple pie/.test(x)) && !shownTitles.some(x => /Get DNS/.test(x)), `the project facet narrows the outline (${shownTitles.join(' | ')})`);
+  check((await page.locator('.head .proj.filter', { hasText: 'kitchen' }).count()) === 1 && /project=kitchen/.test(page.url()), 'the head shows the project chip and the URL carries it');
+  await shot('08-filter');
+  await page.locator('a[data-view="next"]').click(); await settle();
+  const storyTitles = await page.locator('.story .story-title').allTextContents();
+  check(storyTitles.length === 1 && /Bake an apple pie/.test(storyTitles[0]), `Next keeps only that project's stories (${storyTitles.join(' | ')})`);
+  await page.locator('.head .proj.filter').click(); await settle();
+  check(!/project=/.test(page.url()) && (await page.locator('.story').count()) >= 2, 'the × on the chip clears it');
+  await page.locator('a[data-view="outline"]').click(); await settle();
+  await page.locator('li.row', { hasText: 'Buy apples' }).first().locator('.chip.agent').click(); await settle();
+  shownTitles = await page.locator('li.row .title').allTextContents();
+  check(shownTitles.length === 3 && shownTitles.some(x => /Buy apples/.test(x)) && /tag=agent/.test(page.url()), `clicking a tag chip filters to that tag (${shownTitles.join(' | ')})`);
+  check((await page.locator('#side .facets a[data-tag="agent"].active').count()) === 1, 'the facet shows as active');
+  await page.locator('#side .facets a[data-tag="agent"]').click(); await settle();
+  check(!/tag=/.test(page.url()), 'clicking the active facet clears it');
+
+  console.log('click to move: grip, then a slot');
+  const orchardLi = page.locator('li.row', { hasText: 'Drive to the orchard' }).first();
+  const fillingId = await page.locator('li.row', { hasText: 'Make the filling' }).first().getAttribute('data-id');
+  await orchardLi.hover(); await orchardLi.locator('.grip').click({ force: true }); await settle();
+  check((await page.locator('.movebar').count()) === 1 && (await page.locator('li.slot').count()) > 3, 'the grip picks the row up and slots appear');
+  check((await page.locator('li.row.moving').count()) === 1, 'the picked row is marked');
+  await page.locator(`li.slot[data-parent="${pieId}"][data-after="${fillingId}"]`).hover(); await shot('09-move');
+  await page.locator(`li.slot[data-parent="${pieId}"][data-after="${fillingId}"]`).click(); await settle();
+  const orchardAfter = page.locator('li.row', { hasText: 'Drive to the orchard' }).first();
+  check((await orchardAfter.getAttribute('data-parent')) === pieId && (await orchardAfter.getAttribute('data-depth')) === '1', 'clicking a slot moves it there');
+  check((await page.locator('.movebar').count()) === 0 && (await page.locator('li.slot').count()) === 0, 'and leaves move mode');
+  await orchardAfter.hover(); await orchardAfter.locator('.grip').click({ force: true }); await settle();
+  await page.keyboard.press('Escape'); await settle();
+  check((await page.locator('.movebar').count()) === 0, 'Esc cancels a move');
+
+  console.log('Alt+↑ swaps with the sibling above');
+  const order1 = await page.locator(`li.row[data-parent="${dnsId}"] .title`).allTextContents();
+  const figure = page.locator('li.row', { hasText: "Figure out what's possible" }).first();
+  await figure.locator('.title').click(); await page.keyboard.press('Alt+ArrowUp'); await settle();
+  const order2 = await page.locator(`li.row[data-parent="${dnsId}"] .title`).allTextContents();
+  check(order1.indexOf("Figure out what's possible") === 1 && order2.indexOf("Figure out what's possible") === 0, `Alt+↑ moves the row up (${order2.join(' | ')})`);
+  await page.keyboard.press('Alt+ArrowDown'); await settle();
+  const order3 = await page.locator(`li.row[data-parent="${dnsId}"] .title`).allTextContents();
+  check(order3.join('|') === order1.join('|'), 'Alt+↓ moves it back down');
+  await page.keyboard.press('Escape');
+
   console.log('checkbox on a parent completes the subtree');
   const roots = await page.locator('li.row[data-depth="0"]').count();
   for (let i = 0; i < roots; i++) {

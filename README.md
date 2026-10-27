@@ -301,6 +301,13 @@ already holds taskstaka notes uses it as it is. From a terminal the same move is
   parent's box finishes its subtree), end a line with `@Name` to wait on someone.
   Hover a row for `▶ start` and `open`; `Ctrl+.` starts/stops the focused row; `open` (or `Ctrl+Enter`) slides in the pane: properties, subtasks, notes,
   activity, and the wait / chase / reply actions. `Esc` closes it; `\\` or the chevron on the sidebar's edge collapses the sidebar.
+  Find things with the search box (`/` focuses it; it matches titles, notes, who a task
+  waits on and ids, and keeps the ancestors of a match for context), or narrow every view
+  to one project or tag from the sidebar lists, a project pill or a `#tag` chip — the
+  filters live in the URL, so a filtered view is a link. The chevron left of a row folds
+  its subtasks away (`▸ fold` in the head folds every story); folds are remembered. To
+  rearrange, click a row's grip (`⋮⋮`) and then the line where it should go (between
+  rows, or `↳ nest under` one); `Alt+↑/↓` swaps with a sibling; dragging the grip works too.
   **Next** answers "what do I have to do now?": the task in hand on top (start one and it
   lands there; tick it and the next one slides up), then each story with the steps you can
   do right now and, folded behind `… 3 later`, everything still required to finish it and

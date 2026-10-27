@@ -12,12 +12,17 @@ const S = {
   showDone: false,                           // outline: show completed tasks
   showNotes: false,                          // outline: show each task's notes under it
   plan: [], expanded: new Set(),             // next: stories, and which 'later' lists are open
+  q: '', project: '', tag: '',               // filters: free text, one project, one tag (all in the URL)
+  collapsed: new Set(),                      // outline: rows whose subtasks are folded away
+  moving: null,                              // outline: the row picked up by its grip, waiting for a slot
   // The always-present capture box at the bottom of the outline keeps its
   // indentation across Enters, like Notion: Tab nests it under the row
   // above, and each created task becomes the `after` for the next.
   draft: { parent: null, after: null, depth: 0 },
 };
-try { S.showDone = localStorage.getItem('taskstaka.showDone') === '1'; S.showNotes = localStorage.getItem('taskstaka.showNotes') === '1'; } catch (_) {}
+try { S.showDone = localStorage.getItem('taskstaka.showDone') === '1'; S.showNotes = localStorage.getItem('taskstaka.showNotes') === '1'; S.collapsed = new Set(JSON.parse(localStorage.getItem('taskstaka.collapsed') || '[]')); } catch (_) {}
+const saveCollapsed = () => { try { localStorage.setItem('taskstaka.collapsed', JSON.stringify([...S.collapsed])); } catch (_) {} };
+const expand = (id) => { if (id && S.collapsed.delete(id)) saveCollapsed(); };
 const VIEW_HELP = {
   outline: '',
   next: 'What do I have to do now? The task in hand sits on top — the one you most recently started. Below, each story: every stream you could work on right now (they are parallel; pick any), and folded away, everything still required to finish it.',
@@ -86,6 +91,7 @@ function routeFromUrl() {
   // No param means work (the default tab); 'all' is spelled out.
   const ctx = sp.get('context');
   S.ctx = ctx === 'all' ? '' : (ctx === 'personal' ? 'personal' : 'work');
+  S.q = sp.get('q') || ''; S.project = sp.get('project') || ''; S.tag = sp.get('tag') || '';
   const m = path.match(/^\/t\/([0-9a-z]+)$/);
   if (m) { S.view = sp.get('view') || 'outline'; S.open = m[1]; return; }
   S.view = path === '/' ? 'outline' : path.slice(1);
@@ -94,11 +100,12 @@ function routeFromUrl() {
   S.open = sp.get('open');
   if (sp.get('task')) S.stackId = sp.get('task');
 }
-function urlFor({ view = S.view, ctx = S.ctx, open = S.open, stackId = S.stackId } = {}) {
+function urlFor({ view = S.view, ctx = S.ctx, open = S.open, stackId = S.stackId, q = S.q, project = S.project, tag = S.tag } = {}) {
   const sp = new URLSearchParams();
   if (ctx !== 'work') sp.set('context', ctx || 'all');
   if (open) sp.set('open', open);
   if (view === 'next' && stackId) sp.set('task', stackId);
+  if (q) sp.set('q', q); if (project) sp.set('project', project); if (tag) sp.set('tag', tag);
   const qs = sp.toString();
   return (view === 'outline' ? '/' : '/' + view) + (qs ? '?' + qs : '');
 }
@@ -106,17 +113,22 @@ function urlFor({ view = S.view, ctx = S.ctx, open = S.open, stackId = S.stackId
 // must refetch; a view change alone only needs a re-render.
 function go(opts) {
   const ctxChanged = opts.ctx !== undefined && opts.ctx !== S.ctx;
+  if (opts.view !== undefined && opts.view !== S.view) S.moving = null;
   Object.assign(S, opts);
   history.pushState(null, '', urlFor());
   if (ctxChanged) load().catch((e) => flash(e.message, 'error'));
   else render();
 }
-window.addEventListener('popstate', () => {
-  const prev = S.ctx;
-  routeFromUrl();
-  if (S.ctx !== prev) load().catch((e) => flash(e.message, 'error'));
+function afterRoute(prevCtx) {
+  if (S.ctx !== prevCtx) load().catch((e) => flash(e.message, 'error'));
   else render();
-});
+}
+// Follow one of our own links without a page load (its href came from urlFor).
+function goHref(href) {
+  const prev = S.ctx; S.moving = null;
+  history.pushState(null, '', href); routeFromUrl(); afterRoute(prev);
+}
+window.addEventListener('popstate', () => { const prev = S.ctx; routeFromUrl(); afterRoute(prev); });
 
 // ---------- flash ----------
 function flash(msg, kind) {
@@ -135,17 +147,53 @@ function announce(out) {
   if (out.warnings && out.warnings.length) flash(out.warnings[0], '');
 }
 async function act(fn, keep) {
-  try { const out = await fn(); if (out && out.events) announce(out); if (keep) S.focus = keep; await load(); shiftStack(out); if (S.view === 'next') render(); return out; }
+  try { const out = await fn(); S.moving = null; if (out && out.events) announce(out); if (keep) S.focus = keep; await load(); shiftStack(out); if (S.view === 'next') render(); return out; }
   catch (e) { flash(e.message, 'error'); await load(); return null; }
 }
 
 // ---------- lookups ----------
 const byId = (id) => S.all.find(t => t.id === id);
-const childrenOf = (id) => S.all.filter(t => t.parent === id).sort((a, b) => (a.order ?? Date.parse(a.created) / 1000) - (b.order ?? Date.parse(b.created) / 1000));
-// A project pill: the project's own colour, inherited from the root story.
-const pill = (tag) => tag ? `<span class="proj" style="--pc:${esc(tag.color)}" title="project: ${esc(tag.name)}">${esc(tag.name)}</span>` : '';
+const byOrder = (a, b) => (a.order ?? Date.parse(a.created) / 1000) - (b.order ?? Date.parse(b.created) / 1000);
+// parent → children, rebuilt once per snapshot (rows ask for it per render).
+const kidsIndex = () => {
+  if (kidsIndex.src !== S.all) { const m = new Map(); for (const t of S.all) { const k = m.get(t.parent || '') || []; k.push(t); m.set(t.parent || '', k); } for (const k of m.values()) k.sort(byOrder); kidsIndex.src = S.all; kidsIndex.map = m; }
+  return kidsIndex.map;
+};
+const childrenOf = (id) => kidsIndex().get(id || '') || [];
 const isClosed = (t) => t.status === 'done' || t.status === 'dropped';
+// A project pill: the project's own colour, inherited from the root story.
+// Clicking one filters the lists to that project.
+const pill = (tag) => tag ? `<span class="proj" style="--pc:${esc(tag.color)}" data-project="${esc(tag.name)}" title="project: ${esc(tag.name)} — click to filter">${esc(tag.name)}</span>` : '';
 const recent = (iso) => iso && (Date.now() - Date.parse(iso)) < 86400e3;
+
+// ---------- filters ----------
+// Three filters, all in the URL: a project (the root story's), a tag, and a
+// free-text query over title, notes, who it waits on and the id. Trees keep
+// the ancestors of a match as context (dimmed); folds are ignored while a
+// filter is on so a match is never hidden.
+const same = (a, b) => (a || '').toLowerCase() === (b || '').toLowerCase();
+const projectOf = (t) => t.project_tag ? t.project_tag.name : (t.project || '');
+const filterOn = () => !!(S.q || S.project || S.tag);
+const matchesProject = (t) => !S.project || same(projectOf(t), S.project);
+function matchesText(t) {
+  if (S.tag && !(t.tags || []).some(x => same(x, S.tag))) return false;
+  if (S.q) {
+    const n = S.q.trim().toLowerCase(); if (!n) return true;
+    const hay = [t.title, t.body, t.waiting_on, t.id, ...(t.tags || []).map(x => '#' + x)].filter(Boolean).join('\n').toLowerCase();
+    if (!hay.includes(n)) return false;
+  }
+  return true;
+}
+const matches = (t) => matchesProject(t) && matchesText(t);
+// For a tree: which ids to show (a match or an ancestor of one) and which hit.
+function visibleIn(nodes) {
+  if (!filterOn()) return null;
+  const vis = new Set(), hit = new Set();
+  const walk = (n) => { let any = false; for (const c of n.children || []) if (walk(c)) any = true; const m = matches(n.task); if (m) hit.add(n.task.id); if (m || any) vis.add(n.task.id); return m || any; };
+  nodes.forEach(walk);
+  return { vis, hit };
+}
+const filterLabel = () => [S.project && S.project, S.tag && '#' + S.tag, S.q && `“${S.q.trim()}”`].filter(Boolean).join(' · ');
 
 // ---------- render ----------
 function render() {
@@ -160,6 +208,7 @@ function render() {
 function captureFocus() {
   const ae = document.activeElement;
   if (!ae || !ae.closest) return null;
+  if (ae.id === 'search') return { search: true, offset: ae.selectionStart };
   if (ae.classList.contains('pane-title')) return { pane: true, offset: caretOffset(ae) };
   const tl = ae.closest('.title'); if (!tl) return null;
   const li = rowOf(tl);
@@ -177,8 +226,30 @@ function renderSide() {
     <div class="brand"><span><img class="mark" src="/mark.png" alt="">taskstaka</span></div>
     <div class="ctxs">${['', 'work', 'personal'].map(c => `<a href="${urlFor({ ctx: c })}" data-ctx="${c}" class="${S.ctx === c ? 'active' : ''}">${c || 'all'}</a>`).join('')}</div>
     <nav class="nav">${Object.entries(VIEWS).filter(([k]) => k !== 'settings').map(([k, v]) => `<a href="${urlFor({ view: k })}" data-view="${k}" class="${S.view === k ? 'active' : ''}"><span class="ico">${v.ico}</span>${v.label}<span class="count">${counts[k]}</span></a>`).join('')}</nav>
+    ${facetsHtml()}
     <div class="sidefoot"><a href="${urlFor({ view: 'settings' })}" data-view="settings" class="${S.view === 'settings' ? 'active' : ''}"><span class="ico">⚙</span>Settings</a></div>
 `;
+}
+
+// Projects and tags in use (open tasks in this context), each a filter.
+// Clicking the active one clears it.
+function facetsHtml() {
+  const open = S.all.filter(t => !isClosed(t) && inCtx(t));
+  const projs = new Map(), tags = new Map();
+  for (const t of open) {
+    const pt = t.project_tag; if (pt) { const e = projs.get(pt.name) || { name: pt.name, color: pt.color, n: 0 }; e.n++; projs.set(pt.name, e); }
+    for (const tg of t.tags || []) { const e = tags.get(tg.toLowerCase()) || { name: tg, n: 0 }; e.n++; tags.set(tg.toLowerCase(), e); }
+  }
+  const byCount = (a, b) => b.n - a.n || a.name.localeCompare(b.name);
+  const view = ['outline', 'next', 'waiting', 'someday', 'done'].includes(S.view) ? S.view : 'outline';
+  const parts = [];
+  if (projs.size) parts.push(`<div class="facets"><div class="side-group">Projects</div><nav class="nav">${[...projs.values()].sort(byCount).map(p => {
+    const on = same(S.project, p.name);
+    return `<a href="${urlFor({ view, project: on ? '' : p.name })}" data-project="${esc(p.name)}" class="${on ? 'active' : ''}" title="${on ? 'clear the project filter' : 'only ' + esc(p.name)}"><span class="dot" style="--pc:${esc(p.color)}"></span>${esc(p.name)}<span class="count">${p.n}</span></a>`; }).join('')}</nav></div>`);
+  if (tags.size) parts.push(`<div class="facets"><div class="side-group">Tags</div><nav class="nav">${[...tags.values()].sort(byCount).map(t => {
+    const on = same(S.tag, t.name);
+    return `<a href="${urlFor({ view, tag: on ? '' : t.name })}" data-tag="${esc(t.name)}" class="${on ? 'active' : ''}" title="${on ? 'clear the tag filter' : 'only #' + esc(t.name)}"><span class="ico">${t.name.toLowerCase() === 'agent' ? '🤖' : '#'}</span>${esc(t.name)}<span class="count">${t.n}</span></a>`; }).join('')}</nav></div>`);
+  return parts.join('');
 }
 
 function inCtx(t) {
@@ -194,6 +265,29 @@ function renderMain() {
     : sum.actionable === 0 ? `<strong>nothing actionable</strong> · ${sum.blocked} blocked · ${sum.waiting} waiting — go unblock something`
     : `${sum.actionable} actionable · ${sum.doing} doing · ${sum.blocked} blocked · ${sum.waiting} waiting · ${sum.someday} someday`;
   const v = VIEWS[S.view];
+  const listView = ['outline', 'next', 'waiting', 'someday', 'done'].includes(S.view);
+  const anyKids = S.view === 'outline' && (S.tree || []).some(n => n.children && n.children.length);
+  const allFolded = anyKids && (S.tree || []).every(n => !(n.children && n.children.length) || S.collapsed.has(n.task.id));
+  const toggles = S.view === 'outline'
+    ? `${anyKids ? `<button class="toggle" id="toggle-fold" data-fold-all="${allFolded ? 'open' : 'close'}" title="${allFolded ? 'unfold every story' : 'fold every story to one line'}">${allFolded ? '▾ unfold' : '▸ fold'}</button>` : ''}<button class="toggle ${S.showNotes ? 'on' : ''}" id="toggle-notes" title="show each task's notes beneath it">≡ notes</button><button class="toggle ${S.showDone ? 'on' : ''}" id="toggle-done" title="show completed tasks">✓ completed</button>` : '';
+  const chips = listView ? [
+    S.project ? `<span class="proj filter" style="--pc:${esc((S.all.find(t => t.project_tag && same(t.project_tag.name, S.project)) || { project_tag: { color: 'var(--accent)' } }).project_tag.color)}" data-clear="project" title="clear the project filter">${esc(S.project)}<span class="x">×</span></span>` : '',
+    S.tag ? `<span class="chip tag filter" data-clear="tag" title="clear the tag filter">#${esc(S.tag)}<span class="x">×</span></span>` : '',
+  ].join('') : '';
+  const search = listView ? `<input id="search" class="search" type="search" placeholder="search… ( / )" value="${esc(S.q)}" autocomplete="off" spellcheck="false" aria-label="search tasks">` : '';
+  const mv = S.moving && byId(S.moving);
+  const movebar = mv ? `<div class="movebar">↕ Moving <strong>${esc(mv.title)}</strong> — click a line where it should go · <kbd>Esc</kbd> cancels <button class="btn small" data-move-cancel>cancel</button></div>` : '';
+  $('#main').innerHTML = `
+    <div class="head"><h1>${v.label}</h1><span class="sum">${S.view === 'settings' ? '' : line}</span><span class="sp"></span>${chips}${search}${toggles}<span class="sum">${S.view === 'settings' ? '' : (S.ctx || 'all')}</span></div>
+    ${VIEW_HELP[S.view] ? `<p class="viewhelp">${esc(VIEW_HELP[S.view])}</p>` : ''}
+    <div id="flash" class="flash" hidden></div>
+    ${movebar}
+    ${S.nudges.length && S.view !== 'waiting' && !mv ? `<div class="nudge">⚑ ${esc(S.nudges[0].message)}</div>` : ''}
+    <div class="content"></div>`;
+  renderContent();
+}
+// The list alone: typing in the search box re-renders this, not the head it sits in.
+function renderContent() {
   let body = '';
   if (S.view === 'outline') body = renderOutline();
   else if (S.view === 'next') body = renderNext();
@@ -202,15 +296,9 @@ function renderMain() {
   else if (S.view === 'done') body = renderDone();
   else if (S.view === 'nudges') body = renderNudges();
   else if (S.view === 'settings') body = renderSettings();
-  const doneToggle = S.view === 'outline'
-    ? `<button class="toggle ${S.showNotes ? 'on' : ''}" id="toggle-notes" title="show each task's notes beneath it">≡ notes</button><button class="toggle ${S.showDone ? 'on' : ''}" id="toggle-done" title="show completed tasks">✓ completed</button>` : '';
-  $('#main').innerHTML = `
-    <div class="head"><h1>${v.label}</h1><span class="sum">${S.view === 'settings' ? '' : line}</span><span class="sp"></span>${doneToggle}<span class="sum">${S.view === 'settings' ? '' : (S.ctx || 'all')}</span></div>
-    ${VIEW_HELP[S.view] ? `<p class="viewhelp">${esc(VIEW_HELP[S.view])}</p>` : ''}
-    <div id="flash" class="flash" hidden></div>
-    ${S.nudges.length && S.view !== 'waiting' ? `<div class="nudge">⚑ ${esc(S.nudges[0].message)}</div>` : ''}
-    <div class="content">${body}</div>`;
+  const el = $('#main .content'); if (el) el.innerHTML = body;
 }
+const noMatch = () => `<p class="empty">Nothing matches ${esc(filterLabel())}. <a href="#" data-clear="all">Clear the filters</a>.</p>`;
 
 // chips: the one thing that matters, quietly
 function chips(t, d, extra = '') {
@@ -223,8 +311,8 @@ function chips(t, d, extra = '') {
   if (d && d.resurfaced_at) out.push(['back', '↑ ready']);
   if (d && d.orphaned) out.push(['orphan', '⚠ parent finished']);
   if (t.due && !isClosed(t)) out.push([t.due < today() ? 'overdue' : '', (t.due < today() ? '⚠ overdue ' : '📅 ') + t.due]);
-  for (const tag of (t.tags || [])) out.push([tag === 'agent' ? 'agent' : 'tag', (tag === 'agent' ? '🤖 ' : '#') + esc(tag)]);
-  return out.map(([c, s]) => `<span class="chip ${c}">${s}</span>`).join('') + extra;
+  for (const tag of (t.tags || [])) out.push([tag === 'agent' ? 'agent' : 'tag', (tag === 'agent' ? '🤖 ' : '#') + esc(tag), tag]);
+  return out.map(([c, s, tag]) => tag ? `<span class="chip ${c}" data-tag="${esc(tag)}" title="click to filter by #${esc(tag)}">${s}</span>` : `<span class="chip ${c}">${s}</span>`).join('') + extra;
 }
 function hoverMeta(t) {
   const bits = [];
@@ -239,16 +327,22 @@ function hoverMeta(t) {
   const first = isClosed(t) ? '' : `<button class="rowbtn" data-first="draft" data-id="${t.id}" title="add something that must happen before this">↳ first</button>`;
   return `<span class="hover">${bits.map(b => `<span>${esc(b)}</span>`).join('')}${first}${startStop}<button class="openbtn" data-open="${t.id}">open</button></span>`;
 }
-function rowHtml(t, d, depth, { editable = true, crumb = '', extra = '' } = {}) {
+function rowHtml(t, d, depth, { editable = true, crumb = '', extra = '', dim = false, folded = false } = {}) {
   const closed = isClosed(t);
   // A root story's project leads its row, left of the title.
   const lead = depth === 0 && editable && t.project_tag ? pill(t.project_tag) : '';
-  const cls = ['row', lead ? 'has-proj' : '', editable ? '' : 'compact', closed ? 'closed' : '', t.status === 'someday' ? 'someday' : '', d && d.blocked_by > 0 ? 'blocked' : '', d && d.deferred_by && d.deferred_by !== t.id ? 'deferred' : '', S.open === t.id ? 'selected' : ''].join(' ');
-  return `<li class="${cls}" data-id="${t.id}" data-parent="${t.parent || ''}" data-depth="${depth}">
-    ${editable ? `<span class="grip" draggable="true" title="drag to reorder or nest">⋮⋮</span>` : ''}
+  const kids = editable ? childrenOf(t.id) : [];
+  const openKids = kids.filter(k => !isClosed(k)).length;
+  const shownKids = S.showDone ? kids.length : openKids;
+  const moving = S.moving === t.id;
+  const cls = ['row', lead ? 'has-proj' : '', editable ? '' : 'compact', closed ? 'closed' : '', t.status === 'someday' ? 'someday' : '', d && d.blocked_by > 0 ? 'blocked' : '', d && d.deferred_by && d.deferred_by !== t.id ? 'deferred' : '', S.open === t.id ? 'selected' : '', dim ? 'dim' : '', folded ? 'collapsed' : '', moving ? 'moving' : ''].join(' ');
+  const fold = shownKids ? `<button class="fold" data-fold="${t.id}" title="${folded ? 'unfold ' + shownKids + ' subtask' + (shownKids > 1 ? 's' : '') : 'fold the subtasks away'}">${folded ? '▸' : '▾'}</button>` : '';
+  const foldChip = folded ? `<span class="chip foldchip" data-fold="${t.id}" title="unfold">▸ ${openKids} more</span>` : '';
+  return `<li class="${cls}" data-id="${t.id}" data-parent="${t.parent || ''}" data-depth="${depth}" data-kids="${kids.length}">
+    ${editable ? `<span class="grip" draggable="true" title="${moving ? 'click again to cancel' : 'click to move it (then pick a line) · drag to reorder or nest'}">⋮⋮</span>${fold}` : ''}
     <input type="checkbox" class="cb" ${closed ? 'checked' : ''} title="${closed ? 'reopen' : 'done'}">
     ${lead}<span class="title" ${editable ? 'contenteditable="true" spellcheck="false"' : ''}>${esc(t.title)}${crumb}</span>
-    <span class="meta">${chips(t, d)}${hoverMeta(t)}${extra}</span>
+    <span class="meta">${foldChip}${chips(t, d)}${hoverMeta(t)}${extra}</span>
     ${editable && S.showNotes ? noteHtml(t) : ''}
   </li>`;
 }
@@ -258,24 +352,48 @@ function noteHtml(t) {
   return notes ? `<div class="note">${esc(notes)}</div>` : '';
 }
 
+// Completed rows stay visible for a few minutes after you tick them (so
+// the tick is not a vanishing act), then hide unless "✓ completed" is on.
+const justDone = (t) => t.completed && (Date.now() - Date.parse(t.completed)) < 5 * 60e3;
+// The nested checklist. `skip(task, depth)` drops rows that belong to
+// another view; `decorate(row, task, depth)` adds per-view buttons. While a
+// filter is on only matches and their ancestors render and folds are
+// ignored; while a row is being moved, a slot renders at every place it
+// could go (between rows, and under a row with no open subtasks).
+function walkRows(nodes, depth, parts, { skip = () => false, decorate = (r) => r, vis = null } = {}) {
+  const mv = S.moving;
+  const slot = (parent, after, before, d, into) => `<li class="slot${into ? ' into' : ''}" data-parent="${parent || ''}" data-after="${after || ''}" data-before="${before || ''}" title="${into ? 'nest under the row above' : 'move here'}"><span>${into ? '↳ nest under' : '↕ move here'}</span></li>`;
+  const shown = nodes.filter(n => { const t = n.task; if (vis && !vis.vis.has(t.id)) return false; if (isClosed(t) && !S.showDone && !justDone(t)) return false; return !skip(t, depth); });
+  const parentId = shown.length ? (shown[0].task.parent || null) : null;
+  const inside = (n) => n.task.id === mv;   // the moving row and its subtree take no slots
+  parts.push('<ul class="rows">');
+  shown.forEach((n, i) => {
+    const t = n.task;
+    const folded = !vis && S.collapsed.has(t.id);
+    const kids = n.children && n.children.length ? n.children.filter(c => !(vis && !vis.vis.has(c.task.id)) && !(isClosed(c.task) && !S.showDone && !justDone(c.task))) : [];
+    if (mv && i === 0 && !inside(n)) parts.push(slot(parentId, null, t.id, depth, false));
+    parts.push(decorate(rowHtml(t, t.derived, depth, { dim: !!vis && !vis.hit.has(t.id), folded }), t, depth));
+    if (kids.length && !folded) {
+      parts.push('<li class="kids">');
+      if (inside(n)) { const was = S.moving; S.moving = null; walkRows(n.children, depth + 1, parts, { skip, decorate, vis }); S.moving = was; }
+      else walkRows(n.children, depth + 1, parts, { skip, decorate, vis });
+      parts.push('</li>');
+    } else if (mv && !inside(n)) {
+      parts.push(`<li class="kids"><ul class="rows">${slot(t.id, null, null, depth + 1, true)}</ul></li>`);
+    }
+    const next = shown[i + 1];
+    if (mv && !inside(n) && !(next && inside(next))) parts.push(slot(parentId, t.id, null, depth, false));
+  });
+  parts.push('</ul>');
+}
+
 function renderOutline() {
   const parts = [];
-  // Completed rows stay visible for a few minutes after you tick them (so
-  // the tick is not a vanishing act), then hide unless "✓ completed" is on.
-  const justDone = (t) => t.completed && (Date.now() - Date.parse(t.completed)) < 5 * 60e3;
-  const walk = (nodes, depth) => {
-    parts.push('<ul class="rows">');
-    for (const n of nodes) {
-      const t = n.task;
-      if (isClosed(t) && !S.showDone && !justDone(t)) continue;
-      if (depth === 0 && t.status === 'someday') continue;   // the icebox has its own view
-      parts.push(rowHtml(t, t.derived, depth));
-      if (n.children && n.children.length) { parts.push('<li class="kids">'); walk(n.children, depth + 1); parts.push('</li>'); }
-    }
-    parts.push('</ul>');
-  };
+  const vis = visibleIn(S.tree);
+  const skip = (t, depth) => depth === 0 && t.status === 'someday';   // the icebox has its own view
   if (!S.tree.length) parts.push('<p class="empty">Nothing here yet. Type below.</p>');
-  else walk(S.tree, 0);
+  else if (vis && !S.tree.some(n => vis.vis.has(n.task.id) && !skip(n.task, 0))) parts.push(noMatch());
+  else walkRows(S.tree, 0, parts, { skip, vis });
   // If the draft's parent vanished (done, deleted), fall back to the root.
   if (S.draft.parent && !byId(S.draft.parent)) S.draft = { parent: null, after: null, depth: 0 };
   const d = S.draft;
@@ -283,13 +401,21 @@ function renderOutline() {
   return parts.join('');
 }
 
+// A story stays in a filtered Next when its root is in the project and any
+// row of it (the story, a now row, a later row) matches the tag or text.
+function storyMatches(p) {
+  const root = byId(p.id); if (!root) return true;
+  if (!matchesProject(root)) return false;
+  if (!S.tag && !S.q) return true;
+  return [p.id, ...p.now.map(i => i.id), ...p.later.map(l => l.id)].some(id => { const t = byId(id); return t && matchesText(t); });
+}
 function renderNext() {
-  const plans = S.plan || [];
+  const plans = (S.plan || []).filter(storyMatches);
   const inHand = pickStackTask();
   const parts = [];
-  if (inHand && !isClosed(inHand)) parts.push(renderPlate(inHand));
+  if (inHand && !isClosed(inHand) && (!filterOn() || matches(inHand))) parts.push(renderPlate(inHand));
   if (!plans.length) {
-    parts.push(inHand ? '' : '<p class="empty">Nothing to do. Add something in the <a href="/" data-view="outline">Outline</a>, or check <a href="/waiting" data-view="waiting">Waiting on</a>.</p>');
+    parts.push(filterOn() ? noMatch() : inHand ? '' : '<p class="empty">Nothing to do. Add something in the <a href="/" data-view="outline">Outline</a>, or check <a href="/waiting" data-view="waiting">Waiting on</a>.</p>');
     return parts.join('');
   }
   // Each story is a stack of plates: what you can do now on top, what is
@@ -337,7 +463,9 @@ function renderNext() {
 
 function renderWaiting() {
   if (!S.waiting.length) return '<p class="empty">Not waiting on anyone.</p>';
-  return S.waiting.map(g => `
+  const groups = S.waiting.map(g => ({ ...g, items: g.items.filter(i => { const t = byId(i.task_id); return t && (matches(t) || (S.q && same(g.person, S.q.trim()) && matchesProject(t))); }) })).filter(g => g.items.length);
+  if (!groups.length) return noMatch();
+  return groups.map(g => `
     <div class="person"><div class="who">${esc(g.person)} <span class="chip">${g.items.length}</span>${g.any_due ? '<span class="chip overdue">follow-up due</span>' : ''}</div>
     <ul class="rows">${g.items.map(i => {
       const t = byId(i.task_id); if (!t) return '';
@@ -350,23 +478,15 @@ function renderWaiting() {
 function renderSomeday() {
   // Parked stories are a real outline — refine the plan here, then revive it.
   // Parked leaves under live parents are just listed.
-  const roots = (S.tree || []).filter(n => n.task.status === 'someday');
-  const leaves = S.all.filter(t => t.status === 'someday' && inCtx(t) && t.parent && byId(t.parent) && byId(t.parent).status !== 'someday');
+  const allRoots = (S.tree || []).filter(n => n.task.status === 'someday');
+  const vis = visibleIn(allRoots);
+  const roots = vis ? allRoots.filter(n => vis.vis.has(n.task.id)) : allRoots;
+  const leaves = S.all.filter(t => t.status === 'someday' && inCtx(t) && t.parent && byId(t.parent) && byId(t.parent).status !== 'someday' && matches(t));
   const parts = [];
-  if (!roots.length && !leaves.length) parts.push('<p class="empty">The icebox is empty. Park a task with <kbd>someday</kbd> in its pane, or add one below.</p>');
-  const walk = (nodes, depth) => {
-    parts.push('<ul class="rows">');
-    for (const n of nodes) {
-      const t = n.task;
-      if (isClosed(t) && !S.showDone) continue;
-      let row = rowHtml(t, t.derived, depth);
-      if (depth === 0) row = row.replace('<span class="meta">', `<span class="meta"><button class="btn small" data-status="todo" data-id="${t.id}" data-cascade="0" title="back into play">revive</button>`);
-      parts.push(row);
-      if (n.children && n.children.length) { parts.push('<li class="kids">'); walk(n.children, depth + 1); parts.push('</li>'); }
-    }
-    parts.push('</ul>');
-  };
-  if (roots.length) { parts.push('<div class="group"><span>parked stories</span><span class="n">' + roots.length + '</span></div>'); walk(roots, 0); }
+  if (!allRoots.length && !leaves.length && !filterOn()) parts.push('<p class="empty">The icebox is empty. Park a task with <kbd>someday</kbd> in its pane, or add one below.</p>');
+  else if (!roots.length && !leaves.length) parts.push(noMatch());
+  const decorate = (row, t, depth) => depth === 0 ? row.replace('<span class="meta">', `<span class="meta"><button class="btn small" data-status="todo" data-id="${t.id}" data-cascade="0" title="back into play">revive</button>`) : row;
+  if (roots.length) { parts.push('<div class="group"><span>parked stories</span><span class="n">' + roots.length + '</span></div>'); walkRows(roots, 0, parts, { decorate, vis }); }
   if (leaves.length) {
     parts.push('<div class="group"><span>parked under live stories</span><span class="n">' + leaves.length + '</span></div><ul class="rows">');
     for (const t of leaves) {
@@ -383,8 +503,8 @@ function renderSomeday() {
 }
 
 function renderDone() {
-  const list = S.all.filter(t => isClosed(t) && inCtx(t)).sort((a, b) => Date.parse(b.completed || 0) - Date.parse(a.completed || 0)).slice(0, 200);
-  if (!list.length) return '<p class="empty">Nothing finished yet.</p>';
+  const list = S.all.filter(t => isClosed(t) && inCtx(t) && matches(t)).sort((a, b) => Date.parse(b.completed || 0) - Date.parse(a.completed || 0)).slice(0, 200);
+  if (!list.length) return filterOn() ? noMatch() : '<p class="empty">Nothing finished yet.</p>';
   return `<ul class="rows">${list.map(t => rowHtml(t, t.derived, 0, { editable: false, crumb: `<span class="crumb">${t.status} ${ago(t.completed)} ago</span>` })).join('')}</ul>`;
 }
 
@@ -462,6 +582,7 @@ function placeCaret(el, atEnd, offset) {
   range.collapse(true); const s = window.getSelection(); s.removeAllRanges(); s.addRange(range);
 }
 function placeFocus(f) {
+  if (f.search) { const s = $('#search'); if (s) { s.focus(); try { s.setSelectionRange(f.offset, f.offset); } catch (_) {} } return; }
   const el = f.pane ? $('#pane .pane-title') : f.id ? $(`#main li[data-id="${f.id}"] .title`) : $('#main .newline .title');
   if (!el) return;
   if (f.text && !el.textContent) { el.textContent = f.text; S.dirty = true; }
@@ -471,6 +592,7 @@ const rowOf = (el) => el.closest('li.row');
 const titleEls = () => [...document.querySelectorAll('#main .title')];
 const caretOffset = (el) => { const s = window.getSelection(); if (!s.rangeCount) return 0; const r = s.getRangeAt(0).cloneRange(); r.selectNodeContents(el); r.setEnd(s.getRangeAt(0).endContainer, s.getRangeAt(0).endOffset); return r.toString().length; };
 function prevSibling(li) { let p = li.previousElementSibling; while (p) { if (p.classList.contains('row')) return p; p = p.previousElementSibling; } return null; }
+function nextSibling(li) { let p = li.nextElementSibling; while (p) { if (p.classList.contains('row')) return p; p = p.nextElementSibling; } return null; }
 
 async function commitTitle(el) {
   const li = rowOf(el); const id = li ? li.dataset.id : el.dataset.title;
@@ -542,8 +664,39 @@ document.addEventListener('click', async (e) => {
     if (a.dataset.ctx !== undefined) return go({ ctx: a.dataset.ctx });
     if (a.dataset.open) return go({ open: a.dataset.open });
   }
+  // Filters: a project pill or a #tag chip anywhere narrows the lists to it
+  // (again clears it); the × on a head chip clears; "clear the filters" clears all.
+  const clear = e.target.closest('[data-clear]');
+  if (clear) { e.preventDefault(); const k = clear.dataset.clear; return go(k === 'all' ? { q: '', project: '', tag: '' } : { [k]: '' }); }
+  const facet = e.target.closest('[data-project], [data-tag]');
+  if (facet && !facet.closest('.props')) {
+    e.preventDefault();
+    if (facet.tagName === 'A' && facet.getAttribute('href')) return goHref(facet.getAttribute('href'));
+    const view = ['outline', 'next', 'waiting', 'someday', 'done'].includes(S.view) ? S.view : 'outline';
+    if (facet.dataset.project !== undefined) return go({ view, project: same(S.project, facet.dataset.project) ? '' : facet.dataset.project });
+    return go({ view, tag: same(S.tag, facet.dataset.tag) ? '' : facet.dataset.tag });
+  }
+  // Fold / unfold a row's subtasks (the chevron, or the "▸ N more" chip).
+  const fold = e.target.closest('[data-fold]');
+  if (fold) { e.preventDefault(); const id = fold.dataset.fold; if (S.collapsed.has(id)) S.collapsed.delete(id); else S.collapsed.add(id); saveCollapsed(); return render(); }
+  // Click-to-move: the grip picks the row up, a slot puts it down.
+  const grip = e.target.closest('.grip');
+  if (grip) { const li = rowOf(grip); const id = li && li.dataset.id; S.moving = S.moving === id ? null : id; return render(); }
+  const slot = e.target.closest('li.slot');
+  if (slot && S.moving) {
+    const id = S.moving, parent = slot.dataset.parent || null;
+    const body = slot.dataset.before ? { parent, before: slot.dataset.before } : { parent, after: slot.dataset.after || null };
+    if (parent) expand(parent);
+    return act(() => api('POST', `/api/v1/tasks/${id}/move`, body), { id, atEnd: true });
+  }
   const b = e.target.closest('button');
   if (!b) return;
+  if (b.hasAttribute('data-move-cancel')) { S.moving = null; return render(); }
+  if (b.dataset.foldAll) {
+    if (b.dataset.foldAll === 'open') S.collapsed.clear();
+    else for (const n of S.tree || []) if (n.children && n.children.length) S.collapsed.add(n.task.id);
+    saveCollapsed(); return render();
+  }
   const id = b.dataset.id || b.dataset.open || b.dataset.chase || b.dataset.reply || b.dataset.wait || b.dataset.addsub || b.dataset.delete;
   if (b.dataset.open) return go({ open: b.dataset.open });
   if (b.hasAttribute('data-close') || b.id === 'pane-toggle') return go({ open: null });
@@ -647,6 +800,10 @@ document.addEventListener('focusin', (e) => {
   if (!el.classList.contains('draft')) el.dataset.original = el.textContent;
 });
 document.addEventListener('input', (e) => { if (e.target.closest('.title, .pane-title, .plate-title, .notes')) S.dirty = true; });
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'search') return;
+  S.q = e.target.value; history.replaceState(null, '', urlFor()); renderContent();
+});
 document.addEventListener('focusout', async (e) => {
   const el = e.target;
   if (el.classList && el.classList.contains('notes')) {
@@ -670,8 +827,11 @@ document.addEventListener('keydown', async (e) => {
     if (btn) { e.preventDefault(); btn.click(); return; }
   }
   const typing = e.target.closest('[contenteditable], input, textarea, select');
+  if (e.key === 'Escape' && e.target.id === 'search') { if (!e.target.value) e.target.blur(); return; }
+  if (e.key === 'Escape' && S.moving) { S.moving = null; return render(); }
   if (e.key === 'Escape' && S.open && !typing) return go({ open: null });
   if (e.key === 'n' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); return quickAdd(); }
+  if (e.key === '/' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey) { const s = $('#search'); if (s) { e.preventDefault(); s.focus(); s.select(); } return; }
   // ▶ with a row focused: start (or stop) it without opening the pane.
   if ((e.ctrlKey || e.metaKey) && e.key === '.' ) {
     const li = e.target.closest && e.target.closest('li.row');
@@ -711,6 +871,7 @@ document.addEventListener('keydown', async (e) => {
       return act(() => api('POST', `/api/v1/tasks/${id}/move`, { parent: parentLi ? parentLi.dataset.parent || null : null, after: parentId }), { id, offset });
     }
     const prev = prevSibling(li); if (!prev) return;
+    expand(prev.dataset.id);
     return act(() => api('POST', `/api/v1/tasks/${id}/move`, { parent: prev.dataset.id, after: null }), { id, offset });
   }
   if (e.key === 'Backspace' && el.textContent.length === 0) {
@@ -718,9 +879,18 @@ document.addEventListener('keydown', async (e) => {
     const rows = titleEls(); const i = rows.indexOf(el); const prev = rows[i - 1];
     if (isDraft && el.closest('.newline')) { if (S.draft.depth) indentBottomDraft(el, true); return; }
     if (isDraft) { const d = el.closest('.draftrow'); if (d) d.remove(); S.dirty = false; if (prev) placeCaret(prev, true); return; }
-    if (li.nextElementSibling && li.nextElementSibling.classList.contains('kids')) return flash('has subtasks; finish or move them first', '');
+    if (+li.dataset.kids > 0) return flash('has subtasks; finish or move them first', '');
     S.dirty = false;
     return act(() => api('DELETE', `/api/v1/tasks/${id}`), prev ? { id: rowOf(prev) ? rowOf(prev).dataset.id : null, atEnd: true } : null);
+  }
+  if (e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp') && !isDraft && id) {
+    // Alt+↑ / Alt+↓: swap with the sibling above / below (the keyboard twin of the grip).
+    e.preventDefault();
+    const sib = e.key === 'ArrowUp' ? prevSibling(li) : nextSibling(li);
+    if (!sib || (sib.dataset.parent || '') !== (li.dataset.parent || '')) return;
+    await commitTitle(el); const offset = caretOffset(el);
+    const body = e.key === 'ArrowUp' ? { parent: li.dataset.parent || null, before: sib.dataset.id } : { parent: li.dataset.parent || null, after: sib.dataset.id };
+    return act(() => api('POST', `/api/v1/tasks/${id}/move`, body), { id, offset });
   }
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     const rows = titleEls(); const i = rows.indexOf(el); const next = rows[i + (e.key === 'ArrowDown' ? 1 : -1)];
@@ -733,6 +903,7 @@ document.addEventListener('keydown', async (e) => {
 // ---------- "first I need to…": a draft line nested under a row ----------
 function insertDraftUnder(id) {
   if (S.view !== 'outline' && S.view !== 'someday') { go({ view: 'outline', open: null }); }
+  expand(id);
   const li = $(`#main li[data-id="${id}"]`); if (!li) return;
   const draft = document.createElement('div');
   draft.className = 'row draftrow'; draft.style.setProperty('--depth', +li.dataset.depth + 1);
@@ -888,6 +1059,7 @@ document.addEventListener('drop', async (e) => {
   const body = zone === 'into' ? { parent: target, after: null }
     : zone === 'before' ? { parent: li.dataset.parent || null, before: target }
     : { parent: li.dataset.parent || null, after: target };
+  if (zone === 'into') expand(target);
   await act(() => api('POST', `/api/v1/tasks/${id}/move`, body), { id, atEnd: true });
 });
 document.addEventListener('dragend', () => { dragId = null; clearDrop(); document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging')); });

@@ -25,7 +25,7 @@ Informal name for a root task with subtasks. Not a type; just how people talk ab
 _Avoid_: epic
 
 **Project**:
-A free-text, coloured label on a root story ("taskstaka", "devops"), inherited by everything under it; several roots may share one. Shown as a pill next to *now*, *in hand* and on Outline roots, so you can tell which piece of work a row belongs to. Not a filter and not a rank, and not a task type: just a label. The colour is chosen when the name first appears and stored on the root.
+A free-text, coloured label on a root story ("taskstaka", "devops"), inherited by everything under it; several roots may share one. Shown as a pill next to *now*, *in hand* and on Outline roots, so you can tell which piece of work a row belongs to. Not a rank and not a task type: just a label — though the web lets you filter the lists to one (click the pill, or the Projects list in the sidebar). The colour is chosen when the name first appears and stored on the root.
 _Avoid_: theme, epic, workspace
 
 **Context**:

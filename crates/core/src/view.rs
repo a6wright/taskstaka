@@ -27,6 +27,10 @@ pub struct TaskView {
     /// Absolute path of the note; only the daemon knows it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<PathBuf>,
+    /// The notes (the body minus its journal lines) rendered from Markdown
+    /// to HTML, for the web. Filled by the daemon; core does not render.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes_html: Option<String>,
 }
 
 impl TaskView {
@@ -45,6 +49,7 @@ impl TaskView {
             ancestry,
             project_tag: crate::project::tag_of(tree, &task.id),
             path,
+            notes_html: None,
         }
     }
 

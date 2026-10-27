@@ -28,6 +28,7 @@ open.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 ratatui.workspace = true
+pulldown-cmark.workspace = true
 rmcp.workspace = true
 
 [dev-dependencies]

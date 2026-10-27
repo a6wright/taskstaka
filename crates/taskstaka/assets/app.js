@@ -15,6 +15,7 @@ const S = {
   q: '', project: '', tag: '',               // filters: free text, one project, one tag (all in the URL)
   collapsed: new Set(),                      // outline: rows whose subtasks are folded away
   moving: null,                              // outline: the row picked up by its grip, waiting for a slot
+  editNotes: null,                           // the task whose notes are open in a textarea (else they render as Markdown)
   // The always-present capture box at the bottom of the outline keeps its
   // indentation across Enters, like Notion: Tab nests it under the row
   // above, and each created task becomes the `after` for the next.
@@ -347,9 +348,21 @@ function rowHtml(t, d, depth, { editable = true, crumb = '', extra = '', dim = f
   </li>`;
 }
 const isJournalLine = (l) => /^- \d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(l);
+const notesOf = (t) => (t.body || '').split('\n').filter(l => !isJournalLine(l)).join('\n').trim();
+// Notes are Markdown; the daemon renders them (`notes_html`). An older
+// daemon without it gets the text, escaped.
+const notesHtml = (t) => t.notes_html !== undefined ? t.notes_html : esc(notesOf(t));
 function noteHtml(t) {
-  const notes = (t.body || '').split('\n').filter(l => !isJournalLine(l)).join('\n').trim();
-  return notes ? `<div class="note">${esc(notes)}</div>` : '';
+  const html = notesHtml(t);
+  return html ? `<div class="note md">${html}</div>` : '';
+}
+// The notes block of the pane and the plate: rendered Markdown that turns
+// into a textarea when clicked, and back when it loses focus (blur saves).
+function notesBlock(t, cls, placeholder, rows) {
+  const notes = notesOf(t);
+  if (S.editNotes === t.id) return `<textarea class="notes ${cls}" data-notes="${t.id}" rows="${rows ? Math.min(12, Math.max(rows, notes.split('\n').length + 1)) : ''}" placeholder="${esc(placeholder)}">${esc(notes)}</textarea>`;
+  const html = notesHtml(t);
+  return `<div class="notes-view md ${cls}" data-edit-notes="${t.id}" title="click to edit">${html || `<span class="ph">${esc(placeholder)}</span>`}</div>`;
 }
 
 // Completed rows stay visible for a few minutes after you tick them (so
@@ -523,8 +536,7 @@ function renderPane() {
   if (d.actionable) facts.push('actionable');
   if (d.resurfaced_at) facts.push('resurfaced ' + ago(d.resurfaced_at) + ' ago');
   if (d.orphaned) facts.push('parent finished');
-  const journal = (t.body || '').split('\n').filter(l => /^- \d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(l));
-  const notes = (t.body || '').split('\n').filter(l => !/^- \d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(l)).join('\n').trim();
+  const journal = (t.body || '').split('\n').filter(isJournalLine);
   const sel = (v, cur) => v === cur ? ' selected' : '';
   const st = t.status;
   const actions = [];
@@ -564,7 +576,7 @@ function renderPane() {
       <ul class="rows subs">${kids.map(k => rowHtml(k, k.derived, 0, { editable: false })).join('')}</ul>
       <div class="inline-form"><input id="sub-title" placeholder="something that must happen before this"><button class="btn" data-addsub="${t.id}">add</button></div>
       <h3>notes</h3>
-      <textarea class="notes" data-notes="${t.id}" placeholder="markdown notes">${esc(notes)}</textarea>
+      ${notesBlock(t, '', 'notes, in Markdown', 0)}
       ${journal.length ? `<h3>activity</h3><ul class="journal">${journal.map(l => {
         const m = l.match(/^- (\d{4}-\d{2}-\d{2} \d{2}:\d{2})(?: \[(\w+)\])? (.*)$/);
         return m ? `<li><span class="when">${m[1]}</span>${m[2] ? `<span class="src">${esc(m[2])}</span>` : ''}${esc(m[3])}</li>` : `<li>${esc(l)}</li>`;
@@ -580,6 +592,11 @@ function placeCaret(el, atEnd, offset) {
   if (!node) range.setStart(el, 0);
   else { const len = node.textContent.length; range.setStart(node, atEnd ? len : Math.min(offset || 0, len)); }
   range.collapse(true); const s = window.getSelection(); s.removeAllRanges(); s.addRange(range);
+}
+function editNotes(id) {
+  S.editNotes = id; render();
+  const ta = $(`textarea[data-notes="${id}"]`); if (!ta) return;
+  ta.focus(); const n = ta.value.length; try { ta.setSelectionRange(n, n); } catch (_) {}
 }
 function placeFocus(f) {
   if (f.search) { const s = $('#search'); if (s) { s.focus(); try { s.setSelectionRange(f.offset, f.offset); } catch (_) {} } return; }
@@ -657,6 +674,11 @@ function indentBottomDraft(el, outdent) {
 
 // ---------- events ----------
 document.addEventListener('click', async (e) => {
+  // Rendered notes: a link opens in a new tab; anywhere else opens the editor.
+  const mdLink = e.target.closest('.md a[href]');
+  if (mdLink) { e.preventDefault(); window.open(mdLink.href, '_blank', 'noopener'); return; }
+  const nv = e.target.closest('[data-edit-notes]');
+  if (nv) { return editNotes(nv.dataset.editNotes); }
   const a = e.target.closest('a[data-view], a[data-ctx], a[data-open]');
   if (a) {
     e.preventDefault();
@@ -809,9 +831,11 @@ document.addEventListener('focusout', async (e) => {
   if (el.classList && el.classList.contains('notes')) {
     S.dirty = false;
     const t = byId(el.dataset.notes); if (!t) return;
-    const journal = (t.body || '').split('\n').filter(l => /^- \d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(l));
+    const journal = (t.body || '').split('\n').filter(isJournalLine);
     const body = (el.value.trim() + (journal.length ? '\n\n' + journal.join('\n') : '')).trim() + '\n';
+    if (S.editNotes === t.id) S.editNotes = null;
     if (body.trim() !== (t.body || '').trim()) await act(() => api('PATCH', '/api/v1/tasks/' + t.id, { body }));
+    else render();
     return;
   }
   const tl = el.closest && el.closest('.title, .pane-title, .plate-title'); if (!tl) return;
@@ -827,6 +851,7 @@ document.addEventListener('keydown', async (e) => {
     if (btn) { e.preventDefault(); btn.click(); return; }
   }
   const typing = e.target.closest('[contenteditable], input, textarea, select');
+  if (e.key === 'Escape' && e.target.matches && e.target.matches('textarea.notes')) { e.target.blur(); return; }
   if (e.key === 'Escape' && e.target.id === 'search') { if (!e.target.value) e.target.blur(); return; }
   if (e.key === 'Escape' && S.moving) { S.moving = null; return render(); }
   if (e.key === 'Escape' && S.open && !typing) return go({ open: null });
@@ -937,7 +962,6 @@ function pickStackTask() {
 const inHandOf = (t) => t.status === 'doing';
 function renderPlate(t) {
   const d = t.derived || {};
-  const notes = (t.body || '').split('\n').filter(l => !isJournalLine(l)).join('\n').trim();
   const closed = isClosed(t);
   const acts = [];
   if (!closed) {
@@ -954,7 +978,7 @@ function renderPlate(t) {
       <h2 class="plate-title" contenteditable="true" spellcheck="false" data-title="${t.id}">${esc(t.title)}</h2>
       ${unlocks}
       <div class="meta">${chips(t, d)}</div>
-      <textarea class="notes plate-notes" data-notes="${t.id}" rows="${Math.min(12, Math.max(3, notes.split('\n').length + 1))}" placeholder="what exactly to do — the command, the link, the draft message">${esc(notes)}</textarea>
+      ${notesBlock(t, 'plate-notes', 'what exactly to do — the command, the link, the draft message', 3)}
       <div class="actions">${acts.join('')}<button class="btn small" data-open="${t.id}">details</button></div>
       <div class="inline-form"><input class="first-title" placeholder="first I need to… (becomes in hand; this one pauses)"><button class="btn" data-first="prompt" data-id="${t.id}">push</button></div>
       <div class="inline-form"><input class="wait-who" placeholder="blocked on someone — who?"><input class="wait-until" placeholder="until (+2d)" style="max-width:110px"><button class="btn" data-wait="${t.id}">wait</button></div>

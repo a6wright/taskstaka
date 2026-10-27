@@ -23,6 +23,7 @@ use taskstaka_core::{Command, Context, Outcome, Priority, Status, TaskId, TaskVi
 use super::AppState;
 use super::error::ApiError;
 use crate::VERSION;
+use crate::markdown;
 
 type S = State<Arc<AppState>>;
 type R<T> = Result<Json<T>, ApiError>;
@@ -139,6 +140,26 @@ struct ListQuery {
     include_closed: bool,
 }
 
+/// Every task the API hands out carries its notes rendered for the web.
+fn render_notes(v: &mut TaskView) {
+    let notes = markdown::notes_of(&v.body);
+    v.notes_html = Some(if notes.is_empty() {
+        String::new()
+    } else {
+        markdown::to_html(&notes)
+    });
+}
+
+fn with_notes(mut v: TaskView) -> TaskView {
+    render_notes(&mut v);
+    v
+}
+
+fn fill_notes(node: &mut TreeNode) {
+    render_notes(&mut node.task);
+    node.children.iter_mut().for_each(fill_notes);
+}
+
 async fn list_tasks(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<TaskView>> {
     let store = s
         .store
@@ -157,6 +178,7 @@ async fn list_tasks(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<TaskView>>
         .filter(|t| parent.as_ref().is_none_or(|p| t.parent.as_ref() == Some(p)))
         .filter(|t| q.include_closed || q.status.is_some() || t.status.is_open())
         .map(|t| TaskView::build(tree, t, &now, store.path_of(&t.id).map(|p| p.to_path_buf())))
+        .map(with_notes)
         .collect();
     Ok(Json(views))
 }
@@ -171,12 +193,12 @@ async fn get_task(State(s): S, Path(id): Path<String>) -> R<TaskView> {
         .tree()
         .get(&id)
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "not_found", id.to_string()))?;
-    Ok(Json(TaskView::build(
+    Ok(Json(with_notes(TaskView::build(
         store.tree(),
         t,
         &Zoned::now(),
         store.path_of(&id).map(|p| p.to_path_buf()),
-    )))
+    ))))
 }
 
 #[derive(Serialize)]
@@ -220,7 +242,11 @@ async fn tree(State(s): S, Query(q): Query<TreeQuery>) -> R<Vec<TreeNode>> {
     Ok(Json(
         roots
             .into_iter()
-            .map(|r| TreeNode::build(tree, r, &now, q.include_closed))
+            .map(|r| {
+                let mut n = TreeNode::build(tree, r, &now, q.include_closed);
+                fill_notes(&mut n);
+                n
+            })
             .collect(),
     ))
 }
@@ -569,12 +595,12 @@ async fn plate(State(s): S, Query(q): Query<PlanQuery>) -> R<Option<PlateView>> 
         taskstaka_core::action::plate(tree, &now, q.context, &RankConfig::default()).map(|p| {
             PlateView {
                 in_hand: p.in_hand,
-                task: TaskView::build(
+                task: with_notes(TaskView::build(
                     tree,
                     p.task,
                     &now,
                     store.path_of(&p.task.id).map(|p| p.to_path_buf()),
-                ),
+                )),
             }
         }),
     ))

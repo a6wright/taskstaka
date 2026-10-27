@@ -150,7 +150,29 @@ function check(cond, what) {
   await page.locator('#toggle-notes').click(); await settle();
   const note = await page.locator('li.row').nth(0).locator('.note').textContent();
   check(/Zone: corp\.internal/.test(note || '') && !/journal line/.test(note || ''), `notes show under the row, journal lines do not ("${(note || '').replace(/\n/g, ' / ')}")`);
+
+  console.log('notes are Markdown');
+  await page.request.patch(base + '/api/v1/tasks/' + dnsId, { data: { body: 'Zone: **corp.internal** — see [the runbook](https://example.com/runbook) and run `dig`.\n\n- [ ] TTLs\n- [x] owner\n\n<b>raw html stays text</b>\n- 2026-10-01 09:00 journal line stays in the pane' } });
+  await settle();
+  const rowNote = page.locator('li.row').nth(0).locator('.note.md');
+  check((await rowNote.locator('strong').count()) === 1 && (await rowNote.locator('a[href="https://example.com/runbook"]').count()) === 1, 'the note under the row renders bold and the link');
+  check(/<b>raw html stays text<\/b>/.test(await rowNote.textContent()), 'raw HTML in a note is shown as text, not interpreted');
   await page.locator('#toggle-notes').click(); await settle();
+  await page.locator('li.row').nth(0).hover();
+  await page.locator('li.row').nth(0).locator('button.openbtn').click(); await settle();
+  const view = page.locator('#pane .notes-view');
+  check((await view.locator('code').textContent()) === 'dig' && (await view.locator('input[type="checkbox"]').count()) === 2 && (await view.locator('input[type="checkbox"]:checked').count()) === 1, 'the pane renders code and the task list');
+  check(!/journal line/.test(await view.textContent()), 'journal lines are not part of the rendered notes');
+  await shot('10-markdown');
+  await view.click(); await settle();
+  const ta = page.locator('#pane textarea.notes');
+  check((await ta.count()) === 1 && /Zone: \*\*corp\.internal\*\*/.test(await ta.inputValue()) && !/journal line/.test(await ta.inputValue()), 'clicking the notes opens the source in a textarea, without the journal');
+  await ta.press('End'); await page.keyboard.type('\n\nAlso *italic*.');
+  await page.locator('.pane-title').click(); await settle();
+  check((await page.locator('#pane textarea.notes').count()) === 0 && (await page.locator('#pane .notes-view em').textContent()) === 'italic', 'leaving the textarea saves and renders again');
+  const saved = await (await page.request.get(base + '/api/v1/tasks/' + dnsId)).json();
+  check(/Also \*italic\*\.\n\n- 2026-10-01 09:00 journal line/.test(saved.body), `the journal line is kept after the notes (${JSON.stringify(saved.body)})`);
+  await page.keyboard.press('Escape'); await settle();
 
   console.log('pane chevron on the boundary');
   const row0 = page.locator('li.row').nth(0);

@@ -2,6 +2,10 @@
 
 Releases are on [GitHub](https://github.com/a6wright/taskstaka/releases).
 
+## 0.1.6 · 2026-10-26
+
+- Notes render as Markdown everywhere they show: the web pane, the plate and under rows (lists, links, `code`, task lists, tables); click the notes to edit the source, click away or <kbd>Esc</kbd> to save. The TUI details pane styles them too. Raw HTML in a note is shown as text.
+
 ## 0.1.5 · 2026-10-26
 
 - Web: a search box (<kbd>/</kbd>) that matches titles, notes, who a task waits on and ids, keeping the ancestors of a match for context.

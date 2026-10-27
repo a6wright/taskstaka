@@ -301,6 +301,8 @@ already holds taskstaka notes uses it as it is. From a terminal the same move is
   parent's box finishes its subtree), end a line with `@Name` to wait on someone.
   Hover a row for `▶ start` and `open`; `Ctrl+.` starts/stops the focused row; `open` (or `Ctrl+Enter`) slides in the pane: properties, subtasks, notes,
   activity, and the wait / chase / reply actions. `Esc` closes it; `\\` or the chevron on the sidebar's edge collapses the sidebar.
+  Notes are Markdown and render as such (lists, links, `code`, task lists); click them to
+  edit the source, click away to save.
   Find things with the search box (`/` focuses it; it matches titles, notes, who a task
   waits on and ids, and keeps the ancestors of a match for context), or narrow every view
   to one project or tag from the sidebar lists, a project pill or a `#tag` chip — the

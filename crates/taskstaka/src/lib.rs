@@ -7,6 +7,7 @@ pub mod args;
 pub mod backend;
 pub mod cli;
 pub mod dates;
+pub mod markdown;
 pub mod mcp;
 pub mod notes_dir;
 pub mod quick;

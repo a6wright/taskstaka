@@ -1225,16 +1225,30 @@ fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
         lines.push(Line::from(spans));
     }
 
-    let body = t.body.trim();
-    if !body.is_empty() {
-        lines.push(Line::from(""));
-        for l in body
-            .lines()
-            .take(area.height.saturating_sub(lines.len() as u16 + 2) as usize)
-        {
-            lines.push(Line::from(l.to_string()));
-        }
+    // Notes are Markdown; the journal (stamped lines) follows them, dimmed.
+    let notes = crate::markdown::to_lines(&crate::markdown::notes_of(&t.body));
+    let journal: Vec<Line> = t
+        .body
+        .lines()
+        .filter(|l| humanize::is_journal_line(l))
+        .map(|l| {
+            Line::from(Span::styled(
+                l.trim().to_string(),
+                Style::default().fg(Color::DarkGray),
+            ))
+        })
+        .collect();
+    let room = area.height.saturating_sub(lines.len() as u16 + 2) as usize;
+    let mut rest = Vec::new();
+    if !notes.is_empty() {
+        rest.push(Line::from(""));
+        rest.extend(notes);
     }
+    if !journal.is_empty() {
+        rest.push(Line::from(""));
+        rest.extend(journal);
+    }
+    lines.extend(rest.into_iter().take(room));
 
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
@@ -1533,6 +1547,27 @@ mod tests {
             "{}",
             lines[base + 3]
         );
+    }
+
+    #[test]
+    fn details_render_notes_as_markdown_then_the_journal() {
+        let (tree, now) = super::super::app::tests::fixture();
+        let tasks = tree.iter().cloned().map(|mut t| {
+            if t.id.as_str() == "ema110" {
+                t.body = "Draft it in **Notion**, cc the `platform-eng` list — see [the policy](https://wiki/dns).\n\n- [x] owner named\n- [ ] rollout window\n\n- 2026-09-29 14:00 [user] draft: hi team, could you approve…\n".into();
+            }
+            t
+        });
+        let mut app = App::new(taskstaka_core::Tree::from_tasks(tasks), None, now);
+        press(&mut app, '2');
+        press(&mut app, ' ');
+        let open = render(&app, 100, 36);
+        assert!(open.contains("Draft it in Notion, cc the platform-eng list"));
+        assert!(open.contains("• ☐ rollout window"));
+        assert!(open.contains("- 2026-09-29 14:00 [user] draft: hi team"));
+        assert!(open.contains("• ☑ owner named"));
+        assert!(open.contains("the policy (https://wiki/dns)"));
+        insta::assert_snapshot!("panel_outline_details_markdown", open);
     }
 
     #[test]

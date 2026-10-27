@@ -288,7 +288,14 @@ pub fn log_text(days: &[taskstaka_core::action::DayLog], now: &Zoned) -> String 
         } else {
             ""
         };
-        let _ = writeln!(out, "{}{rel}  ({})", d.day.strftime("%a %Y-%m-%d"), d.count);
+        let touched = d.count - d.finished;
+        let tally = match (d.finished, touched) {
+            (0, 0) => String::new(),
+            (f, 0) => format!("  ({f} finished)"),
+            (0, t) => format!("  ({t} touched)"),
+            (f, t) => format!("  ({f} finished, {t} touched)"),
+        };
+        let _ = writeln!(out, "{}{rel}{tally}", d.day.strftime("%a %Y-%m-%d"));
         if d.stories.is_empty() {
             let _ = writeln!(out, "  nothing");
         }
@@ -304,10 +311,11 @@ pub fn log_text(days: &[taskstaka_core::action::DayLog], now: &Zoned) -> String 
                 if i.id == s.root_id {
                     continue; // the heading already shows it, ticked
                 }
-                let mark = if i.status == Status::Dropped {
-                    "✗"
-                } else {
-                    "✓"
+                // ✓ finished, ✗ dropped, ✉ only touched (chased, a reply, a wait).
+                let mark = match (i.finished(), i.status) {
+                    (false, _) => "✉",
+                    (true, Status::Dropped) => "✗",
+                    (true, _) => "✓",
                 };
                 let chain = if i.chain.is_empty() {
                     String::new()
@@ -321,12 +329,16 @@ pub fn log_text(days: &[taskstaka_core::action::DayLog], now: &Zoned) -> String 
                             .join(" › ")
                     )
                 };
-                let _ = writeln!(
-                    out,
-                    "    {}{mark} {}{chain}",
-                    "  ".repeat(i.depth.saturating_sub(usize::from(s.root_done))),
-                    i.title
-                );
+                let pad = "  ".repeat(i.depth.saturating_sub(usize::from(s.root_done)));
+                let _ = writeln!(out, "    {pad}{mark} {}{chain}", i.title);
+                for a in &i.activity {
+                    let src = a
+                        .source
+                        .as_deref()
+                        .map(|s| format!(" [{s}]"))
+                        .unwrap_or_default();
+                    let _ = writeln!(out, "    {pad}    {} {}{src}", a.time, a.text);
+                }
             }
         }
     }

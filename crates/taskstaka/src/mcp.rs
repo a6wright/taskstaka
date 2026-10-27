@@ -440,7 +440,7 @@ impl TaskstakaMcp {
     }
 
     #[tool(
-        description = "What was finished on each day, newest day first: the answer to 'what did I do yesterday / today' for standup notes. Each day groups the closed tasks by the story they served (root_title, project_tag), in outline order: an item's `depth` nests it under an ancestor closed the same day and `chain` names the ancestors between the story and the item when they were not closed that day. Quote the story and the chain, never a bare title. `on`=today|yesterday|YYYY-MM-DD for one day, or `since`/`until` for a range (default: the last seven days); `dropped=true` includes dropped tasks."
+        description = "What was finished on each day, newest day first: the answer to 'what did I do yesterday / today' for standup notes. Each day groups the closed tasks by the story they served (root_title, project_tag), in outline order: an item's `depth` nests it under an ancestor closed the same day and `chain` names the ancestors between the story and the item when they were not closed that day. Each item also carries `activity`: that day's people traffic from the journal (waiting on, chased, replied, unblocked, handed off, notes) with time and source; an item with activity but no `completed` was touched, not finished. Quote the story and the chain, never a bare title. `on`=today|yesterday|YYYY-MM-DD for one day, or `since`/`until` for a range (default: the last seven days); `dropped=true` includes dropped tasks."
     )]
     async fn log(&self, Parameters(a): Parameters<LogArgs>) -> Result<String, ErrorData> {
         let ctx = parse_context(a.context)?;

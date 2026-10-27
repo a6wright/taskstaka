@@ -537,25 +537,60 @@ fn classify(t: &Task, d: &Derived, today: Date, soon: Date, now: Timestamp) -> (
 
 // ---------- Day log (CONTEXT: Day log) ----------
 
-/// One finished task in a day's outline.
+/// Something that happened to a task on a day besides finishing it: the
+/// people traffic the journal records (chased, replied, waiting on,
+/// unblocked, handed off) and plain touch notes. "What did I do today"
+/// includes "pinged Bob" and "Sam got back to me".
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Activity {
+    pub kind: ActivityKind,
+    /// Local wall-clock time of the journal line, `HH:MM`.
+    pub time: String,
+    /// The journal line without its date and source tag.
+    pub text: String,
+    /// `[agent]` and the like: who recorded it, if not the user.
+    pub source: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityKind {
+    Chased,
+    Replied,
+    Waiting,
+    Unblocked,
+    HandedOff,
+    Note,
+}
+
+/// One task in a day's outline: finished that day, touched that day, or both.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DayLogItem {
     pub id: TaskId,
     pub title: String,
     pub status: Status,
-    pub completed: Timestamp,
+    /// Set when the task was closed on this day.
+    pub completed: Option<Timestamp>,
     /// The ancestors between the nearest task shown above this one (the story
-    /// heading, or an ancestor that finished the same day) and this task,
-    /// story side first. Drawn dimmed after the title, so a leaf that finished
-    /// alone still says what it was for.
+    /// heading, or an ancestor that is itself an item of the day) and this
+    /// task, story side first. Drawn dimmed after the title, so a leaf that
+    /// finished alone still says what it was for.
     pub chain: Vec<Crumb>,
     /// Indent inside the story's outline for the day: how many ancestors are
     /// themselves items of the same `StoryLog`.
     pub depth: usize,
     pub tags: Vec<String>,
+    /// What happened to it that day, in time order.
+    pub activity: Vec<Activity>,
 }
 
-/// What one story got done on one day, in outline order.
+impl DayLogItem {
+    pub fn finished(&self) -> bool {
+        self.completed.is_some()
+    }
+}
+
+/// What one story saw on one day, in outline order.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StoryLog {
     pub root_id: TaskId,
@@ -566,20 +601,90 @@ pub struct StoryLog {
     pub items: Vec<DayLogItem>,
 }
 
-/// Everything finished on one calendar day, grouped by story.
+/// Everything that happened on one calendar day, grouped by story.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DayLog {
     pub day: Date,
     pub stories: Vec<StoryLog>,
+    /// Items in the day: finished or touched.
     pub count: usize,
+    /// Of those, finished.
+    pub finished: usize,
+}
+
+/// Parse one journal line (`- YYYY-MM-DD HH:MM[ [source]] text`) into its day
+/// and activity. Lines the store writes for its own bookkeeping (`started:`,
+/// `paused:`) are not activity. `None` for anything else in the body.
+pub fn journal_activity(line: &str) -> Option<(Date, Activity)> {
+    let rest = line.strip_prefix("- ")?;
+    let (date, rest) = rest.split_at_checked(10)?;
+    let date: Date = date.parse().ok()?;
+    let rest = rest.strip_prefix(' ')?;
+    let (time, rest) = rest.split_at_checked(5)?;
+    if time.as_bytes().get(2) != Some(&b':') || !time[..2].bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let mut text = rest.trim_start();
+    let mut source = None;
+    if let Some(after) = text.strip_prefix('[')
+        && let Some((src, tail)) = after.split_once(']')
+    {
+        source = Some(src.to_string());
+        text = tail.trim_start();
+    }
+    if text.is_empty() {
+        return None;
+    }
+    let kind = if text.starts_with("chased ") {
+        ActivityKind::Chased
+    } else if text.starts_with("waiting on ") {
+        ActivityKind::Waiting
+    } else if text.starts_with("unblocked:") {
+        ActivityKind::Unblocked
+    } else if text.starts_with("handed off:") {
+        ActivityKind::HandedOff
+    } else if text.starts_with("started:") || text.starts_with("paused:") {
+        return None;
+    } else if [
+        " replied: ",
+        " declined: ",
+        " partially: ",
+        " redirected to ",
+    ]
+    .iter()
+    .any(|m| text.contains(m))
+    {
+        ActivityKind::Replied
+    } else {
+        ActivityKind::Note
+    };
+    Some((
+        date,
+        Activity {
+            kind,
+            time: time.to_string(),
+            text: text.to_string(),
+            source,
+        },
+    ))
+}
+
+/// Per task, per day: when it was finished and what happened to it.
+#[derive(Default)]
+struct DayFacts {
+    completed: Option<Timestamp>,
+    activity: Vec<Activity>,
+    /// Earliest moment of the day for this task, for story order.
+    first: Option<Timestamp>,
 }
 
 /// The day log (CONTEXT: Day log): for every day in `from..=to`, newest
-/// first, the tasks closed that day in the zone of `now`, grouped by story
-/// and kept in outline order so a parent closed by a cascade precedes its
-/// subtasks. A flat list would lose what each row was for, which is the one
-/// thing this view is about. Days with nothing finished are included with an
-/// empty `stories`. Dropped tasks are left out unless `include_dropped`.
+/// first, what happened that day in the zone of `now` — tasks finished and
+/// the journal's people traffic — grouped by story and kept in outline order
+/// so a parent closed by a cascade precedes its subtasks. A flat list would
+/// lose what each row was for, which is the one thing this view is about.
+/// Days with nothing are included with an empty `stories`. Dropped tasks are
+/// left out unless `include_dropped` (their activity still shows).
 pub fn day_log(
     tree: &Tree,
     now: &Zoned,
@@ -589,38 +694,70 @@ pub fn day_log(
     include_dropped: bool,
 ) -> Vec<DayLog> {
     let tz = now.time_zone();
-    let mut by_day: BTreeMap<Date, HashMap<TaskId, Timestamp>> = BTreeMap::new();
+    let mut by_day: BTreeMap<Date, HashMap<TaskId, DayFacts>> = BTreeMap::new();
     for t in tree.iter() {
-        let keep = match t.status {
+        if !in_context(tree, t, ctx) {
+            continue;
+        }
+        let finished_shown = match t.status {
             Status::Done => true,
             Status::Dropped => include_dropped,
             _ => false,
         };
-        if !keep || !in_context(tree, t, ctx) {
-            continue;
+        // A closed note without `completed` was edited by hand; it has no day.
+        if finished_shown && let Some(c) = t.completed {
+            let day = c.to_zoned(tz.clone()).date();
+            if (from..=to).contains(&day) {
+                let f = by_day
+                    .entry(day)
+                    .or_default()
+                    .entry(t.id.clone())
+                    .or_default();
+                f.completed = Some(c);
+                f.first = Some(f.first.map_or(c, |x| x.min(c)));
+            }
         }
-        // A closed task without `completed` was edited by hand; it has no day.
-        let Some(c) = t.completed else { continue };
-        let day = c.to_zoned(tz.clone()).date();
-        if day < from || day > to {
-            continue;
+        for line in t.body.lines() {
+            let Some((day, act)) = journal_activity(line) else {
+                continue;
+            };
+            if !(from..=to).contains(&day) {
+                continue;
+            }
+            let at = day
+                .at(
+                    act.time[..2].parse().unwrap_or(0),
+                    act.time[3..].parse().unwrap_or(0),
+                    0,
+                    0,
+                )
+                .to_zoned(tz.clone())
+                .map(|z| z.timestamp())
+                .unwrap_or_else(|_| now.timestamp());
+            let f = by_day
+                .entry(day)
+                .or_default()
+                .entry(t.id.clone())
+                .or_default();
+            f.first = Some(f.first.map_or(at, |x| x.min(at)));
+            f.activity.push(act);
         }
-        by_day.entry(day).or_default().insert(t.id.clone(), c);
     }
     let mut out = Vec::new();
     let mut day = to;
     while day >= from {
         let picked = by_day.remove(&day).unwrap_or_default();
-        // Stories in the order of their earliest completion that day.
+        // Stories in the order of their earliest moment that day.
         let mut roots: Vec<(Timestamp, TaskId)> = Vec::new();
-        for (id, c) in &picked {
+        for (id, f) in &picked {
             let root = tree
                 .root_of(id)
                 .map(|r| r.id.clone())
                 .unwrap_or_else(|| id.clone());
+            let at = f.first.unwrap_or_else(|| now.timestamp());
             match roots.iter_mut().find(|(_, r)| *r == root) {
-                Some(e) => e.0 = e.0.min(*c),
-                None => roots.push((*c, root)),
+                Some(e) => e.0 = e.0.min(at),
+                None => roots.push((at, root)),
             }
         }
         roots.sort();
@@ -633,15 +770,21 @@ pub fn day_log(
                 root_id: root.clone(),
                 root_title: r.title.clone(),
                 project_tag: crate::project::tag_of(tree, &root),
-                root_done: picked.contains_key(&root),
+                root_done: picked.get(&root).is_some_and(|f| f.completed.is_some()),
                 items,
             });
         }
         let count = stories.iter().map(|s| s.items.len()).sum();
+        let finished = stories
+            .iter()
+            .flat_map(|s| &s.items)
+            .filter(|i| i.finished())
+            .count();
         out.push(DayLog {
             day,
             stories,
             count,
+            finished,
         });
         day = match day.yesterday() {
             Ok(d) => d,
@@ -656,13 +799,14 @@ pub fn day_log(
 fn walk_day_log(
     tree: &Tree,
     id: &TaskId,
-    picked: &HashMap<TaskId, Timestamp>,
+    picked: &HashMap<TaskId, DayFacts>,
     path: &mut Vec<(Crumb, bool)>,
     items: &mut Vec<DayLogItem>,
 ) {
     let Some(t) = tree.get(id) else { return };
-    let is_item = picked.contains_key(id);
-    if is_item {
+    let facts = picked.get(id);
+    let is_item = facts.is_some();
+    if let Some(f) = facts {
         let depth = path.iter().filter(|(_, item)| *item).count();
         // The chain starts after the nearest shown ancestor: the last one
         // that is an item, else the root (the story heading shows it).
@@ -672,14 +816,17 @@ fn walk_day_log(
             .map(|i| i + 1)
             .unwrap_or(1)
             .min(path.len());
+        let mut activity = f.activity.clone();
+        activity.sort_by(|a, b| a.time.cmp(&b.time));
         items.push(DayLogItem {
             id: id.clone(),
             title: t.title.clone(),
             status: t.status,
-            completed: picked[id],
+            completed: f.completed,
             chain: path[cut..].iter().map(|(c, _)| c.clone()).collect(),
             depth,
             tags: t.tags.clone(),
+            activity,
         });
     }
     path.push((
@@ -1052,6 +1199,60 @@ mod tests {
         assert!(
             day_log(&fx.tree, &fx.now, None, today, date(2026, 9, 28), false).is_empty(),
             "from after to is empty"
+        );
+    }
+
+    #[test]
+    fn day_log_includes_the_journal_people_traffic_under_the_task() {
+        let mut fx = Fx::new();
+        fx_add(&mut fx, "stry00", None, Status::Todo, 48);
+        fx_add(&mut fx, "wa1t00", Some("stry00"), Status::Waiting, 30);
+        fx.set("wa1t00", |t| {
+            t.waiting_on = Some("Bob".into());
+            t.body = "Ask about the zone.\n\n- 2026-09-28 09:10 waiting on Bob; follow up 2026-09-30\n- 2026-09-29 14:02 [agent] chased Bob; follow up 2026-10-01: pinged on Teams\n- 2026-09-29 16:30 Bob replied: zone is fine\n- 2026-09-29 16:31 started: next after x\n- 2026-09-29 16:40 talked to Sam about it\n".into();
+        });
+        done_at(&mut fx, "eaf000", Some("stry00"), "2026-09-29T10:00:00Z");
+        fx.set("eaf000", |t| {
+            t.body = "- 2026-09-29 08:00 unblocked: no longer waiting on Ann\n".into()
+        });
+        let log = day_log(
+            &fx.tree,
+            &fx.now,
+            None,
+            date(2026, 9, 28),
+            date(2026, 9, 29),
+            false,
+        );
+        let today = &log[0];
+        assert_eq!((today.count, today.finished), (2, 1));
+        let s = &today.stories[0];
+        let leaf = s.items.iter().find(|i| i.title == "eaf000").unwrap();
+        assert!(leaf.finished());
+        assert_eq!(leaf.activity.len(), 1);
+        assert_eq!(leaf.activity[0].kind, ActivityKind::Unblocked);
+        let w = s.items.iter().find(|i| i.title == "wa1t00").unwrap();
+        assert!(!w.finished(), "touched, not finished");
+        assert_eq!(
+            w.activity
+                .iter()
+                .map(|a| (a.kind, a.time.as_str(), a.source.as_deref()))
+                .collect::<Vec<_>>(),
+            [
+                (ActivityKind::Chased, "14:02", Some("agent")),
+                (ActivityKind::Replied, "16:30", None),
+                (ActivityKind::Note, "16:40", None),
+            ],
+            "started: lines are bookkeeping, not activity"
+        );
+        assert_eq!(
+            w.activity[0].text,
+            "chased Bob; follow up 2026-10-01: pinged on Teams"
+        );
+        let yesterday = &log[1];
+        assert_eq!((yesterday.count, yesterday.finished), (1, 0));
+        assert_eq!(
+            yesterday.stories[0].items[0].activity[0].kind,
+            ActivityKind::Waiting
         );
     }
 }

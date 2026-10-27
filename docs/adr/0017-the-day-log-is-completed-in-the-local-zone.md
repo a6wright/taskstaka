@@ -26,7 +26,14 @@ draft: "how are we maintaining which part of the tree an individual task corresp
    (`chain`). The month grid counts per story, not per task. The data shape
    (`DayLog → StoryLog → DayLogItem{depth, chain}`) is the same in core, the API, the CLI
    text, the MCP JSON and the browser's own bucketing.
-4. **The web's week is the seven days ending on the anchor** (today by default), not a
+4. **The journal is the record of the day's people traffic.** "What did I do today"
+   includes "pinged Bob" and "Sam got back to me". The store already journals a wait, a
+   chase, a reply, an unblock and a handoff as dated lines in the note (local date and
+   time, no zone, `[source]` when an agent did it), so the day log parses those lines
+   (`action::journal_activity`) and shows them under the task, finished or not; a task
+   only touched that day is marked `✉`. `started:` and `paused:` lines are the store's
+   bookkeeping and stay out. Plain touch notes count as activity. No new storage.
+5. **The web's week is the seven days ending on the anchor** (today by default), not a
    Monday-aligned week, so yesterday is always in view — on a Monday too. The month grid is
    calendar-aligned.
 

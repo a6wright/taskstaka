@@ -169,7 +169,7 @@ fn log_lists_what_was_finished_today_as_an_outline() {
         .args(["log", "--on", "today"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("· today  (1)"))
+        .stdout(predicate::str::contains("· today  (1 finished)"))
         .stdout(predicate::str::contains("  Ship auth story\n"))
         .stdout(predicate::str::contains(
             "    ✓ Drop old column  › Write migration",
@@ -178,7 +178,7 @@ fn log_lists_what_was_finished_today_as_an_outline() {
         .args(["log", "--on", "yesterday"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("· yesterday  (0)\n  nothing"));
+        .stdout(predicate::str::contains("· yesterday\n  nothing"));
     // Finishing the parent too: it nests the step under it, no chain.
     env.cmd().args(["done", &mig]).assert().success();
     env.cmd()
@@ -192,7 +192,26 @@ fn log_lists_what_was_finished_today_as_an_outline() {
     let days: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(days.as_array().unwrap().len(), 7, "a week by default");
     assert_eq!(days[0]["count"], 2);
+    assert_eq!(days[0]["finished"], 2);
     assert_eq!(days[0]["stories"][0]["items"][1]["depth"], 1);
+    // People traffic shows under the task it happened on, finished or not.
+    let ask = env.add(&["Ask Dana for the keys", "-p", &story]);
+    env.cmd().args(["wait", &ask, "Dana"]).assert().success();
+    env.cmd()
+        .args(["chase", &ask, "pinged", "on", "Teams"])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["log", "--on", "today"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("(2 finished, 1 touched)"))
+        .stdout(predicate::str::contains("    ✉ Ask Dana for the keys\n"))
+        .stdout(predicate::str::is_match(r"\d\d:\d\d waiting on Dana; follow up").unwrap())
+        .stdout(
+            predicate::str::is_match(r"\d\d:\d\d chased Dana; follow up [-0-9]+: pinged on Teams")
+                .unwrap(),
+        );
     env.cmd()
         .args(["log", "--since", "tomorrow"])
         .assert()

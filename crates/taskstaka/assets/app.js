@@ -286,10 +286,11 @@ function inCtx(t) {
 
 function renderMain() {
   const sum = S.next ? S.next.summary : null;
-  const line = !sum ? '' : sum.open === 0 ? 'nothing open'
+  let line = !sum ? '' : sum.open === 0 ? 'nothing open'
     : sum.actionable === 0 ? `<strong>nothing actionable</strong> · ${sum.blocked} blocked · ${sum.waiting} waiting — go unblock something`
     : `${sum.actionable} actionable · ${sum.doing} doing · ${sum.blocked} blocked · ${sum.waiting} waiting · ${sum.someday} someday`;
   const v = VIEWS[S.view];
+  if (S.view === 'done') line = '';   // the day nav takes the room; the counts are per day
   const listView = ['outline', 'next', 'waiting', 'someday', 'done'].includes(S.view);
   const anyKids = S.view === 'outline' && (S.tree || []).some(n => n.children && n.children.length);
   const allFolded = anyKids && (S.tree || []).every(n => !(n.children && n.children.length) || S.collapsed.has(n.task.id));
@@ -545,36 +546,61 @@ function renderSomeday() {
 // story, a parent before the subtasks it closed with, and the ancestors between
 // the story and a lone leaf as a dimmed chain. The same shape as the daemon's
 // /api/v1/log, computed here from the tasks already loaded so the filters apply.
+// A journal line is `- YYYY-MM-DD HH:MM [source] text`; the people traffic
+// (chased, replied, waiting on, unblocked, handed off) and plain notes are
+// activity; `started:` / `paused:` are the store's own bookkeeping.
+const JOURNAL = /^- (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})(?: \[([^\]]*)\])? (.*)$/;
+function journalActivity(line) {
+  const m = JOURNAL.exec(line); if (!m) return null;
+  const text = m[4].trim(); if (!text) return null;
+  let kind = 'note';
+  if (text.startsWith('chased ')) kind = 'chased';
+  else if (text.startsWith('waiting on ')) kind = 'waiting';
+  else if (text.startsWith('unblocked:')) kind = 'unblocked';
+  else if (text.startsWith('handed off:')) kind = 'handed_off';
+  else if (text.startsWith('started:') || text.startsWith('paused:')) return null;
+  else if ([' replied: ', ' declined: ', ' partially: ', ' redirected to '].some(k => text.includes(k))) kind = 'replied';
+  return { day: m[1], time: m[2], source: m[3] || null, text, kind };
+}
 function dayLogFor(iso) {
-  const picked = new Map();
+  const picked = new Map();   // id → { t, completed, activity, first }
+  const fact = (t) => { let f = picked.get(t.id); if (!f) { f = { t, completed: null, activity: [], first: Infinity }; picked.set(t.id, f); } return f; };
   for (const t of S.all) {
-    if (!(t.status === 'done' || (S.showDropped && t.status === 'dropped'))) continue;
-    if (!t.completed || !inCtx(t) || !matches(t)) continue;
-    if (localIso(new Date(Date.parse(t.completed))) !== iso) continue;
-    picked.set(t.id, t);
+    if (!inCtx(t) || !matches(t)) continue;
+    const finishedShown = t.status === 'done' || (S.showDropped && t.status === 'dropped');
+    if (finishedShown && t.completed && localIso(new Date(Date.parse(t.completed))) === iso) {
+      const f = fact(t), c = Date.parse(t.completed); f.completed = t.completed; f.first = Math.min(f.first, c);
+    }
+    for (const line of (t.body || '').split('\n')) {
+      const a = journalActivity(line); if (!a || a.day !== iso) continue;
+      const f = fact(t); f.activity.push(a); f.first = Math.min(f.first, Date.parse(`${iso}T${a.time}:00`));
+    }
   }
-  const roots = new Map();   // root id → earliest completion that day
-  for (const t of picked.values()) {
-    const rid = (t.ancestry && t.ancestry[0]) || t.id, c = Date.parse(t.completed);
-    if (!roots.has(rid) || c < roots.get(rid)) roots.set(rid, c);
+  for (const f of picked.values()) f.activity.sort((a, b) => a.time.localeCompare(b.time));
+  const roots = new Map();   // root id → earliest moment that day
+  for (const f of picked.values()) {
+    const t = f.t, rid = (t.ancestry && t.ancestry[0]) || t.id;
+    if (!roots.has(rid) || f.first < roots.get(rid)) roots.set(rid, f.first);
   }
   const stories = [...roots.entries()].sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1)).map(([rid]) => {
     const root = byId(rid) || { id: rid, title: rid, project_tag: null };
     const items = [];
     const walk = (t, path) => {
-      const isItem = picked.has(t.id);
+      const f = picked.get(t.id), isItem = !!f;
       if (isItem) {
         const depth = path.filter(p => p.item).length;
         let cut = 1; path.forEach((p, i) => { if (p.item) cut = i + 1; }); cut = Math.min(cut, path.length);
-        items.push({ t, depth, chain: path.slice(cut).map(p => ({ id: p.id, title: p.title })) });
+        items.push({ t, depth, chain: path.slice(cut).map(p => ({ id: p.id, title: p.title })), completed: f.completed, finished: !!f.completed, activity: f.activity });
       }
       const next = [...path, { id: t.id, title: t.title, item: isItem }];
       for (const k of childrenOf(t.id)) walk(k, next);
     };
     walk(root, []);
-    return { root_id: rid, root_title: root.title, project_tag: root.project_tag, root_done: picked.has(rid), items };
+    const rootFact = picked.get(rid);
+    return { root_id: rid, root_title: root.title, project_tag: root.project_tag, root_done: !!(rootFact && rootFact.completed), items };
   });
-  return { day: iso, stories, count: stories.reduce((n, s) => n + s.items.length, 0) };
+  const all = stories.flatMap(s => s.items);
+  return { day: iso, stories, count: all.length, finished: all.filter(i => i.finished).length };
 }
 const anchorDay = () => S.day || today();
 function spanLabel() {
@@ -589,10 +615,13 @@ function renderDone() {
 function storiesHtml(l) {
   return l.stories.map(s => `<div class="dstory">
     <div class="story-head">${s.root_done ? '<span class="mark done" title="the story itself was finished">✓</span>' : ''}${pill(s.project_tag)}<a href="#" data-open="${s.root_id}" class="story-title">${esc(s.root_title)}</a></div>
-    <ul class="rows">${s.items.filter(i => i.t.id !== s.root_id).map(i => {
-      const dropped = i.t.status === 'dropped';
+    <ul class="rows">${s.items.filter(i => i.t.id !== s.root_id || i.activity.length).map(i => {
+      const dropped = i.finished && i.t.status === 'dropped', touched = !i.finished;
       const chain = i.chain.length ? `<span class="crumb" title="under: ${esc(i.chain.map(c => c.title).join(' › '))}">› ${i.chain.map(c => esc(c.title)).join(' › ')}</span>` : '';
-      return `<li class="row compact daylog-row ${dropped ? 'dropped' : ''} ${S.open === i.t.id ? 'selected' : ''}" data-id="${i.t.id}" style="--depth:${Math.max(0, i.depth - (s.root_done ? 1 : 0))}"><span class="mark" title="finished at ${hhmm(i.t.completed)}">${dropped ? '✗' : '✓'}</span><span class="title"><a href="#" data-open="${i.t.id}">${esc(i.t.title)}</a>${chain}</span></li>`;
+      const acts = i.activity.map(a => `<div class="act ${a.kind}"><span class="at">${a.time}</span>${esc(a.text)}${a.source ? `<span class="src">[${esc(a.source)}]</span>` : ''}</div>`).join('');
+      const mark = touched ? '✉' : dropped ? '✗' : '✓';
+      const isRoot = i.t.id === s.root_id;
+      return `<li class="row compact daylog-row ${dropped ? 'dropped' : ''} ${touched ? 'touched' : ''} ${isRoot ? 'is-root' : ''} ${S.open === i.t.id ? 'selected' : ''}" data-id="${i.t.id}" style="--depth:${Math.max(0, i.depth - (s.root_done ? 1 : 0))}"><span class="mark" title="${touched ? 'touched, not finished' : 'finished at ' + hhmm(i.completed)}">${mark}</span><span class="title">${isRoot ? '<span class="crumb">the story itself</span>' : `<a href="#" data-open="${i.t.id}">${esc(i.t.title)}</a>${chain}`}${acts}</span></li>`;
     }).join('')}</ul></div>`).join('');
 }
 function renderDoneWeek() {
@@ -604,7 +633,7 @@ function renderDoneWeek() {
     const iso = addDays(start, i), l = dayLogFor(iso); total += l.count;
     const rel = iso === tod ? 'today' : iso === yest ? 'yesterday' : '';
     return `<section class="day ${iso === tod ? 'today' : ''} ${iso === anchor ? 'anchor' : ''} ${l.count ? '' : 'none'}" data-day="${iso}">
-      <header><span class="dname">${fmtDay(iso)}</span>${rel ? `<span class="rel">${rel}</span>` : ''}<span class="sp"></span>${l.count ? `<span class="n">${l.count}</span>` : ''}<button class="copy" data-copy-day="${iso}" title="copy this day as Markdown, for standup">⎘</button></header>
+      <header><span class="dname">${fmtDay(iso)}</span>${rel ? `<span class="rel">${rel}</span>` : ''}<span class="sp"></span>${l.count ? `<span class="n" title="${l.finished} finished${l.count - l.finished ? ', ' + (l.count - l.finished) + ' touched' : ''}">${l.finished ? '✓ ' + l.finished : ''}${l.count - l.finished ? (l.finished ? ' · ' : '') + '✉ ' + (l.count - l.finished) : ''}</span><button class="copy" data-copy-day="${iso}" title="copy this day as Markdown, for standup">⎘</button>` : ''}</header>
       ${l.count ? storiesHtml(l) : '<p class="none">—</p>'}
     </section>`;
   }).join('');
@@ -632,10 +661,12 @@ function dayText(iso) {
   for (const s of l.stories) {
     out.push(`- **${s.root_title}**${s.root_done ? ' ✓' : ''}`);
     for (const i of s.items) {
-      if (i.t.id === s.root_id) continue;
       const pad = '  '.repeat(1 + Math.max(0, i.depth - (s.root_done ? 1 : 0)));
-      const chain = i.chain.length ? ` (› ${i.chain.map(c => c.title).join(' › ')})` : '';
-      out.push(i.t.status === 'dropped' ? `${pad}- ~~${i.t.title}~~ (dropped)${chain}` : `${pad}- [x] ${i.t.title}${chain}`);
+      if (i.t.id !== s.root_id) {
+        const chain = i.chain.length ? ` (› ${i.chain.map(c => c.title).join(' › ')})` : '';
+        out.push(!i.finished ? `${pad}- ✉ ${i.t.title}${chain}` : i.t.status === 'dropped' ? `${pad}- ~~${i.t.title}~~ (dropped)${chain}` : `${pad}- [x] ${i.t.title}${chain}`);
+      } else if (!i.activity.length) continue;
+      for (const a of i.activity) out.push(`${i.t.id === s.root_id ? pad : pad + '  '}- ${a.time} ${a.text}${a.source ? ' [' + a.source + ']' : ''}`);
     }
   }
   return out.join('\n') + '\n';

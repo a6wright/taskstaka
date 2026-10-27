@@ -73,7 +73,7 @@ Ids are six characters; any unique prefix works. `--json` on anything gives mach
 
 **Next** shows the plate on top with editable notes and *done*, *put back*, *first I need to…* and *wait* actions, then each story as a stack. Hover a row for *start* and *open*; *open* slides in a pane with properties, subtasks, notes and history. <kbd>Esc</kbd> closes it. The pages work at half width and on a phone.
 
-**Done** is the day log, for "what did I do yesterday / today": the seven days ending today as columns, each day grouped by story with the finished tasks nested as they were in the outline (a task finished on its own shows the `› parent` chain back to its story). <kbd>‹</kbd> <kbd>›</kbd> slide a week, *month* shows a grid with one line per story per day, <kbd>⎘</kbd> copies a day as Markdown for standup notes, *✗ dropped* includes dropped tasks. The same thing from a terminal: `taskstaka log`, `taskstaka log --on yesterday`.
+**Done** is the day log, for "what did I do yesterday / today": the seven days ending today as columns, each day grouped by story with the finished tasks nested as they were in the outline (a task finished on its own shows the `› parent` chain back to its story). <kbd>‹</kbd> <kbd>›</kbd> slide a week, *month* shows a grid with one line per story per day, <kbd>⎘</kbd> copies a day as Markdown for standup notes, *✗ dropped* includes dropped tasks. The day's people traffic shows under the task it happened on — who you started waiting on, who you chased, who got back to you — and a task you only touched that day is marked ✉. The same thing from a terminal: `taskstaka log`, `taskstaka log --on yesterday`.
 
 ## The TUI
 

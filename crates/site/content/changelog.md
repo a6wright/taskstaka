@@ -4,7 +4,7 @@ Releases are on [GitHub](https://github.com/a6wright/taskstaka/releases).
 
 ## 0.1.7 · 2026-10-26
 
-- **Done is a day log** — "what did I do yesterday / today?" for standup. The seven days ending today as columns, each day grouped by story with the finished tasks nested as they were in the outline; a task finished on its own shows the `› parent` chain back to its story. <kbd>‹</kbd> <kbd>›</kbd> slide a week, *month* shows a grid with one line per story per day, <kbd>⎘</kbd> copies a day as Markdown, *✗ dropped* includes dropped tasks.
+- **Done is a day log** — "what did I do yesterday / today?" for standup. The seven days ending today as columns, each day grouped by story with the finished tasks nested as they were in the outline; a task finished on its own shows the `› parent` chain back to its story. <kbd>‹</kbd> <kbd>›</kbd> slide a week, *month* shows a grid with one line per story per day, <kbd>⎘</kbd> copies a day as Markdown, *✗ dropped* includes dropped tasks. The day's people traffic is there too: waits started, chases and replies under the task they happened on (✉ marks a task you only touched).
 - `taskstaka log` (`--on yesterday`, `--since -6d`, `--dropped`, `--json`) prints the same outline in the terminal; the MCP server gets a `log` tool for agents writing standup notes. Dates accept `yesterday` and `-Nd`.
 - Web: a change arriving while the page was refreshing could leave the list behind the sidebar until the next change; the refresh now notices and reloads.
 

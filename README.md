@@ -306,7 +306,9 @@ already holds taskstaka notes uses it as it is. From a terminal the same move is
   story with the finished tasks nested as they were in the outline (a leaf finished on its
   own shows the `› parent` chain back to its story), `‹ ›` slide a week, `month` shows a
   grid with one line per story per day, `⎘` copies a day as Markdown for standup, and
-  `✗ dropped` includes dropped tasks. `taskstaka log --on yesterday` prints the same thing.
+  `✗ dropped` includes dropped tasks. The day's people traffic is there too: who you
+  started waiting on, who you chased, who got back to you, under the task it happened on
+  (`✉` marks a task you only touched). `taskstaka log --on yesterday` prints the same thing.
   Notes are Markdown and render as such (lists, links, `code`, task lists); click them to
   edit the source, click away to save.
   Find things with the search box (`/` focuses it; it matches titles, notes, who a task
@@ -368,7 +370,8 @@ The MCP server gives an agent everything to keep the list honest for you: `waiti
 `source="agent"`), `record_reply` (answered / declined / partial / redirected, with a
 summary), and `waiting_ref` links back to the conversation. `log` (`on=yesterday`, or
 `since`/`until`) returns what was finished on each day grouped by story and nested as in
-the outline, so an agent can write standup notes that say what each task was for. Nothing
+the outline, with the day's chases, replies and waits under each task, so an agent can
+write standup notes that say what each task was for and who was involved. Nothing
 sends messages; agents draft, you send.
 
 A daily routine with the taskstaka MCP and a messages MCP (Teams, Slack, mail):

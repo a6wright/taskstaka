@@ -365,6 +365,11 @@ let page;   // hoisted so a failure can leave a screenshot and the rows it saw
   const openId = await mk('Open parent', standup);
   const loneId = await mk('Lone leaf', openId);
   const goneId = await mk('Old idea', standup);
+  // People traffic: a wait, a chase and a reply all land in the day log under the task.
+  const askId = await mk('Ask Dana for the keys', standup);
+  await page.request.post(`${base}/api/v1/tasks/${askId}/status`, { data: { status: 'waiting', waiting_on: 'Dana' } });
+  await page.request.post(`${base}/api/v1/tasks/${askId}/chase`, { data: { note: 'pinged on Teams', source: 'agent' } });
+  await page.request.post(`${base}/api/v1/tasks/${askId}/reply`, { data: { outcome: { kind: 'answered' }, summary: 'keys are in the drawer' } });
   await finish(planId); await finish(loneId); await finish(goneId, 'dropped'); await finish(writeId);
   // Backdate "Write the notes" to yesterday noon by editing its note, then reload.
   const yest = new Date(); yest.setDate(yest.getDate() - 1); yest.setHours(12, 0, 0, 0);
@@ -383,7 +388,12 @@ let page;   // hoisted so a failure can leave a screenshot and the rows it saw
   check(heads.includes('Standup story') && heads.length >= 2 && new Set(heads).size === heads.length, `today's work is grouped under its stories, one block each (${heads.join(' | ')})`);
   const block = col(todayIso).locator('.dstory', { has: page.locator('.story-title', { hasText: 'Standup story' }) });
   const tTitles = await block.locator('.daylog-row .title a').allTextContents();
-  check(tTitles.join('|') === 'Plan the sprint|Pick the stories|Lone leaf', `outline order, parent before the subtask it closed with (${tTitles.join(' | ')})`);
+  check(tTitles.join('|') === 'Plan the sprint|Pick the stories|Lone leaf|Ask Dana for the keys', `outline order, parent before the subtask it closed with (${tTitles.join(' | ')})`);
+  const danaRow = block.locator('.daylog-row', { hasText: 'Ask Dana' });
+  const acts = await danaRow.locator('.act').allTextContents();
+  check((await danaRow.locator('.mark').textContent()) === '✉' && acts.length === 3 && /waiting on Dana/.test(acts[0]) && /chased Dana.*pinged on Teams.*\[agent\]/.test(acts[1]) && /Dana replied: keys are in the drawer/.test(acts[2]), `a task you only touched shows ✉ with the wait, the ping and the reply under it (${acts.join(' | ')})`);
+  const tally = await col(todayIso).locator('header .n').textContent();
+  check(/^✓ \d+ · ✉ \d+$/.test(tally), `the day header tallies finished and touched ("${tally}")`);
   const pickDepth = await block.locator('.daylog-row', { hasText: 'Pick the stories' }).evaluate(e => e.style.getPropertyValue('--depth').trim());
   check(pickDepth === '1', `the subtask nests under its parent (depth ${pickDepth})`);
   const loneCrumb = await block.locator('.daylog-row', { hasText: 'Lone leaf' }).locator('.crumb').textContent();
@@ -402,12 +412,12 @@ let page;   // hoisted so a failure can leave a screenshot and the rows it saw
   await page.locator('[data-span="month"]').click(); await settle();
   const cell = page.locator(`section.cell[data-day="${todayIso}"]`);
   const mline = cell.locator('.mline', { hasText: 'Standup story' });
-  check(/span=month/.test(page.url()) && (await mline.count()) === 1 && (await mline.locator('.mn').textContent()) === '3' && (await cell.locator('.mline').count()) === heads.length, 'the month grid shows one line per story with its count');
+  check(/span=month/.test(page.url()) && (await mline.count()) === 1 && (await mline.locator('.mn').textContent()) === '4' && (await cell.locator('.mline').count()) === heads.length, 'the month grid shows one line per story with its count');
   await shot('12-done-month');
   await cell.locator('.dnum').click(); await settle();
   check((await page.locator('.daylog.week').count()) === 1 && !/span=/.test(page.url()), 'clicking a day opens its week');
   const md = await page.evaluate((d) => window.dayText(d), todayIso);
-  check(/^### /.test(md) && md.includes('- **Standup story**') && md.includes('\n  - [x] Plan the sprint\n    - [x] Pick the stories\n') && md.includes('- [x] Lone leaf (› Open parent)'), `copy gives nested Markdown for standup:\n${md.replace(/^/gm, '      ')}`);
+  check(/^### /.test(md) && md.includes('- **Standup story**') && md.includes('\n  - [x] Plan the sprint\n    - [x] Pick the stories\n') && md.includes('- [x] Lone leaf (› Open parent)') && /- ✉ Ask Dana for the keys\n    - \d\d:\d\d waiting on Dana/.test(md) && /chased Dana.*\[agent\]/.test(md), `copy gives nested Markdown for standup, people traffic included:\n${md.replace(/^/gm, '      ')}`);
   await page.locator('#search').fill('lone'); await settle();
   check((await col(todayIso).locator('.daylog-row .title a').allTextContents()).join('|') === 'Lone leaf' && (await col(todayIso).locator('.dstory').count()) === 1, 'the search narrows the columns to the match, under its story');
   await page.locator('#search').fill('zzz-nothing'); await settle();

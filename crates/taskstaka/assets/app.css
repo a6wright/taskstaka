@@ -188,7 +188,8 @@ button { cursor: pointer; }
 /* ---- the day log (Done): a week of columns, each day the outline it came
    from — a story heading, then its finished tasks nested as they were ---- */
 .content.wide { max-width: none; }
-.daynav { display: inline-flex; align-items: center; gap: 4px; }
+.head .toggle, .head .search { flex-shrink: 0; white-space: nowrap; }
+.daynav { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; white-space: nowrap; }
 .daynav .dlabel { color: var(--fg-2); font-size: 13px; margin: 0 8px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .daynav .seg { display: inline-flex; gap: 2px; margin-right: 4px; }
 .daynav .toggle { padding: 2px 8px; }
@@ -196,15 +197,16 @@ button { cursor: pointer; }
 .daylog.week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .daylog .day { min-width: 0; min-height: 340px; padding: 8px 8px 12px; border-right: 1px solid var(--line); }
 .daylog .day:last-child { border-right: 0; }
-.daylog .day header { display: flex; align-items: baseline; gap: 6px; font-size: 12px; color: var(--muted); padding: 2px 2px 8px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.daylog .day header { display: flex; align-items: baseline; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; font-size: 12px; color: var(--muted); padding: 2px 2px 8px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
 .daylog .day header .dname { font-weight: 600; color: var(--fg-2); white-space: nowrap; }
 .daylog .day.today header .dname { color: var(--accent); }
 .daylog .day header .rel { text-transform: uppercase; letter-spacing: .06em; font-size: 10.5px; }
 .daylog .day header .sp { flex: 1; }
 .daylog .day header .n { font-variant-numeric: tabular-nums; }
-.daylog .day header .copy { border: 0; background: transparent; color: var(--muted); font-size: 13px; line-height: 1; padding: 0 2px; opacity: 0; }
-.daylog .day:hover header .copy { opacity: .8; }
-.daylog .day header .copy:hover { color: var(--fg); opacity: 1; }
+.daylog .day header .n { flex-shrink: 0; }
+.daylog .day header .copy { flex-shrink: 0; border: 1px solid transparent; background: transparent; color: var(--muted); font-size: 13px; line-height: 16px; padding: 0 4px; margin-left: 2px; border-radius: 4px; opacity: .55; align-self: center; }
+.daylog .day:hover header .copy { opacity: .9; }
+.daylog .day header .copy:hover { color: var(--fg); border-color: var(--line); background: var(--bg-active); opacity: 1; }
 .daylog .day.today { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .daylog .day .none { color: var(--muted); text-align: center; padding: 18px 0; margin: 0; }
 .dstory { margin: 0 0 12px; }
@@ -215,6 +217,11 @@ button { cursor: pointer; }
 .row.daylog-row { grid-template-columns: 18px minmax(0, 1fr); margin-left: calc(var(--depth, 0) * 14px); min-height: 26px; font-size: 13px; padding: 2px 4px 2px 0; align-items: start; }
 .row.daylog-row .mark { color: var(--ok); font-size: 12px; text-align: center; line-height: 22px; cursor: default; }
 .row.daylog-row.dropped .mark { color: var(--muted); }
+.row.daylog-row.touched .mark { color: var(--wait); }
+.row.daylog-row .act { display: flex; gap: 6px; align-items: baseline; color: var(--muted); font-size: 12px; line-height: 1.35; margin-top: 2px; white-space: normal; }
+.row.daylog-row .act .at { font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.row.daylog-row .act .src { opacity: .7; margin-left: 4px; }
+.row.daylog-row .act.replied { color: var(--fg-2); }
 .row.daylog-row.dropped .title a { color: var(--muted); text-decoration: line-through; }
 .row.daylog-row .title { white-space: normal; overflow: visible; text-overflow: clip; padding: 2px 2px; line-height: 1.4; }
 .row.daylog-row .crumb { display: block; margin-left: 0; white-space: normal; line-height: 1.35; }

@@ -2,6 +2,12 @@
 
 Releases are on [GitHub](https://github.com/a6wright/taskstaka/releases).
 
+## 0.1.7 · 2026-10-26
+
+- **Done is a day log** — "what did I do yesterday / today?" for standup. The seven days ending today as columns, each day grouped by story with the finished tasks nested as they were in the outline; a task finished on its own shows the `› parent` chain back to its story. <kbd>‹</kbd> <kbd>›</kbd> slide a week, *month* shows a grid with one line per story per day, <kbd>⎘</kbd> copies a day as Markdown, *✗ dropped* includes dropped tasks.
+- `taskstaka log` (`--on yesterday`, `--since -6d`, `--dropped`, `--json`) prints the same outline in the terminal; the MCP server gets a `log` tool for agents writing standup notes. Dates accept `yesterday` and `-Nd`.
+- Web: a change arriving while the page was refreshing could leave the list behind the sidebar until the next change; the refresh now notices and reloads.
+
 ## 0.1.6 · 2026-10-26
 
 - Notes render as Markdown everywhere they show: the web pane, the plate and under rows (lists, links, `code`, task lists, tables); click the notes to edit the source, click away or <kbd>Esc</kbd> to save. The TUI details pane styles them too. Raw HTML in a note is shown as text.

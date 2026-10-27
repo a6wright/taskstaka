@@ -251,6 +251,37 @@ async fn next_limit_zero_means_unlimited() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn log_endpoint_groups_the_day_by_story() {
+    let (_dir, client, handle) = start().await;
+    let story = add(&client, "Ship auth story", None);
+    let mig = add(&client, "Write migration", Some(&story));
+    let gone = add(&client, "Old idea", Some(&story));
+    set(&client, &mig, Status::Done);
+    set(&client, &gone, Status::Dropped);
+
+    let days = client.log(None, None, None, false).unwrap();
+    assert_eq!(days.len(), 7, "a week ending today by default");
+    assert_eq!(days[0].count, 1);
+    let s = &days[0].stories[0];
+    assert_eq!(s.root_title, "Ship auth story");
+    assert!(!s.root_done);
+    assert_eq!(s.items[0].title, "Write migration");
+    assert_eq!(s.items[0].depth, 0);
+    assert!(days[1..].iter().all(|d| d.count == 0));
+
+    let with_dropped = client.log(None, None, None, true).unwrap();
+    assert_eq!(with_dropped[0].count, 2);
+
+    let today = jiff::Zoned::now().date();
+    let one = client.log(Some(today), Some(today), None, false).unwrap();
+    assert_eq!(one.len(), 1);
+    let bad = client.log(Some(today.tomorrow().unwrap()), Some(today), None, false);
+    assert!(bad.is_err(), "from after to is refused");
+
+    handle.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn plate_endpoint_follows_the_hand_and_is_never_empty() {
     let (_dir, client, handle) = start().await;
 

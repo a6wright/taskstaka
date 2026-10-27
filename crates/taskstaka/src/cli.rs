@@ -345,6 +345,26 @@ pub fn run(b: &mut dyn Backend, cmd: Cmd, json: bool) -> Result<()> {
             report(b, &out, json, &now)
         }
 
+        Cmd::Log {
+            on,
+            since,
+            until,
+            dropped,
+            context,
+        } => {
+            let (from, to) =
+                crate::dates::log_range(on.as_deref(), since.as_deref(), until.as_deref())
+                    .map_err(|e| anyhow::anyhow!(e))?;
+            let tree = b.tree()?;
+            let days = taskstaka_core::action::day_log(&tree, &now, context, from, to, dropped);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&days)?);
+            } else {
+                print!("{}", render::log_text(&days, &now));
+            }
+            Ok(())
+        }
+
         Cmd::Waiting { context, due } => {
             let tree = b.tree()?;
             let mut groups = taskstaka_core::action::waiting_on(&tree, &now, context);

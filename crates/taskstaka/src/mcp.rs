@@ -193,6 +193,21 @@ pub struct ListArgs {
 
 #[derive(Deserialize, rmcp::schemars::JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+pub struct LogArgs {
+    /// One day: today, yesterday, YYYY-MM-DD or -Nd. Overrides since/until.
+    pub on: Option<String>,
+    /// First day of the range (default -6d: a week ending today).
+    pub since: Option<String>,
+    /// Last day of the range (default today).
+    pub until: Option<String>,
+    /// "work" or "personal"; omit for both.
+    pub context: Option<String>,
+    /// Include dropped tasks (default: done only).
+    pub dropped: Option<bool>,
+}
+
+#[derive(Deserialize, rmcp::schemars::JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
 pub struct TreeArgs {
     pub context: Option<String>,
     pub include_closed: Option<bool>,
@@ -421,6 +436,20 @@ impl TaskstakaMcp {
         let ctx = parse_context(a.context)?;
         let due = a.due.unwrap_or(false);
         let v = self.blocking(move |c| c.waiting(ctx, due)).await?;
+        pretty(&v)
+    }
+
+    #[tool(
+        description = "What was finished on each day, newest day first: the answer to 'what did I do yesterday / today' for standup notes. Each day groups the closed tasks by the story they served (root_title, project_tag), in outline order: an item's `depth` nests it under an ancestor closed the same day and `chain` names the ancestors between the story and the item when they were not closed that day. Quote the story and the chain, never a bare title. `on`=today|yesterday|YYYY-MM-DD for one day, or `since`/`until` for a range (default: the last seven days); `dropped=true` includes dropped tasks."
+    )]
+    async fn log(&self, Parameters(a): Parameters<LogArgs>) -> Result<String, ErrorData> {
+        let ctx = parse_context(a.context)?;
+        let (from, to) = dates::log_range(a.on.as_deref(), a.since.as_deref(), a.until.as_deref())
+            .map_err(invalid)?;
+        let dropped = a.dropped.unwrap_or(false);
+        let v = self
+            .blocking(move |c| c.log(Some(from), Some(to), ctx, dropped))
+            .await?;
         pretty(&v)
     }
 

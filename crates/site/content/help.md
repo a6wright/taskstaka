@@ -73,6 +73,8 @@ Ids are six characters; any unique prefix works. `--json` on anything gives mach
 
 **Next** shows the plate on top with editable notes and *done*, *put back*, *first I need to…* and *wait* actions, then each story as a stack. Hover a row for *start* and *open*; *open* slides in a pane with properties, subtasks, notes and history. <kbd>Esc</kbd> closes it. The pages work at half width and on a phone.
 
+**Done** is the day log, for "what did I do yesterday / today": the seven days ending today as columns, each day grouped by story with the finished tasks nested as they were in the outline (a task finished on its own shows the `› parent` chain back to its story). <kbd>‹</kbd> <kbd>›</kbd> slide a week, *month* shows a grid with one line per story per day, <kbd>⎘</kbd> copies a day as Markdown for standup notes, *✗ dropped* includes dropped tasks. The same thing from a terminal: `taskstaka log`, `taskstaka log --on yesterday`.
+
 ## The TUI
 
 `taskstaka tui` is the always-on panel, with five views on <kbd>1</kbd>–<kbd>5</kbd>: Next, Outline, Waiting on, Someday, Nudges. On Next the plate sits in a box at the top: <kbd>d</kbd> done, <kbd>p</kbd> put back, <kbd>i</kbd> first I need to…, <kbd>w</kbd> wait on someone, <kbd>l</kbd> unfolds a story's later list. In the Outline <kbd>⇧</kbd> with the arrows rearranges, <kbd>A</kbd> adds under, <kbd>h</kbd> shows completed. Waiting on groups by person: <kbd>f</kbd> chase, <kbd>u</kbd> unblock. <kbd>?</kbd> lists the keys. It refreshes live as other surfaces change the tree.

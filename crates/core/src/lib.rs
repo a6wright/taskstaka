@@ -15,7 +15,7 @@ pub mod store;
 pub mod tree;
 pub mod view;
 
-pub use action::{NextItem, RankConfig, Tier, needs_action};
+pub use action::{DayLog, DayLogItem, NextItem, RankConfig, StoryLog, Tier, day_log, needs_action};
 pub use command::{Command, Event, Outcome};
 pub use model::{Context, Priority, Status, Task, TaskId};
 pub use store::{Store, StoreError};

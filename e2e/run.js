@@ -38,11 +38,12 @@ function check(cond, what) {
   else { failures++; console.log('  FAIL ' + what); }
 }
 
+let page;   // hoisted so a failure can leave a screenshot and the rows it saw
 (async () => {
   const port = await waitForDaemon();
   const base = `http://127.0.0.1:${port}`;
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: 'dark' });
+  page = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: 'dark' });
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
@@ -354,6 +355,66 @@ function check(cond, what) {
   check(order3.join('|') === order1.join('|'), 'Alt+↓ moves it back down');
   await page.keyboard.press('Escape');
 
+  console.log('done, day by day');
+  const mk = async (title, parent) => (await (await page.request.post(base + '/api/v1/tasks', { data: { title, parent: parent || null, context: 'work' } })).json()).primary;
+  const finish = (id, status = 'done') => page.request.post(`${base}/api/v1/tasks/${id}/status`, { data: { status, cascade: true } });
+  const standup = await mk('Standup story');
+  const planId = await mk('Plan the sprint', standup);
+  await mk('Pick the stories', planId);
+  const writeId = await mk('Write the notes', standup);
+  const openId = await mk('Open parent', standup);
+  const loneId = await mk('Lone leaf', openId);
+  const goneId = await mk('Old idea', standup);
+  await finish(planId); await finish(loneId); await finish(goneId, 'dropped'); await finish(writeId);
+  // Backdate "Write the notes" to yesterday noon by editing its note, then reload.
+  const yest = new Date(); yest.setDate(yest.getDate() - 1); yest.setHours(12, 0, 0, 0);
+  const noteFile = path.join(dir, 'notes', fs.readdirSync(path.join(dir, 'notes')).find(f => f.startsWith(writeId + '-')));
+  fs.writeFileSync(noteFile, fs.readFileSync(noteFile, 'utf8').replace(/^completed: .*$/m, 'completed: ' + yest.toISOString().replace(/\.\d{3}Z$/, 'Z')));
+  await page.request.post(base + '/api/v1/reload');
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const todayIso = iso(new Date()), yestIso = iso(yest);
+  await page.goto(base + '/done'); await page.waitForSelector('.daylog.week'); await settle();
+  const col = (d) => page.locator(`section.day[data-day="${d}"]`);
+  const dayCols = await page.locator('section.day').evaluateAll(els => els.map(e => e.dataset.day));
+  check(dayCols.length === 7 && dayCols[6] === todayIso, `seven days ending today (${dayCols.join(' ')}; today ${todayIso})`);
+  check(/today/.test(await col(todayIso).locator('header').textContent()) && /yesterday/.test(await col(yestIso).locator('header').textContent()), 'today and yesterday are named');
+  // Earlier scenarios finished tasks in other stories today; each sits under its own story block.
+  const heads = await col(todayIso).locator('.dstory .story-title').allTextContents();
+  check(heads.includes('Standup story') && heads.length >= 2 && new Set(heads).size === heads.length, `today's work is grouped under its stories, one block each (${heads.join(' | ')})`);
+  const block = col(todayIso).locator('.dstory', { has: page.locator('.story-title', { hasText: 'Standup story' }) });
+  const tTitles = await block.locator('.daylog-row .title a').allTextContents();
+  check(tTitles.join('|') === 'Plan the sprint|Pick the stories|Lone leaf', `outline order, parent before the subtask it closed with (${tTitles.join(' | ')})`);
+  const pickDepth = await block.locator('.daylog-row', { hasText: 'Pick the stories' }).evaluate(e => e.style.getPropertyValue('--depth').trim());
+  check(pickDepth === '1', `the subtask nests under its parent (depth ${pickDepth})`);
+  const loneCrumb = await block.locator('.daylog-row', { hasText: 'Lone leaf' }).locator('.crumb').textContent();
+  check(/› Open parent/.test(loneCrumb || ''), `a leaf finished alone shows the chain to its story ("${loneCrumb}")`);
+  const yTitles = await col(yestIso).locator('.daylog-row .title a').allTextContents();
+  check(yTitles.join('|') === 'Write the notes' && (await col(yestIso).locator('.dstory .story-title').textContent()) === 'Standup story', `yesterday has its own column, under the same story (${yTitles.join(' | ')})`);
+  check((await page.locator('.daylog-row', { hasText: 'Old idea' }).count()) === 0, 'dropped tasks are hidden by default');
+  await page.locator('#toggle-dropped').click(); await settle();
+  check((await page.locator('.daylog-row.dropped', { hasText: 'Old idea' }).count()) === 1, 'the ✗ dropped toggle shows them, struck through');
+  await shot('11-done-week');
+  await page.locator('#toggle-dropped').click(); await settle();
+  await page.locator('[data-day-nav="prev"]').click(); await settle();
+  check(/[?&]day=\d{4}-\d{2}-\d{2}/.test(page.url()) && (await page.locator('section.day').count()) === 7 && (await page.locator(`section.day[data-day="${todayIso}"]`).count()) === 0, '‹ moves a week back, carried in the URL');
+  await page.locator('[data-day-nav="today"]').click(); await settle();
+  check(!/day=/.test(page.url()) && (await col(todayIso).count()) === 1, 'today comes back');
+  await page.locator('[data-span="month"]').click(); await settle();
+  const cell = page.locator(`section.cell[data-day="${todayIso}"]`);
+  const mline = cell.locator('.mline', { hasText: 'Standup story' });
+  check(/span=month/.test(page.url()) && (await mline.count()) === 1 && (await mline.locator('.mn').textContent()) === '3' && (await cell.locator('.mline').count()) === heads.length, 'the month grid shows one line per story with its count');
+  await shot('12-done-month');
+  await cell.locator('.dnum').click(); await settle();
+  check((await page.locator('.daylog.week').count()) === 1 && !/span=/.test(page.url()), 'clicking a day opens its week');
+  const md = await page.evaluate((d) => window.dayText(d), todayIso);
+  check(/^### /.test(md) && md.includes('- **Standup story**') && md.includes('\n  - [x] Plan the sprint\n    - [x] Pick the stories\n') && md.includes('- [x] Lone leaf (› Open parent)'), `copy gives nested Markdown for standup:\n${md.replace(/^/gm, '      ')}`);
+  await page.locator('#search').fill('lone'); await settle();
+  check((await col(todayIso).locator('.daylog-row .title a').allTextContents()).join('|') === 'Lone leaf' && (await col(todayIso).locator('.dstory').count()) === 1, 'the search narrows the columns to the match, under its story');
+  await page.locator('#search').fill('zzz-nothing'); await settle();
+  check((await page.locator('[data-clear="all"]').count()) === 1, 'no match offers to clear the filters');
+  await page.locator('#search').fill(''); await settle();
+  await page.locator('a[data-view="outline"]').click(); await settle();
+
   console.log('checkbox on a parent completes the subtree');
   const roots = await page.locator('li.row[data-depth="0"]').count();
   for (let i = 0; i < roots; i++) {
@@ -369,4 +430,12 @@ function check(cond, what) {
   fs.rmSync(dir, { recursive: true, force: true });
   console.log(failures ? `\n${failures} check(s) failed` : '\nall checks passed');
   process.exit(failures ? 1 : 0);
-})().catch(e => { console.error(e); daemon.kill('SIGTERM'); process.exit(1); });
+})().catch(async (e) => {
+  console.error(e);
+  try {
+    await page.screenshot({ path: path.join(SHOTS, 'fail.png') });
+    console.error('url: ' + page.url());
+    console.error('rows: ' + JSON.stringify(await page.locator('li.row').evaluateAll(els => els.map(e => ({ id: e.dataset.id, depth: e.dataset.depth, cls: e.className, title: (e.querySelector('.title') || {}).textContent, meta: (e.querySelector('.meta') || {}).innerHTML })))));
+  } catch (_) {}
+  daemon.kill('SIGTERM'); process.exit(1);
+});

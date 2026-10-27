@@ -136,6 +136,10 @@ How long since a task was created.
 How long since `updated` last moved. Only user-visible edits and an explicit touch move it.
 _Avoid_: modified, last activity
 
+**Day log**:
+The tasks closed on one calendar day, in the local zone of the surface showing it, drawn as the outline they came from: grouped by story, a parent before the subtasks it closed with, a lone leaf with the chain of ancestors between it and the story. Computed from `completed`; reopening and closing again moves a task to its latest day. The web's **Done** view shows a week of day columns or a month grid; `taskstaka log` and the MCP `log` tool print it (ADR 0017).
+_Avoid_: calendar (the layout, not the thing), history, journal (the dated lines in a note), report
+
 **Nudge**:
 A rule-generated reminder ("story X is waiting on this", "nothing is actionable"). Best-effort as a desktop notification; reliable in the panel.
 _Avoid_: alert, alarm, reminder (fine informally)

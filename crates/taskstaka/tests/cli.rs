@@ -159,6 +159,47 @@ fn someday_and_waiting_and_prefix_resolution() {
 }
 
 #[test]
+fn log_lists_what_was_finished_today_as_an_outline() {
+    let env = Env::new();
+    let story = env.add(&["Ship auth story"]);
+    let mig = env.add(&["Write migration", "-p", &story]);
+    let step = env.add(&["Drop old column", "-p", &mig]);
+    env.cmd().args(["done", &step]).assert().success();
+    env.cmd()
+        .args(["log", "--on", "today"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("· today  (1)"))
+        .stdout(predicate::str::contains("  Ship auth story\n"))
+        .stdout(predicate::str::contains(
+            "    ✓ Drop old column  › Write migration",
+        ));
+    env.cmd()
+        .args(["log", "--on", "yesterday"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("· yesterday  (0)\n  nothing"));
+    // Finishing the parent too: it nests the step under it, no chain.
+    env.cmd().args(["done", &mig]).assert().success();
+    env.cmd()
+        .args(["log"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "    ✓ Write migration\n      ✓ Drop old column\n",
+        ));
+    let out = env.cmd().args(["log", "--json"]).output().unwrap();
+    let days: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(days.as_array().unwrap().len(), 7, "a week by default");
+    assert_eq!(days[0]["count"], 2);
+    assert_eq!(days[0]["stories"][0]["items"][1]["depth"], 1);
+    env.cmd()
+        .args(["log", "--since", "tomorrow"])
+        .assert()
+        .failure();
+}
+
+#[test]
 fn flags_after_title_are_flags_not_title() {
     let env = Env::new();
     let id = env.add(&["Buy", "milk", "-c", "personal"]);

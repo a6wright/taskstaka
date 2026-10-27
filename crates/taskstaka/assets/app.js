@@ -21,7 +21,7 @@ const S = {
   // above, and each created task becomes the `after` for the next.
   draft: { parent: null, after: null, depth: 0 },
 };
-try { S.showDone = localStorage.getItem('taskstaka.showDone') === '1'; S.showNotes = localStorage.getItem('taskstaka.showNotes') === '1'; S.collapsed = new Set(JSON.parse(localStorage.getItem('taskstaka.collapsed') || '[]')); } catch (_) {}
+try { S.showDropped = localStorage.getItem('taskstaka.showDropped') === '1'; S.showDone = localStorage.getItem('taskstaka.showDone') === '1'; S.showNotes = localStorage.getItem('taskstaka.showNotes') === '1'; S.collapsed = new Set(JSON.parse(localStorage.getItem('taskstaka.collapsed') || '[]')); } catch (_) {}
 const saveCollapsed = () => { try { localStorage.setItem('taskstaka.collapsed', JSON.stringify([...S.collapsed])); } catch (_) {} };
 const expand = (id) => { if (id && S.collapsed.delete(id)) saveCollapsed(); };
 const VIEW_HELP = {
@@ -29,7 +29,7 @@ const VIEW_HELP = {
   next: 'What do I have to do now? The task in hand sits on top — the one you most recently started. Below, each story: every stream you could work on right now (they are parallel; pick any), and folded away, everything still required to finish it.',
   waiting: 'People you are waiting on, and for what. Chase when you nudge them; unblock when they get back to you.',
   someday: 'Parked ideas. They do not block anything and stay out of Next until you revive them.',
-  done: 'Finished in the last two weeks.',
+  done: 'What you finished, day by day, each day as the outline it came from: the story, then the tasks under it. ‹ › move a week or a month; ⎘ copies a day as notes for standup.',
   nudges: 'Reminders the rules are raising right now: things stuck in doing, follow-ups due, stories rotting untouched, too much in flight.',
 };
 const VIEWS = {
@@ -54,6 +54,17 @@ const ago = (iso) => {
 // Local calendar date (the daemon ranks by its local day too); toISOString would be UTC.
 const localIso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const today = () => localIso(new Date());
+// Calendar arithmetic on local ISO dates (noon avoids DST edges).
+const fromIso = (iso) => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d, 12); };
+const addDays = (iso, n) => { const d = fromIso(iso); d.setDate(d.getDate() + n); return localIso(d); };
+const addMonths = (iso, n) => { const d = fromIso(iso); d.setDate(1); d.setMonth(d.getMonth() + n); return localIso(d); };
+const weekStart = (iso) => { const d = fromIso(iso); return addDays(iso, -((d.getDay() + 6) % 7)); };   // Monday
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const fmtDay = (iso) => { const d = fromIso(iso); return `${WEEKDAYS[d.getDay()]} ${d.getDate()}`; };
+const fmtLong = (iso) => { const d = fromIso(iso); return `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`; };
+const hhmm = (ts) => { const d = new Date(Date.parse(ts)); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 
 // ---------- api ----------
 async function api(method, path, body) {
@@ -72,16 +83,26 @@ const q = (extra = {}) => {
 
 async function load() {
   if (S.dirty) { S.pendingRefresh = true; return; }
-  const [tree, next, plan, waiting, nudges, all, settings] = await Promise.all([
-    api('GET', '/api/v1/tree' + q({ include_closed: 'true' })),
-    api('GET', '/api/v1/next' + q()),
-    api('GET', '/api/v1/plan' + q()),
-    api('GET', '/api/v1/waiting' + q()),
-    api('GET', '/api/v1/nudges'),
-    api('GET', '/api/v1/tasks' + q({ include_closed: 'true' })),
-    api('GET', '/api/v1/settings'),
-  ]);
-  Object.assign(S, { tree, next, plan, waiting, nudges, all, settings, rev: next.rev });
+  // The snapshot is several requests. A change that lands between two of
+  // them tears it (the sidebar knows a tag the tree does not), and a rev
+  // read after the change would hide it from the watcher for good — so
+  // bracket the fetches with the daemon's rev and go again if it moved.
+  for (let attempt = 0; ; attempt++) {
+    const before = (await api('GET', '/health')).rev;
+    const [tree, next, plan, waiting, nudges, all, settings] = await Promise.all([
+      api('GET', '/api/v1/tree' + q({ include_closed: 'true' })),
+      api('GET', '/api/v1/next' + q()),
+      api('GET', '/api/v1/plan' + q()),
+      api('GET', '/api/v1/waiting' + q()),
+      api('GET', '/api/v1/nudges'),
+      api('GET', '/api/v1/tasks' + q({ include_closed: 'true' })),
+      api('GET', '/api/v1/settings'),
+    ]);
+    const after = (await api('GET', '/health')).rev;
+    if (after !== before && attempt < 3) continue;
+    Object.assign(S, { tree, next, plan, waiting, nudges, all, settings, rev: after });
+    break;
+  }
   render();
 }
 
@@ -93,6 +114,8 @@ function routeFromUrl() {
   const ctx = sp.get('context');
   S.ctx = ctx === 'all' ? '' : (ctx === 'personal' ? 'personal' : 'work');
   S.q = sp.get('q') || ''; S.project = sp.get('project') || ''; S.tag = sp.get('tag') || '';
+  // The day log: which day anchors the week or month, and which of the two.
+  S.day = /^\d{4}-\d{2}-\d{2}$/.test(sp.get('day') || '') ? sp.get('day') : ''; S.span = sp.get('span') === 'month' ? 'month' : 'week';
   const m = path.match(/^\/t\/([0-9a-z]+)$/);
   if (m) { S.view = sp.get('view') || 'outline'; S.open = m[1]; return; }
   S.view = path === '/' ? 'outline' : path.slice(1);
@@ -101,11 +124,12 @@ function routeFromUrl() {
   S.open = sp.get('open');
   if (sp.get('task')) S.stackId = sp.get('task');
 }
-function urlFor({ view = S.view, ctx = S.ctx, open = S.open, stackId = S.stackId, q = S.q, project = S.project, tag = S.tag } = {}) {
+function urlFor({ view = S.view, ctx = S.ctx, open = S.open, stackId = S.stackId, q = S.q, project = S.project, tag = S.tag, day = S.day, span = S.span } = {}) {
   const sp = new URLSearchParams();
   if (ctx !== 'work') sp.set('context', ctx || 'all');
   if (open) sp.set('open', open);
   if (view === 'next' && stackId) sp.set('task', stackId);
+  if (view === 'done') { if (day && day !== today()) sp.set('day', day); if (span === 'month') sp.set('span', 'month'); }
   if (q) sp.set('q', q); if (project) sp.set('project', project); if (tag) sp.set('tag', tag);
   const qs = sp.toString();
   return (view === 'outline' ? '/' : '/' + view) + (qs ? '?' + qs : '');
@@ -276,15 +300,16 @@ function renderMain() {
     S.tag ? `<span class="chip tag filter" data-clear="tag" title="clear the tag filter">#${esc(S.tag)}<span class="x">×</span></span>` : '',
   ].join('') : '';
   const search = listView ? `<input id="search" class="search" type="search" placeholder="search… ( / )" value="${esc(S.q)}" autocomplete="off" spellcheck="false" aria-label="search tasks">` : '';
+  const daynav = S.view === 'done' ? `<span class="daynav"><button class="toggle" data-day-nav="prev" title="previous ${S.span}">‹</button><button class="toggle ${S.day && S.day !== today() ? '' : 'on'}" data-day-nav="today">today</button><button class="toggle" data-day-nav="next" title="next ${S.span}">›</button><span class="dlabel">${esc(spanLabel())}</span><span class="seg"><button class="toggle ${S.span === 'week' ? 'on' : ''}" data-span="week">week</button><button class="toggle ${S.span === 'month' ? 'on' : ''}" data-span="month">month</button></span><button class="toggle ${S.showDropped ? 'on' : ''}" id="toggle-dropped" title="include dropped tasks">✗ dropped</button></span>` : '';
   const mv = S.moving && byId(S.moving);
   const movebar = mv ? `<div class="movebar">↕ Moving <strong>${esc(mv.title)}</strong> — click a line where it should go · <kbd>Esc</kbd> cancels <button class="btn small" data-move-cancel>cancel</button></div>` : '';
   $('#main').innerHTML = `
-    <div class="head"><h1>${v.label}</h1><span class="sum">${S.view === 'settings' ? '' : line}</span><span class="sp"></span>${chips}${search}${toggles}<span class="sum">${S.view === 'settings' ? '' : (S.ctx || 'all')}</span></div>
+    <div class="head"><h1>${v.label}</h1><span class="sum">${S.view === 'settings' ? '' : line}</span><span class="sp"></span>${daynav}${chips}${search}${toggles}<span class="sum">${S.view === 'settings' ? '' : (S.ctx || 'all')}</span></div>
     ${VIEW_HELP[S.view] ? `<p class="viewhelp">${esc(VIEW_HELP[S.view])}</p>` : ''}
     <div id="flash" class="flash" hidden></div>
     ${movebar}
     ${S.nudges.length && S.view !== 'waiting' && !mv ? `<div class="nudge">⚑ ${esc(S.nudges[0].message)}</div>` : ''}
-    <div class="content"></div>`;
+    <div class="content ${S.view === 'done' ? 'wide' : ''}"></div>`;
   renderContent();
 }
 // The list alone: typing in the search box re-renders this, not the head it sits in.
@@ -515,10 +540,111 @@ function renderSomeday() {
   return parts.join('');
 }
 
+// ---------- the day log (CONTEXT: Day log) ----------
+// What was finished on one local day, as the outline it came from: grouped by
+// story, a parent before the subtasks it closed with, and the ancestors between
+// the story and a lone leaf as a dimmed chain. The same shape as the daemon's
+// /api/v1/log, computed here from the tasks already loaded so the filters apply.
+function dayLogFor(iso) {
+  const picked = new Map();
+  for (const t of S.all) {
+    if (!(t.status === 'done' || (S.showDropped && t.status === 'dropped'))) continue;
+    if (!t.completed || !inCtx(t) || !matches(t)) continue;
+    if (localIso(new Date(Date.parse(t.completed))) !== iso) continue;
+    picked.set(t.id, t);
+  }
+  const roots = new Map();   // root id → earliest completion that day
+  for (const t of picked.values()) {
+    const rid = (t.ancestry && t.ancestry[0]) || t.id, c = Date.parse(t.completed);
+    if (!roots.has(rid) || c < roots.get(rid)) roots.set(rid, c);
+  }
+  const stories = [...roots.entries()].sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1)).map(([rid]) => {
+    const root = byId(rid) || { id: rid, title: rid, project_tag: null };
+    const items = [];
+    const walk = (t, path) => {
+      const isItem = picked.has(t.id);
+      if (isItem) {
+        const depth = path.filter(p => p.item).length;
+        let cut = 1; path.forEach((p, i) => { if (p.item) cut = i + 1; }); cut = Math.min(cut, path.length);
+        items.push({ t, depth, chain: path.slice(cut).map(p => ({ id: p.id, title: p.title })) });
+      }
+      const next = [...path, { id: t.id, title: t.title, item: isItem }];
+      for (const k of childrenOf(t.id)) walk(k, next);
+    };
+    walk(root, []);
+    return { root_id: rid, root_title: root.title, project_tag: root.project_tag, root_done: picked.has(rid), items };
+  });
+  return { day: iso, stories, count: stories.reduce((n, s) => n + s.items.length, 0) };
+}
+const anchorDay = () => S.day || today();
+function spanLabel() {
+  const a = anchorDay();
+  if (S.span === 'month') { const d = fromIso(a); return `${MONTHS_LONG[d.getMonth()]} ${d.getFullYear()}`; }
+  const s = fromIso(addDays(a, -6)), e = fromIso(a);
+  return s.getMonth() === e.getMonth() ? `${MONTHS[s.getMonth()]} ${s.getDate()} – ${e.getDate()}, ${e.getFullYear()}` : `${MONTHS[s.getMonth()]} ${s.getDate()} – ${MONTHS[e.getMonth()]} ${e.getDate()}, ${e.getFullYear()}`;
+}
 function renderDone() {
-  const list = S.all.filter(t => isClosed(t) && inCtx(t) && matches(t)).sort((a, b) => Date.parse(b.completed || 0) - Date.parse(a.completed || 0)).slice(0, 200);
-  if (!list.length) return filterOn() ? noMatch() : '<p class="empty">Nothing finished yet.</p>';
-  return `<ul class="rows">${list.map(t => rowHtml(t, t.derived, 0, { editable: false, crumb: `<span class="crumb">${t.status} ${ago(t.completed)} ago</span>` })).join('')}</ul>`;
+  return S.span === 'month' ? renderDoneMonth() : renderDoneWeek();
+}
+function storiesHtml(l) {
+  return l.stories.map(s => `<div class="dstory">
+    <div class="story-head">${s.root_done ? '<span class="mark done" title="the story itself was finished">✓</span>' : ''}${pill(s.project_tag)}<a href="#" data-open="${s.root_id}" class="story-title">${esc(s.root_title)}</a></div>
+    <ul class="rows">${s.items.filter(i => i.t.id !== s.root_id).map(i => {
+      const dropped = i.t.status === 'dropped';
+      const chain = i.chain.length ? `<span class="crumb" title="under: ${esc(i.chain.map(c => c.title).join(' › '))}">› ${i.chain.map(c => esc(c.title)).join(' › ')}</span>` : '';
+      return `<li class="row compact daylog-row ${dropped ? 'dropped' : ''} ${S.open === i.t.id ? 'selected' : ''}" data-id="${i.t.id}" style="--depth:${Math.max(0, i.depth - (s.root_done ? 1 : 0))}"><span class="mark" title="finished at ${hhmm(i.t.completed)}">${dropped ? '✗' : '✓'}</span><span class="title"><a href="#" data-open="${i.t.id}">${esc(i.t.title)}</a>${chain}</span></li>`;
+    }).join('')}</ul></div>`).join('');
+}
+function renderDoneWeek() {
+  // The seven days ending on the anchor (today), so yesterday is always in
+  // view, even on a Monday; ‹ › slide the window a week at a time.
+  const anchor = anchorDay(), start = addDays(anchor, -6), tod = today(), yest = addDays(tod, -1);
+  let total = 0;
+  const cols = [...Array(7)].map((_, i) => {
+    const iso = addDays(start, i), l = dayLogFor(iso); total += l.count;
+    const rel = iso === tod ? 'today' : iso === yest ? 'yesterday' : '';
+    return `<section class="day ${iso === tod ? 'today' : ''} ${iso === anchor ? 'anchor' : ''} ${l.count ? '' : 'none'}" data-day="${iso}">
+      <header><span class="dname">${fmtDay(iso)}</span>${rel ? `<span class="rel">${rel}</span>` : ''}<span class="sp"></span>${l.count ? `<span class="n">${l.count}</span>` : ''}<button class="copy" data-copy-day="${iso}" title="copy this day as Markdown, for standup">⎘</button></header>
+      ${l.count ? storiesHtml(l) : '<p class="none">—</p>'}
+    </section>`;
+  }).join('');
+  const tail = !total && filterOn() ? noMatch() : (!total && !S.all.some(isClosed) ? '<p class="empty">Nothing finished yet. Tick a task and it lands here, under its story.</p>' : '');
+  // Empty days narrow so the days with something in them get the room.
+  const widths = [...Array(7)].map((_, i) => dayLogFor(addDays(start, i)).count ? 'minmax(0, 1fr)' : 'minmax(64px, .3fr)').join(' ');
+  return `<div class="daylog week" style="grid-template-columns:${total ? widths : 'repeat(7, minmax(0, 1fr))'}">${cols}</div>${tail}`;
+}
+function renderDoneMonth() {
+  const anchor = anchorDay(), month = anchor.slice(0, 7), start = weekStart(addMonths(anchor, 0)), tod = today();
+  const cells = [];
+  for (let i = 0; i < 42; i++) {
+    const iso = addDays(start, i), l = dayLogFor(iso);
+    const lines = l.stories.slice(0, 4).map(s => `<button class="mline" data-go-day="${iso}" title="${esc(s.root_title)} · ${s.items.length} — open this week"><span class="dot" style="--pc:${esc(s.project_tag ? s.project_tag.color : 'var(--muted)')}"></span><span class="mt">${esc(s.root_title)}</span><span class="mn">${s.items.length}</span></button>`);
+    const more = l.stories.length > 4 ? `<button class="more" data-go-day="${iso}">+${l.stories.length - 4} more</button>` : '';
+    cells.push(`<section class="cell ${iso.slice(0, 7) === month ? '' : 'out'} ${iso === tod ? 'today' : ''}" data-day="${iso}"><div class="chead"><button class="dnum" data-go-day="${iso}" title="open this week">${Number(iso.slice(8))}</button>${l.count ? `<span class="n">${l.count}</span>` : ''}</div>${lines.join('')}${more}</section>`);
+  }
+  const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(w => `<div class="wd">${w}</div>`).join('');
+  return `<div class="daylog month">${wd}${cells.join('')}</div>`;
+}
+// One day as Markdown that keeps the nesting: paste it into standup notes.
+function dayText(iso) {
+  const l = dayLogFor(iso), out = [`### ${fmtLong(iso)}`];
+  if (!l.count) out.push('- nothing');
+  for (const s of l.stories) {
+    out.push(`- **${s.root_title}**${s.root_done ? ' ✓' : ''}`);
+    for (const i of s.items) {
+      if (i.t.id === s.root_id) continue;
+      const pad = '  '.repeat(1 + Math.max(0, i.depth - (s.root_done ? 1 : 0)));
+      const chain = i.chain.length ? ` (› ${i.chain.map(c => c.title).join(' › ')})` : '';
+      out.push(i.t.status === 'dropped' ? `${pad}- ~~${i.t.title}~~ (dropped)${chain}` : `${pad}- [x] ${i.t.title}${chain}`);
+    }
+  }
+  return out.join('\n') + '\n';
+}
+window.dayText = dayText; window.dayLogFor = dayLogFor;   // for the e2e checks
+async function copyDay(iso) {
+  const text = dayText(iso);
+  try { await navigator.clipboard.writeText(text); flash('copied ' + fmtLong(iso) + ' as Markdown', 'ok'); }
+  catch (_) { flash('could not reach the clipboard', 'error'); }
 }
 
 // ---------- pane ----------
@@ -741,6 +867,14 @@ document.addEventListener('click', async (e) => {
     try { S.settings = await api('PUT', '/api/v1/settings', { notifications: !S.settings.notifications }); } catch (err) { flash(err.message, 'error'); }
     return render();
   }
+  if (b.dataset.dayNav) {
+    const a = anchorDay(), step = b.dataset.dayNav === 'prev' ? -1 : 1;
+    return go({ day: b.dataset.dayNav === 'today' ? '' : (S.span === 'month' ? addMonths(a, step) : addDays(a, 7 * step)) });
+  }
+  if (b.dataset.span) return go({ span: b.dataset.span });
+  if (b.dataset.goDay) return go({ day: b.dataset.goDay, span: 'week' });
+  if (b.dataset.copyDay) return copyDay(b.dataset.copyDay);
+  if (b.id === 'toggle-dropped') { S.showDropped = !S.showDropped; try { localStorage.setItem('taskstaka.showDropped', S.showDropped ? '1' : '0'); } catch (_) {} return render(); }
   if (b.id === 'toggle-done') { S.showDone = !S.showDone; try { localStorage.setItem('taskstaka.showDone', S.showDone ? '1' : '0'); } catch (_) {} return render(); }
   if (b.dataset.expand) { const id = b.dataset.expand; if (S.expanded.has(id)) S.expanded.delete(id); else S.expanded.add(id); return render(); }
   if (b.id === 'toggle-notes') { S.showNotes = !S.showNotes; try { localStorage.setItem('taskstaka.showNotes', S.showNotes ? '1' : '0'); } catch (_) {} return render(); }

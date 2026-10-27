@@ -210,6 +210,24 @@ pub enum Cmd {
         due: bool,
     },
 
+    /// What got done on each day: the day log, for standup notes.
+    Log {
+        /// One day: today, yesterday, YYYY-MM-DD or -Nd.
+        #[arg(long, conflicts_with_all = ["since", "until"])]
+        on: Option<String>,
+        /// First day (default -6d: a week ending today).
+        #[arg(long)]
+        since: Option<String>,
+        /// Last day (default today).
+        #[arg(long)]
+        until: Option<String>,
+        /// Include dropped tasks.
+        #[arg(long)]
+        dropped: bool,
+        #[arg(short, long)]
+        context: Option<Context>,
+    },
+
     /// They got back to you: answered | declined | partial | redirected TO.
     Reply {
         id: String,

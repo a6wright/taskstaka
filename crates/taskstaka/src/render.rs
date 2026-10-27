@@ -274,6 +274,65 @@ fn truncate(s: &str, max: usize) -> String {
 }
 
 /// `taskstaka waiting`: grouped by person, due follow-ups first.
+/// The day log as text: a heading per day, a line per story, the finished
+/// tasks indented as the outline they came from, with the chain to the story
+/// after a task whose parent was not finished that day. Never a flat list.
+pub fn log_text(days: &[taskstaka_core::action::DayLog], now: &Zoned) -> String {
+    let mut out = String::new();
+    let today = now.date();
+    for d in days {
+        let rel = if d.day == today {
+            " · today"
+        } else if today.yesterday().is_ok_and(|y| y == d.day) {
+            " · yesterday"
+        } else {
+            ""
+        };
+        let _ = writeln!(out, "{}{rel}  ({})", d.day.strftime("%a %Y-%m-%d"), d.count);
+        if d.stories.is_empty() {
+            let _ = writeln!(out, "  nothing");
+        }
+        for s in &d.stories {
+            let proj = s
+                .project_tag
+                .as_ref()
+                .map(|p| format!("  [{}]", p.name))
+                .unwrap_or_default();
+            let tick = if s.root_done { "✓ " } else { "" };
+            let _ = writeln!(out, "  {tick}{}{proj}", s.root_title);
+            for i in &s.items {
+                if i.id == s.root_id {
+                    continue; // the heading already shows it, ticked
+                }
+                let mark = if i.status == Status::Dropped {
+                    "✗"
+                } else {
+                    "✓"
+                };
+                let chain = if i.chain.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "  › {}",
+                        i.chain
+                            .iter()
+                            .map(|c| c.title.as_str())
+                            .collect::<Vec<_>>()
+                            .join(" › ")
+                    )
+                };
+                let _ = writeln!(
+                    out,
+                    "    {}{mark} {}{chain}",
+                    "  ".repeat(i.depth.saturating_sub(usize::from(s.root_done))),
+                    i.title
+                );
+            }
+        }
+    }
+    out
+}
+
 pub fn waiting_text(groups: &[taskstaka_core::action::PersonGroup], now: &Zoned) -> String {
     let mut out = String::new();
     let today = now.date();

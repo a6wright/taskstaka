@@ -185,6 +185,58 @@ button { cursor: pointer; }
 .under .rel { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 4px 0; }
 .hint { color: var(--muted); font-size: 12px; margin-top: 20px; }
 
+/* ---- the day log (Done): a week of columns, each day the outline it came
+   from — a story heading, then its finished tasks nested as they were ---- */
+.content.wide { max-width: none; }
+.daynav { display: inline-flex; align-items: center; gap: 4px; }
+.daynav .dlabel { color: var(--fg-2); font-size: 13px; margin: 0 8px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.daynav .seg { display: inline-flex; gap: 2px; margin-right: 4px; }
+.daynav .toggle { padding: 2px 8px; }
+.daylog { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg-side); }
+.daylog.week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.daylog .day { min-width: 0; min-height: 340px; padding: 8px 8px 12px; border-right: 1px solid var(--line); }
+.daylog .day:last-child { border-right: 0; }
+.daylog .day header { display: flex; align-items: baseline; gap: 6px; font-size: 12px; color: var(--muted); padding: 2px 2px 8px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.daylog .day header .dname { font-weight: 600; color: var(--fg-2); white-space: nowrap; }
+.daylog .day.today header .dname { color: var(--accent); }
+.daylog .day header .rel { text-transform: uppercase; letter-spacing: .06em; font-size: 10.5px; }
+.daylog .day header .sp { flex: 1; }
+.daylog .day header .n { font-variant-numeric: tabular-nums; }
+.daylog .day header .copy { border: 0; background: transparent; color: var(--muted); font-size: 13px; line-height: 1; padding: 0 2px; opacity: 0; }
+.daylog .day:hover header .copy { opacity: .8; }
+.daylog .day header .copy:hover { color: var(--fg); opacity: 1; }
+.daylog .day.today { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.daylog .day .none { color: var(--muted); text-align: center; padding: 18px 0; margin: 0; }
+.dstory { margin: 0 0 12px; }
+.dstory .story-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; margin-bottom: 2px; }
+.dstory .story-head .story-title { font-weight: 600; min-width: 0; }
+.dstory .story-head .mark.done { color: var(--ok); font-size: 12px; }
+.dstory .story-head .proj { margin: 0; }
+.row.daylog-row { grid-template-columns: 18px minmax(0, 1fr); margin-left: calc(var(--depth, 0) * 14px); min-height: 26px; font-size: 13px; padding: 2px 4px 2px 0; align-items: start; }
+.row.daylog-row .mark { color: var(--ok); font-size: 12px; text-align: center; line-height: 22px; cursor: default; }
+.row.daylog-row.dropped .mark { color: var(--muted); }
+.row.daylog-row.dropped .title a { color: var(--muted); text-decoration: line-through; }
+.row.daylog-row .title { white-space: normal; overflow: visible; text-overflow: clip; padding: 2px 2px; line-height: 1.4; }
+.row.daylog-row .crumb { display: block; margin-left: 0; white-space: normal; line-height: 1.35; }
+/* month: a grid of cells, one line per story — which pieces of work a week went to */
+.daylog.month { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.daylog.month .wd { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); }
+.daylog.month .cell { min-height: 96px; min-width: 0; padding: 6px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
+.daylog.month > :nth-child(7n) { border-right: 0; }
+.daylog.month > :nth-last-child(-n + 7) { border-bottom: 0; }
+.daylog.month .cell.out { opacity: .4; }
+.daylog.month .cell.today { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.daylog.month .chead { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+.daylog.month .dnum { border: 0; background: transparent; color: var(--fg-2); font-size: 12px; font-weight: 600; width: 22px; height: 22px; border-radius: 50%; padding: 0; }
+.daylog.month .dnum:hover { background: var(--bg-active); color: var(--fg); }
+.daylog.month .cell.today .dnum { color: var(--accent-fg); background: var(--accent); }
+.daylog.month .mline { display: flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--fg-2); padding: 1px 3px; border-radius: 4px; text-align: left; min-width: 0; width: 100%; font: inherit; font-size: 12px; }
+.daylog.month .mline:hover { background: var(--bg-hover); color: var(--fg); }
+.daylog.month .mline .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pc); flex: 0 0 auto; }
+.daylog.month .mline .mt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.daylog.month .mline .mn { color: var(--muted); font-variant-numeric: tabular-nums; }
+.daylog.month .more { border: 0; background: transparent; color: var(--muted); padding: 1px 3px; text-align: left; font: inherit; font-size: 11px; }
+
 /* waiting view */
 .person { margin: 14px 0; }
 .person .who { font-weight: 600; display: flex; align-items: center; gap: 8px; }
@@ -321,6 +373,15 @@ kbd { font-family: var(--mono); font-size: 11px; background: var(--bg-active); p
   .viewhelp, .flash, .nudge, .movebar { margin-left: var(--gutter); margin-right: 16px; }
   .content { padding: 12px 16px 60px var(--gutter); }
   .settings { margin: 16px; }
+  /* the week stacks into one column of days; the month keeps its seven */
+  .daylog.week { grid-template-columns: minmax(0, 1fr) !important; }
+  .daylog .day { border-right: 0; border-bottom: 1px solid var(--line); min-height: 0; }
+  .daylog .day:last-child { border-bottom: 0; }
+  .daylog .day.none { padding-bottom: 6px; } .daylog .day.none .none { padding: 4px 0; text-align: left; }
+  .daylog .day header { margin-bottom: 6px; }
+  .daynav .dlabel { margin: 0 4px; }
+  .daylog.month .cell { min-height: 64px; padding: 4px; }
+  .daylog.month .mline .mt { display: none; }
 }
 
 /* ---- phone: tighter rhythm, forms that wrap, the summary on its own line ---- */
@@ -367,6 +428,7 @@ kbd { font-family: var(--mono); font-size: 11px; background: var(--bg-active); p
 
 /* ---- touch: nothing hides behind hover, targets you can hit ---- */
 @media (hover: none) {
+  .daylog .day header .copy { opacity: .8; }
   .row .meta .hover { display: inline-flex; }
   .row .meta .hover > span { display: none; }
   .row .grip { display: none; }

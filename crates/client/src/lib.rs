@@ -296,6 +296,28 @@ impl Client {
         self.get(&format!("/api/v1/waiting?{}", q.join("&")))
     }
 
+    /// The day log: what was finished on each day of `from..=to` (defaults:
+    /// the last seven days), newest first, grouped by story.
+    pub fn log(
+        &self,
+        from: Option<jiff::civil::Date>,
+        to: Option<jiff::civil::Date>,
+        context: Option<Context>,
+        dropped: bool,
+    ) -> Result<Vec<taskstaka_core::action::DayLog>> {
+        let mut q = vec![format!("dropped={dropped}")];
+        if let Some(f) = from {
+            q.push(format!("from={f}"));
+        }
+        if let Some(t) = to {
+            q.push(format!("to={t}"));
+        }
+        if let Some(c) = context {
+            q.push(format!("context={c}"));
+        }
+        self.get(&format!("/api/v1/log?{}", q.join("&")))
+    }
+
     /// The daemon started before this binary was built: it is serving old
     /// code. `taskstaka restart` fixes it.
     pub fn is_stale(&self) -> bool {

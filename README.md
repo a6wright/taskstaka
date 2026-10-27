@@ -118,6 +118,7 @@ taskstaka chase <id> pinged again               # poked them again; next follow-
 taskstaka reply <id> redirected --to Bo "Bo owns DNS"   # answered | declined | partial | redirected
 taskstaka unblock <id>                          # they got back to you — it is ready and in hand
 taskstaka waiting                               # who am I waiting on, for what, how long?
+taskstaka log --on yesterday                    # the day log: what got done, day by day, as the outline it came from
 taskstaka add "TTL question?" -p <id> -w Bo     # create it already waiting on Bo
 taskstaka someday <id>                          # park it (doesn't block, doesn't rank)
 taskstaka touch <id> pinged Sam                 # bump "last touched", journal a note
@@ -149,7 +150,7 @@ everything still required and *why not yet*. `--later` expands it; `--explain` g
 reason under each row.
 
 The panel (`taskstaka tui`) has five pages (`1`–`5`, or `v` to cycle) that match the
-web's views — the web adds a **Done** page; in the panel, `h` shows completed tasks
+web's views — the web adds a **Done** page (the day log, below); in the panel, `h` shows completed tasks
 in the outline instead: **Next** shows the plate boxed at the top — `d` done, `p` put back, `i` *first I
 need to…*, `w` wait on someone — then each story as a stack (`l` unfolds the later list).
 **Projects.** A root story can carry a project (`taskstaka add --project devops "…"`,
@@ -301,6 +302,11 @@ already holds taskstaka notes uses it as it is. From a terminal the same move is
   parent's box finishes its subtree), end a line with `@Name` to wait on someone.
   Hover a row for `▶ start` and `open`; `Ctrl+.` starts/stops the focused row; `open` (or `Ctrl+Enter`) slides in the pane: properties, subtasks, notes,
   activity, and the wait / chase / reply actions. `Esc` closes it; `\\` or the chevron on the sidebar's edge collapses the sidebar.
+  **Done** is the day log: the seven days ending today as columns, each day grouped by
+  story with the finished tasks nested as they were in the outline (a leaf finished on its
+  own shows the `› parent` chain back to its story), `‹ ›` slide a week, `month` shows a
+  grid with one line per story per day, `⎘` copies a day as Markdown for standup, and
+  `✗ dropped` includes dropped tasks. `taskstaka log --on yesterday` prints the same thing.
   Notes are Markdown and render as such (lists, links, `code`, task lists); click them to
   edit the source, click away to save.
   Find things with the search box (`/` focuses it; it matches titles, notes, who a task
@@ -360,8 +366,10 @@ In the web outliner, ending a line with `@Name` creates it waiting on that perso
 The MCP server gives an agent everything to keep the list honest for you: `waiting`
 (with `due=true` for follow-ups that are due), `chase` (idempotent per `dedupe`, tagged
 `source="agent"`), `record_reply` (answered / declined / partial / redirected, with a
-summary), and `waiting_ref` links back to the conversation. Nothing sends messages;
-agents draft, you send.
+summary), and `waiting_ref` links back to the conversation. `log` (`on=yesterday`, or
+`since`/`until`) returns what was finished on each day grouped by story and nested as in
+the outline, so an agent can write standup notes that say what each task was for. Nothing
+sends messages; agents draft, you send.
 
 A daily routine with the taskstaka MCP and a messages MCP (Teams, Slack, mail):
 

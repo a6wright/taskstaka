@@ -13,11 +13,14 @@
 //!                  ∧ max(child.completed) ≥ t.updated     # clears when the user touches t
 //! ```
 
+use std::collections::{BTreeMap, HashMap};
+
 use jiff::civil::Date;
 use jiff::{Timestamp, ToSpan, Zoned};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Context, Priority, Status, Task, TaskId};
+use crate::project::ProjectTag;
 use crate::tree::Tree;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -532,6 +535,167 @@ fn classify(t: &Task, d: &Derived, today: Date, soon: Date, now: Timestamp) -> (
     }
 }
 
+// ---------- Day log (CONTEXT: Day log) ----------
+
+/// One finished task in a day's outline.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DayLogItem {
+    pub id: TaskId,
+    pub title: String,
+    pub status: Status,
+    pub completed: Timestamp,
+    /// The ancestors between the nearest task shown above this one (the story
+    /// heading, or an ancestor that finished the same day) and this task,
+    /// story side first. Drawn dimmed after the title, so a leaf that finished
+    /// alone still says what it was for.
+    pub chain: Vec<Crumb>,
+    /// Indent inside the story's outline for the day: how many ancestors are
+    /// themselves items of the same `StoryLog`.
+    pub depth: usize,
+    pub tags: Vec<String>,
+}
+
+/// What one story got done on one day, in outline order.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StoryLog {
+    pub root_id: TaskId,
+    pub root_title: String,
+    pub project_tag: Option<ProjectTag>,
+    /// The story itself finished this day; it is then `items[0]` at depth 0.
+    pub root_done: bool,
+    pub items: Vec<DayLogItem>,
+}
+
+/// Everything finished on one calendar day, grouped by story.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DayLog {
+    pub day: Date,
+    pub stories: Vec<StoryLog>,
+    pub count: usize,
+}
+
+/// The day log (CONTEXT: Day log): for every day in `from..=to`, newest
+/// first, the tasks closed that day in the zone of `now`, grouped by story
+/// and kept in outline order so a parent closed by a cascade precedes its
+/// subtasks. A flat list would lose what each row was for, which is the one
+/// thing this view is about. Days with nothing finished are included with an
+/// empty `stories`. Dropped tasks are left out unless `include_dropped`.
+pub fn day_log(
+    tree: &Tree,
+    now: &Zoned,
+    ctx: Option<Context>,
+    from: Date,
+    to: Date,
+    include_dropped: bool,
+) -> Vec<DayLog> {
+    let tz = now.time_zone();
+    let mut by_day: BTreeMap<Date, HashMap<TaskId, Timestamp>> = BTreeMap::new();
+    for t in tree.iter() {
+        let keep = match t.status {
+            Status::Done => true,
+            Status::Dropped => include_dropped,
+            _ => false,
+        };
+        if !keep || !in_context(tree, t, ctx) {
+            continue;
+        }
+        // A closed task without `completed` was edited by hand; it has no day.
+        let Some(c) = t.completed else { continue };
+        let day = c.to_zoned(tz.clone()).date();
+        if day < from || day > to {
+            continue;
+        }
+        by_day.entry(day).or_default().insert(t.id.clone(), c);
+    }
+    let mut out = Vec::new();
+    let mut day = to;
+    while day >= from {
+        let picked = by_day.remove(&day).unwrap_or_default();
+        // Stories in the order of their earliest completion that day.
+        let mut roots: Vec<(Timestamp, TaskId)> = Vec::new();
+        for (id, c) in &picked {
+            let root = tree
+                .root_of(id)
+                .map(|r| r.id.clone())
+                .unwrap_or_else(|| id.clone());
+            match roots.iter_mut().find(|(_, r)| *r == root) {
+                Some(e) => e.0 = e.0.min(*c),
+                None => roots.push((*c, root)),
+            }
+        }
+        roots.sort();
+        let mut stories = Vec::new();
+        for (_, root) in roots {
+            let Some(r) = tree.get(&root) else { continue };
+            let mut items = Vec::new();
+            walk_day_log(tree, &root, &picked, &mut Vec::new(), &mut items);
+            stories.push(StoryLog {
+                root_id: root.clone(),
+                root_title: r.title.clone(),
+                project_tag: crate::project::tag_of(tree, &root),
+                root_done: picked.contains_key(&root),
+                items,
+            });
+        }
+        let count = stories.iter().map(|s| s.items.len()).sum();
+        out.push(DayLog {
+            day,
+            stories,
+            count,
+        });
+        day = match day.yesterday() {
+            Ok(d) => d,
+            Err(_) => break,
+        };
+    }
+    out
+}
+
+/// Depth-first in outline order. `path` holds the ancestors from the root
+/// down (root first) with whether each is itself an item of this day.
+fn walk_day_log(
+    tree: &Tree,
+    id: &TaskId,
+    picked: &HashMap<TaskId, Timestamp>,
+    path: &mut Vec<(Crumb, bool)>,
+    items: &mut Vec<DayLogItem>,
+) {
+    let Some(t) = tree.get(id) else { return };
+    let is_item = picked.contains_key(id);
+    if is_item {
+        let depth = path.iter().filter(|(_, item)| *item).count();
+        // The chain starts after the nearest shown ancestor: the last one
+        // that is an item, else the root (the story heading shows it).
+        let cut = path
+            .iter()
+            .rposition(|(_, item)| *item)
+            .map(|i| i + 1)
+            .unwrap_or(1)
+            .min(path.len());
+        items.push(DayLogItem {
+            id: id.clone(),
+            title: t.title.clone(),
+            status: t.status,
+            completed: picked[id],
+            chain: path[cut..].iter().map(|(c, _)| c.clone()).collect(),
+            depth,
+            tags: t.tags.clone(),
+        });
+    }
+    path.push((
+        Crumb {
+            id: id.clone(),
+            title: t.title.clone(),
+        },
+        is_item,
+    ));
+    let kids: Vec<TaskId> = tree.children(id).map(|c| c.id.clone()).collect();
+    for k in &kids {
+        walk_day_log(tree, k, picked, path, items);
+    }
+    path.pop();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -722,6 +886,173 @@ mod tests {
         assert_eq!(s.actionable, 0);
         assert_eq!(s.blocked, 1);
         assert_eq!(s.waiting, 1);
+    }
+
+    // ---------- day log ----------
+
+    fn done_at(fx: &mut Fx, id: &str, parent: Option<&str>, at: &str) {
+        fx_add(fx, id, parent, Status::Done, 1);
+        let ts: Timestamp = at.parse().unwrap();
+        fx.set(id, |t| t.completed = Some(ts));
+    }
+    fn log_titles(d: &DayLog) -> Vec<(String, usize, Vec<String>)> {
+        d.stories
+            .iter()
+            .flat_map(|s| {
+                s.items.iter().map(|i| {
+                    (
+                        i.title.clone(),
+                        i.depth,
+                        i.chain.iter().map(|c| c.title.clone()).collect(),
+                    )
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn day_log_buckets_by_the_local_day_of_now() {
+        let mut fx = Fx::new();
+        fx.now = "2026-09-29T15:00:00[America/Toronto]".parse().unwrap();
+        fx_add(&mut fx, "stry00", None, Status::Todo, 48);
+        // 02:00Z on the 29th is still the evening of the 28th in Toronto.
+        done_at(&mut fx, "eve000", Some("stry00"), "2026-09-29T02:00:00Z");
+        done_at(&mut fx, "mdday0", Some("stry00"), "2026-09-29T16:00:00Z");
+        let log = day_log(
+            &fx.tree,
+            &fx.now,
+            None,
+            date(2026, 9, 27),
+            date(2026, 9, 29),
+            false,
+        );
+        assert_eq!(
+            log.iter().map(|d| (d.day, d.count)).collect::<Vec<_>>(),
+            [
+                (date(2026, 9, 29), 1),
+                (date(2026, 9, 28), 1),
+                (date(2026, 9, 27), 0)
+            ],
+            "newest first, empty days kept"
+        );
+        assert_eq!(log[0].stories[0].items[0].title, "mdday0");
+        assert_eq!(log[1].stories[0].items[0].title, "eve000");
+        assert!(log[2].stories.is_empty());
+    }
+
+    #[test]
+    fn day_log_is_an_outline_per_story_not_a_flat_list() {
+        let mut fx = Fx::new();
+        fx_add(&mut fx, "stry00", None, Status::Todo, 48);
+        fx_add(&mut fx, "sec000", None, Status::Todo, 48);
+        // A cascade: the parent and both subtasks closed in one tick.
+        done_at(&mut fx, "par000", Some("stry00"), "2026-09-29T10:00:00Z");
+        done_at(&mut fx, "kd1000", Some("par000"), "2026-09-29T10:00:00Z");
+        done_at(&mut fx, "kd2000", Some("par000"), "2026-09-29T10:00:00Z");
+        // A leaf whose parent is still open: the chain names the parent.
+        // (Created after par000, so it comes after it in outline order.)
+        fx_add(&mut fx, "0pen00", Some("stry00"), Status::Todo, 0);
+        fx_add(&mut fx, "mdd000", Some("0pen00"), Status::Todo, 0);
+        done_at(&mut fx, "eaf000", Some("mdd000"), "2026-09-29T09:00:00Z");
+        // Another story, finished later in the day, so it comes second.
+        done_at(&mut fx, "ssss00", Some("sec000"), "2026-09-29T12:00:00Z");
+        let log = day_log(
+            &fx.tree,
+            &fx.now,
+            None,
+            date(2026, 9, 29),
+            date(2026, 9, 29),
+            false,
+        );
+        assert_eq!(log.len(), 1);
+        let d = &log[0];
+        assert_eq!(d.count, 5);
+        assert_eq!(
+            d.stories
+                .iter()
+                .map(|s| s.root_title.as_str())
+                .collect::<Vec<_>>(),
+            ["stry00", "sec000"],
+            "stories in the order of their earliest completion"
+        );
+        assert!(!d.stories[0].root_done);
+        let o = |s: &str| s.to_string();
+        assert_eq!(
+            log_titles(d),
+            [
+                (o("par000"), 0, vec![]),
+                (o("kd1000"), 1, vec![]),
+                (o("kd2000"), 1, vec![]),
+                (o("eaf000"), 0, vec![o("0pen00"), o("mdd000")]),
+                (o("ssss00"), 0, vec![]),
+            ],
+            "outline order: parent then nested subtasks; a lone leaf carries its chain"
+        );
+    }
+
+    #[test]
+    fn day_log_chain_stops_at_an_ancestor_finished_the_same_day() {
+        let mut fx = Fx::new();
+        fx_add(&mut fx, "stry00", None, Status::Todo, 48);
+        done_at(&mut fx, "par000", Some("stry00"), "2026-09-29T10:00:00Z");
+        fx_add(&mut fx, "mdd000", Some("par000"), Status::Todo, 20);
+        done_at(&mut fx, "eaf000", Some("mdd000"), "2026-09-29T11:00:00Z");
+        // Finished yesterday: it is shown there, not today, so today's leaf
+        // chain names it.
+        done_at(&mut fx, "yest00", Some("stry00"), "2026-09-28T10:00:00Z");
+        done_at(&mut fx, "ndr000", Some("yest00"), "2026-09-29T08:00:00Z");
+        let log = day_log(
+            &fx.tree,
+            &fx.now,
+            None,
+            date(2026, 9, 28),
+            date(2026, 9, 29),
+            false,
+        );
+        let o = |s: &str| s.to_string();
+        assert_eq!(
+            log_titles(&log[0]),
+            [
+                (o("par000"), 0, vec![]),
+                (o("eaf000"), 1, vec![o("mdd000")]),
+                (o("ndr000"), 0, vec![o("yest00")]),
+            ]
+        );
+        assert_eq!(log_titles(&log[1]), [(o("yest00"), 0, vec![])]);
+    }
+
+    #[test]
+    fn day_log_root_finished_alone_and_filters() {
+        let mut fx = Fx::new();
+        done_at(&mut fx, "stry00", None, "2026-09-29T10:00:00Z");
+        fx_add(&mut fx, "stry10", None, Status::Todo, 48);
+        done_at(&mut fx, "drpp00", Some("stry10"), "2026-09-29T10:30:00Z");
+        fx.set("drpp00", |t| t.status = Status::Dropped);
+        done_at(&mut fx, "hand00", Some("stry10"), "2026-09-29T10:40:00Z");
+        fx.set("hand00", |t| t.completed = None);
+        fx_add(&mut fx, "pers00", None, Status::Todo, 48);
+        fx.set("pers00", |t| t.context = Context::Personal);
+        done_at(&mut fx, "pers10", Some("pers00"), "2026-09-29T11:00:00Z");
+        let today = date(2026, 9, 29);
+        let log = day_log(&fx.tree, &fx.now, None, today, today, false);
+        assert_eq!(
+            log[0].count, 2,
+            "root alone + the personal leaf; dropped and hand-edited skipped"
+        );
+        let s = &log[0].stories[0];
+        assert!(s.root_done);
+        assert_eq!(s.items.len(), 1);
+        assert_eq!(s.items[0].depth, 0);
+        assert!(s.items[0].chain.is_empty());
+        let with_dropped = day_log(&fx.tree, &fx.now, None, today, today, true);
+        assert_eq!(with_dropped[0].count, 3);
+        assert_eq!(with_dropped[0].stories[1].items[0].status, Status::Dropped);
+        let work = day_log(&fx.tree, &fx.now, Some(Context::Work), today, today, false);
+        assert_eq!(work[0].count, 1);
+        assert!(
+            day_log(&fx.tree, &fx.now, None, today, date(2026, 9, 28), false).is_empty(),
+            "from after to is empty"
+        );
     }
 }
 

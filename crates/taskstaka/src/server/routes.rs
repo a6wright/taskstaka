@@ -11,8 +11,8 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
-use jiff::Zoned;
 use jiff::civil::Date;
+use jiff::{ToSpan, Zoned};
 use serde::{Deserialize, Serialize};
 use taskstaka_core::action::{RankConfig, needs_action, summary};
 use taskstaka_core::command::{AddTask, EditTask, Set};
@@ -46,6 +46,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/tasks/{id}/chase", post(chase_task))
         .route("/api/v1/tasks/{id}/reply", post(reply_task))
         .route("/api/v1/waiting", get(waiting))
+        .route("/api/v1/log", get(log))
         .route("/api/v1/tree", get(tree))
         .route("/api/v1/resolve/{prefix}", get(resolve))
         .route("/api/v1/commands", post(command))
@@ -504,6 +505,53 @@ async fn waiting(
         groups.retain(|g| !g.items.is_empty());
     }
     Ok(Json(groups))
+}
+
+// ---------- day log ----------
+
+#[derive(Deserialize)]
+struct LogQuery {
+    /// First day (default: six days before `to`).
+    from: Option<Date>,
+    /// Last day (default: today in the daemon's zone).
+    to: Option<Date>,
+    context: Option<Context>,
+    /// Include dropped tasks (default: done only).
+    #[serde(default)]
+    dropped: bool,
+}
+
+/// The day log (CONTEXT: Day log): what was finished on each day of the
+/// range, newest first, each day an outline per story.
+async fn log(State(s): S, Query(q): Query<LogQuery>) -> R<Vec<taskstaka_core::action::DayLog>> {
+    let now = Zoned::now();
+    let to = q.to.unwrap_or_else(|| now.date());
+    let from = match q.from {
+        Some(f) => f,
+        None => to
+            .checked_sub(6.days())
+            .map_err(|e| ApiError::bad_request(e.to_string()))?,
+    };
+    if from > to {
+        return Err(ApiError::bad_request(format!(
+            "from ({from}) is after to ({to})"
+        )));
+    }
+    if to.since(from).map(|s| s.get_days()).unwrap_or(0) > 366 {
+        return Err(ApiError::bad_request("a range of at most a year, please"));
+    }
+    let store = s
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal("store mutex poisoned"))?;
+    Ok(Json(taskstaka_core::action::day_log(
+        store.tree(),
+        &now,
+        q.context,
+        from,
+        to,
+        q.dropped,
+    )))
 }
 
 #[derive(Deserialize, Default)]

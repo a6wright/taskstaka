@@ -134,6 +134,7 @@ fn tools_and_resources_round_trip() {
         "tree",
         "list_tasks",
         "nudges",
+        "log",
     ] {
         assert!(
             names.contains(&expected),

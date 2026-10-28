@@ -621,3 +621,23 @@ fn setup_macos_dry_run_describes_both_agents_without_writing() {
     assert!(text.contains("dev.taskstaka.plist"), "{text}");
     assert!(!home.path().join("Library/LaunchAgents").exists());
 }
+
+#[test]
+fn setup_claude_dry_run_names_both_skills_without_writing() {
+    let home = tempfile::tempdir().unwrap();
+    let out = Command::cargo_bin("taskstaka")
+        .unwrap()
+        .env("HOME", home.path())
+        .args(["setup", "claude", "--dry-run", "--skip-mcp"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(text.contains(".claude/skills/taskstaka/SKILL.md"), "{text}");
+    assert!(text.contains(".claude/skills/today/SKILL.md"), "{text}");
+    assert!(!home.path().join(".claude").exists());
+}

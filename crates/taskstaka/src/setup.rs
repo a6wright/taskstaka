@@ -9,7 +9,63 @@ use anyhow::{Context as _, Result, bail};
 
 pub const SKILL_MD: &str = include_str!("../assets/skill/SKILL.md");
 pub const SKILL_NAME: &str = "taskstaka";
+pub const TODAY_SKILL_MD: &str = include_str!("../assets/skill-today/SKILL.md");
+pub const TODAY_SKILL_NAME: &str = "today";
 pub const MCP_NAME: &str = "taskstaka";
+
+/// One skill: a directory under `.claude/skills/` and the files in it.
+pub struct Skill {
+    pub name: &'static str,
+    /// (path relative to the skill directory, content)
+    pub files: &'static [(&'static str, &'static str)],
+}
+
+/// Every skill `setup claude` installs: the plan habit (`taskstaka`) and the day start
+/// (`today`, with one playbook per source role under `sources/`).
+pub const SKILLS: &[Skill] = &[
+    Skill {
+        name: SKILL_NAME,
+        files: &[("SKILL.md", SKILL_MD)],
+    },
+    Skill {
+        name: TODAY_SKILL_NAME,
+        files: &[
+            ("SKILL.md", TODAY_SKILL_MD),
+            (
+                "sources/config.md",
+                include_str!("../assets/skill-today/sources/config.md"),
+            ),
+            (
+                "sources/calendar.md",
+                include_str!("../assets/skill-today/sources/calendar.md"),
+            ),
+            (
+                "sources/mail.md",
+                include_str!("../assets/skill-today/sources/mail.md"),
+            ),
+            (
+                "sources/chat.md",
+                include_str!("../assets/skill-today/sources/chat.md"),
+            ),
+            (
+                "sources/tracker.md",
+                include_str!("../assets/skill-today/sources/tracker.md"),
+            ),
+            (
+                "sources/docs.md",
+                include_str!("../assets/skill-today/sources/docs.md"),
+            ),
+            (
+                "sources/folder.md",
+                include_str!("../assets/skill-today/sources/folder.md"),
+            ),
+            (
+                "sources/generic.md",
+                include_str!("../assets/skill-today/sources/generic.md"),
+            ),
+        ],
+    },
+];
 
 pub struct ClaudeSetup {
     /// Install into the current project (`.claude/skills`, MCP scope `project`)
@@ -24,20 +80,21 @@ pub struct ClaudeSetup {
 }
 
 pub struct Report {
-    pub skill_path: Option<PathBuf>,
+    /// The `SKILL.md` of every skill installed, in `SKILLS` order.
+    pub skill_paths: Vec<PathBuf>,
     pub claude_md_path: Option<PathBuf>,
     pub mcp_command: Option<Vec<String>>,
     pub mcp_registered: bool,
     pub notes: Vec<String>,
 }
 
-pub fn skill_dir(project: bool) -> Result<PathBuf> {
+pub fn skill_dir(project: bool, name: &str) -> Result<PathBuf> {
     let base = if project {
         std::env::current_dir().context("current directory")?
     } else {
         home_dir()?
     };
-    Ok(base.join(".claude").join("skills").join(SKILL_NAME))
+    Ok(base.join(".claude").join("skills").join(name))
 }
 
 fn home_dir() -> Result<PathBuf> {
@@ -49,7 +106,7 @@ fn home_dir() -> Result<PathBuf> {
 
 pub fn claude(opts: &ClaudeSetup) -> Result<Report> {
     let mut report = Report {
-        skill_path: None,
+        skill_paths: Vec::new(),
         claude_md_path: None,
         mcp_command: None,
         mcp_registered: false,
@@ -57,14 +114,20 @@ pub fn claude(opts: &ClaudeSetup) -> Result<Report> {
     };
 
     if !opts.skip_skill {
-        let dir = skill_dir(opts.project)?;
-        let path = dir.join("SKILL.md");
-        if !opts.dry_run {
-            std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-            std::fs::write(&path, SKILL_MD)
-                .with_context(|| format!("writing {}", path.display()))?;
+        for skill in SKILLS {
+            let dir = skill_dir(opts.project, skill.name)?;
+            if !opts.dry_run {
+                for (rel, content) in skill.files {
+                    let path = dir.join(rel);
+                    let parent = path.parent().unwrap_or(&dir);
+                    std::fs::create_dir_all(parent)
+                        .with_context(|| format!("creating {}", parent.display()))?;
+                    std::fs::write(&path, content)
+                        .with_context(|| format!("writing {}", path.display()))?;
+                }
+            }
+            report.skill_paths.push(dir.join("SKILL.md"));
         }
-        report.skill_path = Some(path);
     }
 
     if !opts.skip_claude_md {
@@ -165,7 +228,8 @@ own steps tagged `agent`; the user's manual steps with exact instructions in the
 (one task per action — a note that says 'then do X, then Y' is two more tasks); steps
 that depend on a person already waiting on them. Also use it when the user asks what to work on, what's next, or mentions
 waiting on someone. Do not change the status of tasks the user parked or ordered without
-asking.
+asking. At the start of a working day, or when the user asks to plan the day or says they
+do not know where to start, load the `today` skill instead.
 <!-- taskstaka:end -->
 ";
 
@@ -214,7 +278,7 @@ pub fn describe(r: &Report, opts: &ClaudeSetup) -> String {
     } else {
         "installed"
     };
-    if let Some(p) = &r.skill_path {
+    for p in &r.skill_paths {
         s.push_str(&format!("{verb} skill   {}\n", p.display()));
     }
     if let Some(p) = &r.claude_md_path {
@@ -270,11 +334,58 @@ mod tests {
             "set_status",
             "record_reply",
             "chase",
+            "projects",
+            "log",
         ] {
             assert!(
                 SKILL_MD.contains(&format!("`{tool}`")),
                 "skill mentions {tool}"
             );
+        }
+        assert!(
+            SKILL_MD.contains("`/today`"),
+            "the plan skill points at the day start"
+        );
+    }
+
+    #[test]
+    fn today_skill_has_frontmatter_names_the_tools_and_its_playbooks() {
+        assert!(TODAY_SKILL_MD.starts_with("---\nname: today\ndescription: "));
+        assert!(!TODAY_SKILL_MD.contains("disable-model-invocation"));
+        for tool in [
+            "plan",
+            "waiting",
+            "log",
+            "nudges",
+            "record_reply",
+            "chase",
+            "set_status",
+            "add_task",
+        ] {
+            assert!(
+                TODAY_SKILL_MD.contains(&format!("`{tool}`")),
+                "today mentions {tool}"
+            );
+        }
+        assert!(TODAY_SKILL_MD.contains("AskUserQuestion"));
+        let today = &SKILLS[1];
+        assert_eq!(today.name, "today");
+        // Every playbook the steps name ships with the skill, and nothing ships unnamed.
+        for role in [
+            "calendar", "mail", "chat", "tracker", "docs", "folder", "generic", "config",
+        ] {
+            let rel = format!("sources/{role}.md");
+            assert!(
+                today.files.iter().any(|(p, _)| *p == rel),
+                "{rel} is installed"
+            );
+            assert!(
+                TODAY_SKILL_MD.contains(&format!("{role}.md")),
+                "SKILL.md names {role}.md"
+            );
+        }
+        for (rel, content) in today.files {
+            assert!(!content.trim().is_empty(), "{rel} is not empty");
         }
     }
 
@@ -291,9 +402,26 @@ mod tests {
             dry_run: false,
         })
         .unwrap();
-        let p = r.skill_path.unwrap();
-        assert_eq!(p, home.path().join(".claude/skills/taskstaka/SKILL.md"));
-        assert_eq!(std::fs::read_to_string(&p).unwrap(), SKILL_MD);
+        assert_eq!(
+            r.skill_paths,
+            vec![
+                home.path().join(".claude/skills/taskstaka/SKILL.md"),
+                home.path().join(".claude/skills/today/SKILL.md"),
+            ]
+        );
+        assert_eq!(
+            std::fs::read_to_string(&r.skill_paths[0]).unwrap(),
+            SKILL_MD
+        );
+        assert_eq!(
+            std::fs::read_to_string(&r.skill_paths[1]).unwrap(),
+            TODAY_SKILL_MD
+        );
+        assert!(
+            home.path()
+                .join(".claude/skills/today/sources/calendar.md")
+                .is_file()
+        );
         // Idempotent, and CLAUDE.md gets exactly one managed block that is
         // replaced in place while the user's own text survives.
         let md = home.path().join(".claude/CLAUDE.md");
@@ -318,5 +446,6 @@ mod tests {
         assert!(text.starts_with("# mine\n\nkeep this\n"), "{text}");
         assert_eq!(text.matches(CLAUDE_MD_BEGIN).count(), 1, "{text}");
         assert!(text.contains("load the `taskstaka` skill"));
+        assert!(text.contains("load the `today` skill"));
     }
 }

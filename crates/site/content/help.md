@@ -85,7 +85,7 @@ On macOS, `taskstaka-tray` shows the plate in the menu bar: `▶ title` for the 
 
 ## Agents
 
-`taskstaka setup claude` gives Claude Code the MCP server and a skill that turns any multi-step plan into tasks: your manual steps with the exact command or draft message in the notes, its own steps tagged `agent` and closed as it goes, and anything that depends on a person created waiting on them. The MCP tools are `plan`, `next`, `waiting`, `list_tasks`, `tree`, `get_task`, `add_task`, `set_status`, `update_task`, `move_task`, `touch`, `chase`, `record_reply`, `projects` and `nudges`. The agent drafts any message into the task's notes; you send it.
+`taskstaka setup claude` gives Claude Code the MCP server and a skill that turns any multi-step plan into tasks: your manual steps with the exact command or draft message in the notes, its own steps tagged `agent` and closed as it goes, and anything that depends on a person created waiting on them. The MCP tools are `plan`, `next`, `waiting`, `list_tasks`, `tree`, `get_task`, `add_task`, `set_status`, `update_task`, `move_task`, `touch`, `chase`, `record_reply`, `projects` and `nudges`. The agent drafts any message into the task's notes; you send it. A second skill, `today`, starts the day: `/today` reads whatever is connected over MCP on that Claude (calendar, mail, chat, tracker, docs) and any transcripts or notes folders you name, records the replies and pings it can prove, proposes the action items it found, asks a few option-card questions for the rest, and puts one task in hand. It asks once which sources to read and remembers the answer in `~/.config/taskstaka/today.md`.
 
 A daily routine with a messages MCP alongside it:
 

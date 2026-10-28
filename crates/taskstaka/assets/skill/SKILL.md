@@ -1,7 +1,7 @@
 ---
 name: taskstaka
 description: Load this FIRST — before investigating, planning or asking clarifying questions — whenever a request has more than one step, whenever some steps are the user's to do by hand (run something in a console or on their machine, email or message someone, approve, wait for a reply) and some are yours, and whenever they say "what should I work on", "what's next", "I'm waiting on", "add that to my list", "remind me", or mention a story, task, todo or follow-up. The user keeps all their work in taskstaka (a task tree reached through the taskstaka MCP server); a plan that only exists in the chat is lost to them tomorrow. Use it at the start of a session to see what is in flight and at the end to leave the next steps where they will see them, even when nobody says "taskstaka".
-allowed-tools: mcp__taskstaka__plan, mcp__taskstaka__next, mcp__taskstaka__waiting, mcp__taskstaka__list_tasks, mcp__taskstaka__tree, mcp__taskstaka__get_task, mcp__taskstaka__add_task, mcp__taskstaka__set_status, mcp__taskstaka__update_task, mcp__taskstaka__move_task, mcp__taskstaka__touch, mcp__taskstaka__chase, mcp__taskstaka__record_reply, mcp__taskstaka__nudges
+allowed-tools: mcp__taskstaka__plan, mcp__taskstaka__next, mcp__taskstaka__waiting, mcp__taskstaka__log, mcp__taskstaka__list_tasks, mcp__taskstaka__tree, mcp__taskstaka__get_task, mcp__taskstaka__add_task, mcp__taskstaka__set_status, mcp__taskstaka__update_task, mcp__taskstaka__move_task, mcp__taskstaka__touch, mcp__taskstaka__chase, mcp__taskstaka__record_reply, mcp__taskstaka__nudges, mcp__taskstaka__projects
 ---
 
 # taskstaka
@@ -37,6 +37,8 @@ must hold in their head — which is why recording comes *first*, not after the 
 | `plan` | Every story: what they can do now and what is still required (and why not yet). Start here. |
 | `next` | Just the actionable leaves, ranked. |
 | `waiting` | See who they are waiting on. `due=true` for follow-ups that are due. |
+| `log` | What was finished on each day (`on=yesterday`, or `since`/`until`), grouped by story and nested as in the outline, plus each task's `activity` that day (waits, chases, replies). For standup notes: quote the story and the chain, never a bare title; say who was chased and who replied. |
+| `projects` | The projects in use (name, colour, root stories). Call it before creating a new root story. |
 | `list_tasks`, `tree`, `get_task` | Find existing work before creating duplicates; read notes and history. |
 | `add_task` | Create a task or subtask (`parent`), optionally already `waiting_on` someone, with `tags`, `due`, `body`. |
 | `set_status` | `doing` / `done` / `todo` / `someday` / `dropped` / `waiting` (needs `waiting_on`). `cascade=true` closes subtasks with a parent. |
@@ -44,10 +46,25 @@ must hold in their head — which is why recording comes *first*, not after the 
 | `chase`, `record_reply` | The user pinged someone again / someone got back to them. |
 | `move_task`, `touch` | Reorder or reparent; bump "last touched" with a note. |
 
+## Projects: every root story belongs to one
+
+A **project** is a coloured label the user sees as a pill next to *now*, *in hand* and on
+the Outline, so they can tell at a glance which piece of work a row belongs to. It lives on
+the **root** task only; everything under the root inherits it, and several roots may share
+one (two separate stories can both be `devops`). Setting it on a subtask is refused.
+
+- Before you create a new root story, call `projects`. If one matches the repo or area you
+  are working in, reuse it with exactly that name. If none matches, create one: name it for
+  the repo or directory (work in `~/workspace/taskstaka` is `taskstaka`), lowercase, short.
+  Pass `project` to `add_task` for the root. Never add a second spelling of an existing one.
+- Adding to an existing story: do nothing, it already has one. If a root you find has no
+  project, set it with `update_task(project=...)` on the root.
+- Colours are assigned automatically and are unique per project. Do not try to pick one.
+
 ## When a request becomes a plan
 
 1. **Record before you investigate.** Call `plan` (and `list_tasks` if you need more), then create the
-   story and the steps you can already see. Refine the tree as you learn more; do not
+   story (with its `project`) and the steps you can already see. Refine the tree as you learn more; do not
    wait until you understand everything. If you need to ask the user something before
    the plan can be right, that question *is* a step: create it as their task with the
    questions in the body, then ask.
@@ -144,5 +161,7 @@ certs — she'll show in your follow-ups in two days." Later: "Priya says talk t
 ## Session habits
 
 - **Start:** `plan` once. Mention anything resurfaced or overdue in a sentence; don't lecture.
+  The first session of a day, or "I don't know where to start": that is the `today` skill
+  (`/today`) — it pulls the connected sources, updates the tree and interviews for the rest.
 - **During:** record as you go, not in a batch at the end — the point is that the tree is true while they are away from the conversation.
 - **End:** one line per open human step and one per person waited on. That is the whole summary; they will read it tomorrow.

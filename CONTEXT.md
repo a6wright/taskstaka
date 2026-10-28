@@ -140,6 +140,14 @@ _Avoid_: modified, last activity
 The tasks closed on one calendar day, in the local zone of the surface showing it, drawn as the outline they came from: grouped by story, a parent before the subtasks it closed with, a lone leaf with the chain of ancestors between it and the story. Also the day's people traffic from the journal — a wait, a chase, a reply, an unblock, a handoff, a touch note — under the task it happened on; a task only touched that day is marked ✉. Computed from `completed` and the journal lines; reopening and closing again moves a task to its latest day. The web's **Done** view shows a week of day columns or a month grid; `taskstaka log` and the MCP `log` tool print it (ADR 0017).
 _Avoid_: calendar (the layout, not the thing), history, journal (the dated lines in a note), report
 
+**Day start**:
+The `/today` pass in Claude Code: pull the sources, reconcile the tree with what they prove (replies, pings, links), interview for the rest in option-card rounds, and hand off with one task in hand (ADR 0018).
+_Avoid_: brief, digest, morning (the time, not the thing)
+
+**Source**:
+Anything the day start reads for the tree: an MCP server in a role (calendar, mail, chat, tracker, docs, generic) or a folder of transcripts or notes, as recorded in the machine's `~/.config/taskstaka/today.md` with `read` / `skip` / `unconnected`, an optional `look for:` and the project and tags its items get.
+_Avoid_: connector (the product's word), integration
+
 **Nudge**:
 A rule-generated reminder ("story X is waiting on this", "nothing is actionable"). Best-effort as a desktop notification; reliable in the panel.
 _Avoid_: alert, alarm, reminder (fine informally)

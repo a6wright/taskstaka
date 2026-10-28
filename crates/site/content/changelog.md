@@ -2,6 +2,11 @@
 
 Releases are on [GitHub](https://github.com/a6wright/taskstaka/releases).
 
+## 0.1.8 · 2026-10-27
+
+- **`/today`, the day start** — a second Claude Code skill installed by `taskstaka setup claude`. It reads whatever is connected over MCP on that Claude (calendar, mail, chat, a tracker, docs) and any transcripts or notes folders you name, records the replies and pings it can prove, proposes the action items it found, asks a few option-card questions to get the rest out of your head, and puts one task in hand. Projects and tags come pre-filled. It asks once which sources to read and remembers the answer in `~/.config/taskstaka/today.md`; `/today sources` asks again, `/today standup` prints yesterday's log first.
+- The `taskstaka` skill names `projects` and `log` and points at `/today` for the first session of a day.
+
 ## 0.1.7 · 2026-10-26
 
 - **Done is a day log** — "what did I do yesterday / today?" for standup. The seven days ending today as columns, each day grouped by story with the finished tasks nested as they were in the outline; a task finished on its own shows the `› parent` chain back to its story. <kbd>‹</kbd> <kbd>›</kbd> slide a week, *month* shows a grid with one line per story per day, <kbd>⎘</kbd> copies a day as Markdown, *✗ dropped* includes dropped tasks. The day's people traffic is there too: waits started, chases and replies under the task they happened on (✉ marks a task you only touched).

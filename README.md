@@ -324,14 +324,20 @@ already holds taskstaka notes uses it as it is. From a terminal the same move is
   why not yet — including Claude's steps. Capture a whole stack in one line —
   `Bake an apple pie > Make the filling > Buy apples` — the last segment is what you do
   first. `↳ first` on any row adds a prerequisite under it.
-- **Claude Code:** `taskstaka setup claude` installs two things and is safe to re-run after
+- **Claude Code:** `taskstaka setup claude` installs three things and is safe to re-run after
   every upgrade: the **MCP server** (registered as `taskstaka`, user scope, pointing at the
-  installed binary) and the **taskstaka skill** (`~/.claude/skills/taskstaka/SKILL.md`),
+  installed binary), the **taskstaka skill** (`~/.claude/skills/taskstaka/SKILL.md`),
   which teaches Claude to turn any multi-step plan into tasks — your manual steps with the
   exact command or draft email in the notes, its own steps tagged `agent` and closed as it
-  goes, and anything that depends on a person already *waiting on* them. `--project` installs
-  into the current repo instead; `--dry-run` shows the commands. Then ask "what should I work
-  on?" or just start a piece of work.
+  goes, and anything that depends on a person already *waiting on* them — and the **today
+  skill** (`~/.claude/skills/today/`), the day start: `/today` reads whatever is connected
+  over MCP on that Claude (calendar, mail, chat, a tracker, docs) plus any transcripts or
+  notes folders you name, records replies and pings it can prove, proposes the action items
+  it found, asks a few option-card questions to get the rest out of your head, and puts one
+  task in hand. It asks once which sources to read and remembers the answer in
+  `~/.config/taskstaka/today.md` (`/today sources` asks again; `/today standup` prints
+  yesterday's log first). `--project` installs into the current repo instead; `--dry-run`
+  shows the commands. Then ask "what should I work on?" or just start a piece of work.
 - **Obsidian:** open `~/todo` as a vault. `index.md` is the tree; each note is a task.
   Read-only in v1 — the daemon overwrites `index.md`, and notes it writes win.
 - **Hotkey without the tray:** bind a key to a one-line prompt that runs `taskstaka add`

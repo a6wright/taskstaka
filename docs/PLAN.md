@@ -284,7 +284,7 @@ Status legend: ✅ done · 🔨 in progress · ⬜ not started. **Update this ta
 
 **P1–P31 complete** (P31 on 2026-11-04: the follow-up nudge storm, one notification per burst, the notes edit toggle, the id chip, dependencies and Dependabot) (P27–P29 on 2026-10-26: web search and filters, Markdown notes, the day log — `/done`, `taskstaka log`, MCP `log`; P30 on 2026-10-27: the `/today` day-start skill, ADR 0018). v0.1.3 adds `taskstaka tray start|stop|status` (`crates/taskstaka/src/tray.rs`: launchd bootstrap/kickstart/bootout when `setup macos` installed the agent, plain spawn/kill otherwise). P26 (2026-10-18) brings the tray to Linux: `taskstaka setup linux`, `taskstaka tray quick`, systemd awareness (ADR 0016). `cargo fmt`, `clippy --all-targets`, `cargo test` are
 clean at head, tray included. taskstaka runs on macOS 27 with the menu bar item, the `⌥Space` quick-add
-panel and launchd agents, and on Ubuntu 26.04 / GNOME 50 with the item, the Alt+Space shortcut and systemd user units; `brew install a6wright/taskstaka/taskstaka` installs 0.1.2 from the
+panel and launchd agents, and on Ubuntu 26.04 / GNOME 50 with the item, the Alt+Space shortcut and systemd user units; `brew install a6wright/taskstaka/taskstaka` installs 0.1.9 from the
 tap. **https://taskstaka.com** (and `www`) is live: `crates/site` on Cloud Run, domain
 mappings created 2026-10-11, DNS at Namecheap (4 A + 4 AAAA at the apex, `www` CNAME to
 `ghs.googlehosted.com`), Google-managed certificate. Deploys itself: `.github/workflows/deploy-site.yml` runs on every push to

@@ -364,13 +364,20 @@ impl NudgeLog {
     /// Forget keys for tasks that no longer exist, so the file stays small.
     /// Date-keyed digests have no task: keep them while their cooldown could
     /// still matter, or the once-a-day digest would fire on every tick.
+    ///
+    /// A key is `rule:id`, with a suffix on some rules (`follow_up_due:id#3`
+    /// counts chases, `resurfaced:id@ts` the moment). Prune must look only at
+    /// the id: it once parsed the whole suffix, failed, and dropped every
+    /// follow-up key on every tick, so a due follow-up popped up every five
+    /// minutes all day.
     pub fn prune(&mut self, tree: &Tree, now: Timestamp) {
         const DIGEST_KEEP_SECS: i64 = 7 * 24 * 3600;
         self.last_fired.retain(|k, at| match k.split_once(':') {
             Some(("waiting_digest", _)) => now.as_second() - at.as_second() < DIGEST_KEEP_SECS,
-            Some((_, id)) => id
-                .parse::<TaskId>()
-                .ok()
+            Some((_, rest)) => rest
+                .split(['#', '@'])
+                .next()
+                .and_then(|id| id.parse::<TaskId>().ok())
                 .is_some_and(|id| tree.contains(&id)),
             None => true,
         });
@@ -529,6 +536,42 @@ mod tests {
         // Old digest keys are eventually dropped so the file stays small.
         log.prune(&tree, t0 + (8 * 24 * 3600).seconds());
         assert!(!log.last_fired.contains_key("waiting_digest:2026-09-29"));
+    }
+
+    #[test]
+    fn a_due_follow_up_fires_once_a_day_not_every_tick() {
+        // The daemon prunes then take_due every five minutes. The follow-up
+        // key carries the chase count (`follow_up_due:id#0`); prune used to
+        // fail to parse that as an id and drop it, so the same follow-up was
+        // delivered on every tick.
+        let (tree, now) = fixture();
+        let cfg = NudgeConfig::default();
+        let mut log = NudgeLog::default();
+        let t0 = now.timestamp();
+        for tick in 0..6 {
+            let at = t0 + (tick * 300).seconds();
+            log.prune(&tree, at);
+            let due: Vec<Rule> = log
+                .take_due(&evaluate(&tree, &now, &cfg), at)
+                .into_iter()
+                .map(|n| n.rule)
+                .collect();
+            if tick == 0 {
+                assert!(due.contains(&Rule::FollowUpDue), "{due:?}");
+            } else {
+                assert!(due.is_empty(), "tick {tick}: {due:?}");
+            }
+        }
+        assert!(log.last_fired.contains_key("follow_up_due:wa1t00#0"));
+        // A chase changes the key, so the next reminder is about the next
+        // follow-up; the old key is still pruned once its task is gone.
+        log.last_fired.insert("follow_up_due:zzzzzz#2".into(), t0);
+        log.last_fired
+            .insert("resurfaced:zzzzzz@1700000000".into(), t0);
+        log.prune(&tree, t0);
+        assert!(!log.last_fired.contains_key("follow_up_due:zzzzzz#2"));
+        assert!(!log.last_fired.contains_key("resurfaced:zzzzzz@1700000000"));
+        assert!(log.last_fired.contains_key("follow_up_due:wa1t00#0"));
     }
 
     #[test]

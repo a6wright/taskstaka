@@ -17,7 +17,7 @@ pub struct TaskId(String);
 
 impl TaskId {
     pub fn random() -> Self {
-        use rand::Rng;
+        use rand::RngExt;
         let mut rng = rand::rng();
         let s = (0..ID_LEN)
             .map(|_| ID_ALPHABET[rng.random_range(0..ID_ALPHABET.len())] as char)

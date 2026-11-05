@@ -2,6 +2,13 @@
 
 Releases are on [GitHub](https://github.com/a6wright/taskstaka/releases).
 
+## 0.1.9 · 2026-11-04
+
+- Notifications fired far too often: a follow-up that was due popped up every five minutes, all day, because the cooldown log forgot it on every tick. It is once a day again. And several nudges coming due at the same moment (four "still doing" and a WIP warning at once) are one notification that lists them, not five in a row; the Nudges page has them all.
+- Web: notes have an **✎ edit** toggle, like GitHub's Write / Preview. The rendered notes are plain selectable text, so copying a line out of them no longer drops you into the editor; **✓ done**, clicking away or <kbd>Esc</kbd> saves. The plate's notes get the same toggle at their top-right corner.
+- Web: the task's id is a chip in the pane head (outside the crumbs, so it never truncates away); click it to copy. The search box matched ids already, so pasting an id from a Claude session into <kbd>/</kbd> finds the task.
+- Dependencies updated (rand 0.10, global-hotkey 0.9, the rest within semver; the unused fd-lock is gone). Dependabot opens one grouped PR a week per ecosystem, and the test job runs on pull requests.
+
 ## 0.1.8 · 2026-10-27
 
 - **`/today`, the day start** — a second Claude Code skill installed by `taskstaka setup claude`. It reads whatever is connected over MCP on that Claude (calendar, mail, chat, a tracker, docs) and any transcripts or notes folders you name, records the replies and pings it can prove, proposes the action items it found, asks a few option-card questions to get the rest out of your head, and puts one task in hand. Projects and tags come pre-filled. It asks once which sources to read and remembers the answer in `~/.config/taskstaka/today.md`; `/today sources` asks again, `/today standup` prints yesterday's log first.

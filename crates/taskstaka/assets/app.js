@@ -382,13 +382,22 @@ function noteHtml(t) {
   const html = notesHtml(t);
   return html ? `<div class="note md">${html}</div>` : '';
 }
-// The notes block of the pane and the plate: rendered Markdown that turns
-// into a textarea when clicked, and back when it loses focus (blur saves).
-function notesBlock(t, cls, placeholder, rows) {
+// The notes block of the pane and the plate: rendered Markdown you can select
+// and copy from, with an edit toggle (as GitHub's Write / Preview) that swaps
+// in the source in a textarea. "done", clicking away or Esc saves and renders
+// again. Clicking the rendered text never opens the editor: that made copying
+// a line out of the notes a fight. The empty placeholder still does.
+function notesBlock(t, cls, placeholder, rows, label) {
   const notes = notesOf(t);
-  if (S.editNotes === t.id) return `<textarea class="notes ${cls}" data-notes="${t.id}" rows="${rows ? Math.min(12, Math.max(rows, notes.split('\n').length + 1)) : ''}" placeholder="${esc(placeholder)}">${esc(notes)}</textarea>`;
-  const html = notesHtml(t);
-  return `<div class="notes-view md ${cls}" data-edit-notes="${t.id}" title="click to edit">${html || `<span class="ph">${esc(placeholder)}</span>`}</div>`;
+  const editing = S.editNotes === t.id;
+  const button = editing
+    ? `<button class="toggle on" data-view-notes="${t.id}" title="save and show the rendered notes (Esc)">✓ done</button>`
+    : `<button class="toggle" data-edit-notes="${t.id}" title="edit the notes as Markdown">✎ edit</button>`;
+  const bar = `<div class="notes-bar ${label ? '' : 'float'}">${label ? `<h3>${label}</h3><span class="sp"></span>` : ''}${button}</div>`;
+  const body = editing
+    ? `<textarea class="notes ${cls}" data-notes="${t.id}" rows="${rows ? Math.min(12, Math.max(rows, notes.split('\n').length + 1)) : ''}" placeholder="${esc(placeholder)}">${esc(notes)}</textarea>`
+    : `<div class="notes-view md ${cls}">${notesHtml(t) || `<span class="ph" data-edit-notes="${t.id}">${esc(placeholder)}</span>`}</div>`;
+  return `<div class="notes-box">${bar}${body}</div>`;
 }
 
 // Completed rows stay visible for a few minutes after you tick them (so
@@ -705,7 +714,7 @@ function renderPane() {
   if (!isClosed(t)) actions.push(['dropped', 'drop', 'danger']);
   if (isClosed(t)) actions.push(['todo', 'reopen', '']);
   pane.innerHTML = `
-    <div class="pane-head"><span class="crumbs">${anc.map(a => `<a href="#" data-open="${a.id}">${esc(a.title)}</a> › `).join('')}<span class="idtag">${t.id}</span></span><span class="sp"></span><a class="btn small" href="/t/${t.id}" title="link to this task">↗</a><button class="btn small" data-close title="close (Esc)">✕</button></div>
+    <div class="pane-head"><span class="crumbs">${anc.map(a => `<a href="#" data-open="${a.id}">${esc(a.title)}</a> › `).join('')}</span><button class="idtag" data-copy-id="${t.id}" title="the task's id — click to copy">${t.id}</button><span class="sp"></span><a class="btn small" href="/t/${t.id}" title="link to this task">↗</a><button class="btn small" data-close title="close (Esc)">✕</button></div>
     <div class="pane-body">
       <div class="pane-title" contenteditable="true" spellcheck="false" data-title="${t.id}">${esc(t.title)}</div>
       <div class="meta">${chips(t, d)}</div>
@@ -732,8 +741,7 @@ function renderPane() {
       <h3>first I need to…</h3>
       <ul class="rows subs">${kids.map(k => rowHtml(k, k.derived, 0, { editable: false })).join('')}</ul>
       <div class="inline-form"><input id="sub-title" placeholder="something that must happen before this"><button class="btn" data-addsub="${t.id}">add</button></div>
-      <h3>notes</h3>
-      ${notesBlock(t, '', 'notes, in Markdown', 0)}
+      ${notesBlock(t, '', 'notes, in Markdown', 0, 'notes')}
       ${journal.length ? `<h3>activity</h3><ul class="journal">${journal.map(l => {
         const m = l.match(/^- (\d{4}-\d{2}-\d{2} \d{2}:\d{2})(?: \[(\w+)\])? (.*)$/);
         return m ? `<li><span class="when">${m[1]}</span>${m[2] ? `<span class="src">${esc(m[2])}</span>` : ''}${esc(m[3])}</li>` : `<li>${esc(l)}</li>`;
@@ -836,6 +844,16 @@ document.addEventListener('click', async (e) => {
   if (mdLink) { e.preventDefault(); window.open(mdLink.href, '_blank', 'noopener'); return; }
   const nv = e.target.closest('[data-edit-notes]');
   if (nv) { return editNotes(nv.dataset.editNotes); }
+  // "done": the textarea kept its focus (see the mousedown handler), so
+  // blurring it is what saves and renders.
+  const dv = e.target.closest('[data-view-notes]');
+  if (dv) { const ta = $(`textarea[data-notes="${dv.dataset.viewNotes}"]`); if (ta) ta.blur(); else { S.editNotes = null; render(); } return; }
+  const cp = e.target.closest('[data-copy-id]');
+  if (cp) {
+    try { await navigator.clipboard.writeText(cp.dataset.copyId); flash('copied ' + cp.dataset.copyId, 'ok'); }
+    catch (_) { flash('could not reach the clipboard', 'error'); }
+    return;
+  }
   const a = e.target.closest('a[data-view], a[data-ctx], a[data-open]');
   if (a) {
     e.preventDefault();
@@ -987,6 +1005,9 @@ document.addEventListener('focusin', (e) => {
   if (!el.classList.contains('draft')) el.dataset.original = el.textContent;
 });
 document.addEventListener('input', (e) => { if (e.target.closest('.title, .pane-title, .plate-title, .notes')) S.dirty = true; });
+// Pressing "done" must not blur the textarea before the click arrives, or
+// the click lands on the re-rendered "edit" button and reopens the editor.
+document.addEventListener('mousedown', (e) => { if (e.target.closest('[data-view-notes]')) e.preventDefault(); });
 document.addEventListener('input', (e) => {
   if (e.target.id !== 'search') return;
   S.q = e.target.value; history.replaceState(null, '', urlFor()); renderContent();

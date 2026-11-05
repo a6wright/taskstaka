@@ -13,7 +13,6 @@ serde_norway.workspace = true
 jiff.workspace = true
 thiserror.workspace = true
 tempfile.workspace = true
-fd-lock.workspace = true
 rand.workspace = true
 
 [dev-dependencies]

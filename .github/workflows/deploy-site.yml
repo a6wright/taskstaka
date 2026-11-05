@@ -6,16 +6,19 @@
 # the test job: fmt, clippy and cargo test over the whole workspace (the tray
 # crate needs GTK and WebKitGTK, installed below). Tests run on every push to
 # main; the deploy only when the push touched the site, install.sh, the
-# workspace manifests, this workflow, or on a manual run.
+# workspace manifests, this workflow, or on a manual run. Pull requests
+# (Dependabot's included) run the test job only.
 name: Deploy taskstaka.com
 
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: deploy-site
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -71,7 +74,7 @@ jobs:
 
   deploy:
     needs: [test, changes]
-    if: needs.changes.outputs.site == 'true'
+    if: github.event_name != 'pull_request' && needs.changes.outputs.site == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read

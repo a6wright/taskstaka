@@ -175,8 +175,42 @@ impl Nudger {
             debug!("{} nudge(s) suppressed by quiet hours", due.len());
             return;
         }
-        for n in due {
-            self.notifier.notify(&n.title, &n.message);
+        if let Some((title, body)) = coalesce(due) {
+            self.notifier.notify(&title, &body);
+        }
+    }
+}
+
+/// One notification per evaluation. Several nudges coming due together
+/// (four "still doing" and a WIP warning at the same tick, once a day) used
+/// to be five popups in a row; now they are one that lists them, and the
+/// Nudges page has the rest.
+pub fn coalesce(due: &[Nudge]) -> Option<(String, String)> {
+    const SHOWN: usize = 4;
+    const LINE: usize = 110;
+    match due {
+        [] => None,
+        [n] => Some((n.title.clone(), n.message.clone())),
+        many => {
+            let clip = |s: &str| {
+                if s.chars().count() > LINE {
+                    format!("{}…", s.chars().take(LINE - 1).collect::<String>())
+                } else {
+                    s.to_string()
+                }
+            };
+            let mut lines: Vec<String> = many
+                .iter()
+                .take(SHOWN)
+                .map(|n| clip(&format!("{}: {}", n.title, n.message)))
+                .collect();
+            if many.len() > SHOWN {
+                lines.push(format!(
+                    "and {} more on the Nudges page",
+                    many.len() - SHOWN
+                ));
+            }
+            Some((format!("{} nudges", many.len()), lines.join("\n")))
         }
     }
 }
@@ -204,4 +238,56 @@ pub fn spawn_scheduler(state: Arc<AppState>, nudger: Arc<Nudger>, interval: Dura
             let _ = tokio::task::spawn_blocking(move || n.evaluate(&st)).await;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use taskstaka_core::nudge::Rule;
+
+    fn nudge(rule: Rule, title: &str, message: &str) -> Nudge {
+        Nudge {
+            rule,
+            key: title.to_lowercase(),
+            task: None,
+            title: title.into(),
+            message: message.into(),
+        }
+    }
+
+    #[test]
+    fn a_burst_becomes_one_notification() {
+        assert_eq!(coalesce(&[]), None);
+        let one = [nudge(
+            Rule::WipLimit,
+            "Too much in flight",
+            "4 things are 'doing'. Pick one.",
+        )];
+        assert_eq!(
+            coalesce(&one),
+            Some((
+                "Too much in flight".into(),
+                "4 things are 'doing'. Pick one.".into()
+            ))
+        );
+        let long = "x".repeat(200);
+        let burst = [
+            nudge(Rule::StuckDoing, "Still doing", "On 'a' for 3d."),
+            nudge(Rule::StuckDoing, "Still doing", "On 'b' for 5d."),
+            nudge(
+                Rule::WipLimit,
+                "Too much in flight",
+                "4 things are 'doing'.",
+            ),
+            nudge(Rule::StaleInQueue, "Rotting in the queue", &long),
+            nudge(Rule::FollowUpDue, "Follow up", "Follow up with Bo."),
+        ];
+        let (title, body) = coalesce(&burst).unwrap();
+        assert_eq!(title, "5 nudges");
+        let lines: Vec<&str> = body.lines().collect();
+        assert_eq!(lines.len(), 5);
+        assert_eq!(lines[0], "Still doing: On 'a' for 3d.");
+        assert!(lines[3].ends_with('…') && lines[3].chars().count() == 110);
+        assert_eq!(lines[4], "and 1 more on the Nudges page");
+    }
 }

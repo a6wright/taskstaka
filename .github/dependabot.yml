@@ -1,0 +1,32 @@
+# Dependabot is free on every GitHub repository, private ones included.
+# One grouped pull request per ecosystem per week, so the inbox sees four
+# PRs at most, not one per crate. The test job in deploy-site.yml runs on
+# pull requests too, so each PR carries fmt, clippy and the tests.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      cargo:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: /e2e
+    schedule:
+      interval: weekly
+      day: monday
+  - package-ecosystem: docker
+    directory: /crates/site
+    schedule:
+      interval: weekly
+      day: monday

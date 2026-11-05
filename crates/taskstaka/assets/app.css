@@ -271,12 +271,20 @@ button { cursor: pointer; }
 .pane h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 6px; }
 .notes { width: 100%; min-height: 140px; background: transparent; border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; resize: vertical; font-family: var(--font); }
 .notes:focus { border-color: var(--accent); outline: none; }
-/* Rendered notes: the same frame as the textarea they turn into on click. */
-.notes-view { min-height: 44px; border: 1px solid transparent; border-radius: var(--radius); padding: 8px 10px; margin: 0 -10px; cursor: text; color: var(--fg-2); font-size: 14px; line-height: 1.5; }
-.notes-view:hover { border-color: var(--line); background: var(--bg-hover); }
-.notes-view .ph { color: var(--muted); }
-.notes-view.plate-notes { margin: 8px 0 10px; min-height: 40px; border-color: var(--line); background: var(--bg); }
-.notes-view.plate-notes:hover { border-color: var(--muted); }
+/* Rendered notes: the same frame as the textarea the edit toggle swaps in.
+   Selectable text; the toggle sits in the heading row of the pane and floats
+   over the top-right corner of the plate's box. */
+.notes-box { position: relative; }
+.notes-bar { display: flex; align-items: center; gap: 6px; }
+.notes-bar h3 { margin-bottom: 0; }
+.notes-bar.float { position: absolute; top: 12px; right: 6px; z-index: 1; opacity: .6; transition: opacity .12s; }
+.notes-box:hover .notes-bar.float, .notes-box:focus-within .notes-bar.float, .notes-bar.float:has(.toggle.on) { opacity: 1; }
+.notes-bar .toggle { background: var(--bg-pane); }
+.notes-bar .toggle:hover { color: var(--fg); border-color: var(--muted); }
+.notes-view { min-height: 44px; border: 1px solid transparent; border-radius: var(--radius); padding: 8px 10px; margin: 0 -10px; color: var(--fg-2); font-size: 14px; line-height: 1.5; }
+.notes-view .ph { color: var(--muted); cursor: text; }
+.notes-view.plate-notes { margin: 8px 0 10px; min-height: 40px; border-color: var(--line); background: var(--bg); padding-right: 64px; }
+.notes-box textarea.plate-notes { margin-top: 8px; }
 /* Markdown in notes: quiet typography, nothing that fights the row it sits in. */
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }
@@ -309,7 +317,12 @@ button { cursor: pointer; }
 .subs { list-style: none; margin: 0; padding: 0; }
 .inline-form { display: flex; gap: 6px; margin: 6px 0; }
 .inline-form input, .inline-form select { flex: 1; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 5px 8px; }
-.pane .idtag { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+/* The task's id: a chip in the pane head, outside the crumbs so it never
+   truncates away; click copies it. */
+#pane .idtag { flex: none; font-family: var(--mono); font-size: 12px; color: var(--fg-2); background: var(--bg-active); border: 1px solid var(--line); border-radius: 4px; padding: 1px 7px; cursor: pointer; }
+#pane .idtag::after { content: ' ⎘'; color: var(--muted); }
+#pane .idtag:hover { color: var(--fg); border-color: var(--muted); }
+#pane .idtag:hover::after { color: var(--fg-2); }
 kbd { font-family: var(--mono); font-size: 11px; background: var(--bg-active); padding: 1px 5px; border-radius: 4px; color: var(--fg-2); }
 
 
